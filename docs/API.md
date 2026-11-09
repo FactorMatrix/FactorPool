@@ -36,3 +36,20 @@
 真实数据 provider 为 `ft_daily_mmap`，universe 为证券代码列表或字符串 `all_a_dynamic`。
 不支持的频率、复权、收益间隔、年化、字段或算子明确失败，不能静默忽略。
 SUCCEEDED前前端不读取正式结果，所有不可用数值为标准JSON null。
+
+## 多周期报告（report version 2）
+
+analysis 可增加 `horizons: [1,5,20]`（最多6个不重复整数，1..252）、`decay_steps: 10`（1..10）和
+`annual_days: 252`（1..366）。业务参数随任务快照保存。
+主 `summary/daily/values` 继续保留一期合同，避免旧任务和明细含义被静默改变；
+`diagnostics.horizons["5"]` 等提供各期独立报告：
+
+- `ic/rank_ic`：mean/std/ir、positive_ratio、skewness、excess_kurtosis、t_iid/p_iid、t_hac/p_hac、n/missing。
+- `series/monthly/yearly/decay`：IC时间序列、30期均线、累计、年/月归约及固定信号衰减。
+- `portfolios`：long_G*、short_G*、high_low、（至少4组时）inner_high_low、alpha。
+- 每个组合含年化均值收益、CAGR、波动、Sharpe、最大回撤、胜率、盈亏比、非重叠收益/净值/换手和年/月收益。
+- `portfolios.alpha.brain_style`：sharpe/fitness/returns/turnover/drawdown/margin；是明确公式的研究预设，官方数值一致性未核验。
+- `conventions/unavailable`：公式/单位/调仓/定价约定及缺市值、行业、参考Alpha池、生产相关池的原因。
+
+标准JSON只返回有限数值或null；p值用科学计数法展示。旧任务没有diagnostics时，页面显示原版结果。
+详细数学、缺失和解释边界见 [指标口径](REPORT-METRICS.md)。

@@ -5,6 +5,6 @@
   "environment_image": "factortrader/platform:20261105-factortrader-48804c66-r1",
   "python": "3.11.16",
   "operator_contract": "ft-pool-1",
-  "research_kernel": "matrix-analysis-v1",
-  "factorpool_source_sha256": "7bd4bf36444fe56c689fc6767d625f21815c64657befb423c11484974da10191"
+  "research_kernel": "matrix-analysis-v2",
+  "factorpool_source_sha256": "b9987a50930261f792b4c9c6f07db5116fdd4fe1eff4ac640233d8ad4c45c235"
 }

@@ -44,22 +44,24 @@ public class Store {
       UUID id = request.hasNonNull("id")
                     ? UUID.fromString(request.get("id").asText())
                     : UUID.randomUUID();
-      db.update("INSERT INTO factors(id,name,description) VALUES (?,?,?) ON " +
-                "CONFLICT (id) DO UPDATE SET " +
-                "name=excluded.name,description=excluded.description",
+      db.update("INSERT INTO factors(id,name,description) VALUES (?,?,?) ON "
+                    + "CONFLICT (id) DO UPDATE SET "
+                    + "name=excluded.name,description=excluded.description",
                 id, request.path("name").asText(),
                 request.path("description").asText(""));
       db.queryForObject("SELECT id FROM factors WHERE id=? FOR UPDATE",
                         UUID.class, id);
-      int version = db.queryForObject("SELECT coalesce(max(version),0)+1 " +
-                                      "FROM factor_versions WHERE factor_id=?",
-                                      Integer.class, id);
+      int version =
+          db.queryForObject("SELECT coalesce(max(version),0)+1 "
+                                + "FROM factor_versions WHERE factor_id=?",
+                            Integer.class, id);
       UUID vid = UUID.randomUUID();
-      db.update("INSERT INTO " +
-                "factor_versions(id,factor_id,version,snapshot,source_hash) " +
-                "VALUES (?,?,?,?::jsonb,?)",
-                vid, id, version, request.toString(),
-                hash(request.path("source_code").asText()));
+      db.update(
+          "INSERT INTO "
+              + "factor_versions(id,factor_id,version,snapshot,source_hash) "
+              + "VALUES (?,?,?,?::jsonb,?)",
+          vid, id, version, request.toString(),
+          hash(request.path("source_code").asText()));
       ObjectNode result = json.createObjectNode();
       result.put("id", id.toString());
       result.put("version_id", vid.toString());
@@ -69,15 +71,15 @@ public class Store {
   }
   List<Map<String, Object>> factors() {
     return db.queryForList(
-        "SELECT f.*,v.id AS version_id,v.version,v.source_hash,v.created_at " +
-        "AS version_at FROM factors f JOIN LATERAL (SELECT * FROM " +
-        "factor_versions WHERE factor_id=f.id ORDER BY version DESC LIMIT 1) " +
-        "v ON true ORDER BY f.created_at DESC");
+        "SELECT f.*,v.id AS version_id,v.version,v.source_hash,v.created_at "
+        + "AS version_at FROM factors f JOIN LATERAL (SELECT * FROM "
+        + "factor_versions WHERE factor_id=f.id ORDER BY version DESC LIMIT 1) "
+        + "v ON true ORDER BY f.created_at DESC");
   }
   ObjectNode factor(UUID id) {
     var versions = db.queryForList(
-        "SELECT id,version,snapshot::text,source_hash,created_at FROM " +
-        "factor_versions WHERE factor_id=? ORDER BY version DESC",
+        "SELECT id,version,snapshot::text,source_hash,created_at FROM "
+            + "factor_versions WHERE factor_id=? ORDER BY version DESC",
         id);
     if (versions.isEmpty())
       throw new NoSuchElementException("Factor not found");
@@ -90,8 +92,8 @@ public class Store {
   UUID enqueue(JsonNode request, UUID batch) {
     validate(request);
     UUID id = UUID.randomUUID();
-    db.update("INSERT INTO research_tasks(id,batch_id,name,snapshot,status) " +
-              "VALUES (?,?,?,?::jsonb,'QUEUED')",
+    db.update("INSERT INTO research_tasks(id,batch_id,name,snapshot,status) "
+                  + "VALUES (?,?,?,?::jsonb,'QUEUED')",
               id, batch, request.path("name").asText(), request.toString());
     return id;
   }
@@ -122,9 +124,32 @@ public class Store {
       throw new IllegalArgumentException("Only daily/raw input is supported");
     for (var it = a.fieldNames(); it.hasNext();)
       if (!Set.of("entry", "exit", "groups", "group_weight", "min_ic_pairs",
-                  "icir_ddof", "annualize_icir")
+                  "icir_ddof", "annualize_icir", "horizons", "annual_days",
+                  "decay_steps")
                .contains(it.next()))
         throw new IllegalArgumentException("Unknown analysis option");
+    if (a.has("horizons")) {
+      if (!a.get("horizons").isArray() || a.get("horizons").isEmpty() ||
+          a.get("horizons").size() > 6)
+        throw new IllegalArgumentException(
+            "horizons must contain 1..6 periods");
+      Set<Integer> unique = new HashSet<>();
+      for (JsonNode h : a.get("horizons"))
+        if (!h.isIntegralNumber() || h.asLong() < 1 || h.asLong() > 252 ||
+            !unique.add(h.asInt()))
+          throw new IllegalArgumentException(
+              "horizons must be unique integers in 1..252");
+    }
+    if (a.has("annual_days") && (!a.get("annual_days").isIntegralNumber() ||
+                                 a.get("annual_days").asLong() < 1 ||
+                                 a.get("annual_days").asLong() > 366))
+      throw new IllegalArgumentException(
+          "annual_days must be an integer in 1..366");
+    if (a.has("decay_steps") && (!a.get("decay_steps").isIntegralNumber() ||
+                                 a.get("decay_steps").asLong() < 1 ||
+                                 a.get("decay_steps").asLong() > 10))
+      throw new IllegalArgumentException(
+          "decay_steps must be an integer in 1..10");
     for (String key : List.of("groups", "min_ic_pairs", "icir_ddof"))
       if (a.has(key) && !a.get(key).isIntegralNumber())
         throw new IllegalArgumentException(key + " must be an integer");

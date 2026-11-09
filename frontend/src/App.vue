@@ -3,6 +3,7 @@ import { ref, computed, onMounted, onBeforeUnmount } from "vue";
 import FactorEditor from "./components/FactorEditor.vue";
 import SplitPane from "./components/SplitPane.vue";
 import ResearchChart from "./components/ResearchChart.vue";
+import FactorDiagnostics from "./components/FactorDiagnostics.vue";
 import { api } from "./api";
 const source = ref(""),
   name = ref("20日低成交量因子"),
@@ -14,6 +15,8 @@ const provider = ref("fixture"),
 const start = ref("2024-01-29"),
   end = ref("2024-01-29"),
   groups = ref(3);
+const horizons = ref("1,5,20"),
+  decaySteps = ref(10);
 const tab = ref("research"),
   chartMode = ref("ic"),
   error = ref(""),
@@ -84,6 +87,9 @@ function request() {
       entry: "next_open",
       exit: "following_open",
       groups: Number(groups.value),
+      horizons: horizons.value.split(",").map((x) => Number(x.trim())),
+      decay_steps: Number(decaySteps.value),
+      annual_days: 252,
       min_ic_pairs: 3,
       icir_ddof: 1,
       annualize_icir: false,
@@ -297,7 +303,7 @@ onBeforeUnmount(() => {
           {{ title }}
         </button>
       </nav>
-      <span class="version">FT Indicator · v0.1</span>
+      <span class="version">FT Indicator · 报告 v2</span>
     </header>
     <div v-if="error" class="error" role="alert">
       {{ error }}<button @click="error = ''">关闭</button>
@@ -363,13 +369,26 @@ onBeforeUnmount(() => {
                 <label>开始日期<input v-model="start" type="date" /></label
                 ><label>结束日期<input v-model="end" type="date" /></label>
                 <label
+                  >分析周期<input
+                    v-model="horizons"
+                    aria-label="分析周期"
+                    placeholder="1,5,20" /></label
+                ><label
+                  >衰减阶数<input
+                    v-model="decaySteps"
+                    type="number"
+                    min="1"
+                    max="10"
+                    aria-label="衰减阶数"
+                /></label>
+                <label
                   >分组数<input
                     v-model="groups"
                     type="number"
                     min="1"
                     max="100" /></label
                 ><label
-                  >收益区间<span class="fixed-field"
+                  >一期明细区间<span class="fixed-field"
                     >T+1 开盘 → T+2 开盘</span
                   ></label
                 >
@@ -418,9 +437,9 @@ onBeforeUnmount(() => {
               <div class="metrics">
                 <div
                   v-for="[title, value] in [
-                    ['IC 均值', numeric(summary.ic_mean)],
-                    ['Rank IC', numeric(summary.rank_ic_mean)],
-                    ['ICIR', numeric(summary.icir)],
+                    ['IC 均值 · 1期', numeric(summary.ic_mean)],
+                    ['Rank IC · 1期', numeric(summary.rank_ic_mean)],
+                    ['ICIR · 1期', numeric(summary.icir)],
                     ['因子覆盖率', percent(summary.coverage)],
                   ]"
                 >
@@ -428,55 +447,61 @@ onBeforeUnmount(() => {
                   ><strong>{{ value }}</strong>
                 </div>
               </div>
-              <div class="chart-toolbar">
-                <div>
-                  <button
-                    :class="{ active: chartMode === 'ic' }"
-                    @click="chartMode = 'ic'"
-                  >
-                    IC 序列</button
-                  ><button
-                    :class="{ active: chartMode === 'group' }"
-                    @click="chartMode = 'group'"
-                  >
-                    分组收益
-                  </button>
+              <FactorDiagnostics
+                v-if="result.diagnostics"
+                :report="result.diagnostics"
+              />
+              <template v-if="!result.diagnostics">
+                <div class="chart-toolbar">
+                  <div>
+                    <button
+                      :class="{ active: chartMode === 'ic' }"
+                      @click="chartMode = 'ic'"
+                    >
+                      IC 序列</button
+                    ><button
+                      :class="{ active: chartMode === 'group' }"
+                      @click="chartMode = 'group'"
+                    >
+                      分组收益
+                    </button>
+                  </div>
+                  <span>{{ summary.valid_dates }} 个有效 IC 日期</span>
                 </div>
-                <span>{{ summary.valid_dates }} 个有效 IC 日期</span>
-              </div>
-              <ResearchChart :daily="result.daily" :mode="chartMode" />
-              <div class="caption">
-                等权研究收益，未计费用、滑点和成交限制。缺失值显示 --；ICIR
-                未年化。
-              </div>
-              <details>
-                <summary>每日 IC 与分组明细</summary>
-                <div class="table-scroll">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>日期</th>
-                        <th>IC</th>
-                        <th>Rank IC</th>
-                        <th>配对数</th>
-                        <th v-for="(_, i) in result.daily[0]?.group_returns">
-                          G{{ i + 1 }}
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr v-for="d in result.daily">
-                        <td>{{ d.date }}</td>
-                        <td>{{ numeric(d.ic) }}</td>
-                        <td>{{ numeric(d.rank_ic) }}</td>
-                        <td>{{ d.pairs }}</td>
-                        <td v-for="r in d.group_returns">{{ percent(r) }}</td>
-                      </tr>
-                    </tbody>
-                  </table>
+                <ResearchChart :daily="result.daily" :mode="chartMode" />
+                <div class="caption">
+                  等权研究收益，未计费用、滑点和成交限制。缺失值显示 --；ICIR
+                  未年化。
                 </div>
-              </details>
-              <details open>
+                <details>
+                  <summary>每日 IC 与分组明细</summary>
+                  <div class="table-scroll">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>日期</th>
+                          <th>IC</th>
+                          <th>Rank IC</th>
+                          <th>配对数</th>
+                          <th v-for="(_, i) in result.daily[0]?.group_returns">
+                            G{{ i + 1 }}
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr v-for="d in result.daily">
+                          <td>{{ d.date }}</td>
+                          <td>{{ numeric(d.ic) }}</td>
+                          <td>{{ numeric(d.rank_ic) }}</td>
+                          <td>{{ d.pairs }}</td>
+                          <td v-for="r in d.group_returns">{{ percent(r) }}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </details>
+              </template>
+              <details open class="factor-values">
                 <summary>
                   因子值 <span>{{ result.metadata.value_count }} 条</span>
                 </summary>
@@ -487,7 +512,7 @@ onBeforeUnmount(() => {
                         <th>日期</th>
                         <th>证券</th>
                         <th>因子值</th>
-                        <th>未来收益</th>
+                        <th>未来收益（1期）</th>
                         <th>分组</th>
                         <th>状态</th>
                       </tr>

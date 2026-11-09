@@ -128,6 +128,20 @@ class Factor(PythonIndicator):
             self.assertEqual(rows[0]['ready'],i==2)
         self.assertEqual([r['value'] for r in rows],[2,2,2])
 
+    def test_future_price_padding_never_advances_indicator_graph(self):
+        source=(ROOT/'examples/factors/low_volume.py').read_text()
+        request=dict(name='future-padding',source_code=source,factor_class='LowVolumeFactor',factor_params={'period':20},
+                     data=dict(provider='fixture',universe='fixture',frequency='1d',adjustment='raw',factor_start='2024-01-29',factor_end='2024-01-29'),analysis=dict(groups=3,horizons=[1,5,20],decay_steps=10))
+        held=[]
+        def create(indicator):
+            value=IndicatorAdapter(indicator);held.append(value);return value
+        with tempfile.TemporaryDirectory() as d,patch('factorpool.runner.IndicatorAdapter',side_effect=create):
+            path=Path(d);(path/'request.json').write_text(json.dumps(request));run(d)
+        binding,graph=held[0].binding,held[0].graph
+        state=binding.graph_snapshot(graph)
+        np.testing.assert_equal(NativeVector._view(binding,state['samples']).to_numpy(),[20,20,20])
+        np.testing.assert_equal(NativeVector._view(binding,state['end_time']).to_numpy(),[20240129150000]*3)
+
     def test_runner_never_constructs_engine_and_future_never_enters_factor(self):
         source=(ROOT/'examples/factors/low_volume.py').read_text()
         request=dict(name='matrix',source_code=source,factor_class='LowVolumeFactor',factor_params={'period':20},

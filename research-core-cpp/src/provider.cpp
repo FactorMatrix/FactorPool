@@ -24,11 +24,11 @@ PyObject *read_mmap(PyObject *, PyObject *args) {
   try {
     const char *root, *start, *end;
     PyObject *requested;
-    int warmup, dynamic;
-    if (!PyArg_ParseTuple(args, "Osssii", &requested, &root, &start, &end,
-                          &warmup, &dynamic))
+    int warmup, dynamic, future = 2;
+    if (!PyArg_ParseTuple(args, "Osssii|i", &requested, &root, &start, &end,
+                          &warmup, &dynamic, &future))
       return nullptr;
-    if (warmup < 1 || warmup > 10000)
+    if (future < 2 || future > 2521 || warmup < 1 || warmup > 10000)
       throw std::invalid_argument("Warmup must be 1..10000");
     std::vector<std::string> symbols;
     Owned seq{PySequence_Fast(requested, "Expected symbols")};
@@ -53,12 +53,16 @@ PyObject *read_mmap(PyObject *, PyObject *args) {
     auto initial =
         std::max<std::ptrdiff_t>(0, begin - calendar.begin() - (warmup - 1));
     auto stop = std::min<std::ptrdiff_t>(calendar.size(),
-                                         finish - calendar.begin() + 2);
+                                         finish - calendar.begin() + future);
     if (stop - initial > 10000)
       throw std::invalid_argument("Too many dates");
     std::set<std::string> union_symbols(symbols.begin(), symbols.end());
     std::vector<std::vector<std::string>> axes;
     for (auto t = initial; t < stop; ++t) {
+      if (calendar[t] > last) {
+        axes.push_back({});
+        continue;
+      }
       auto axis = symbols;
       if (dynamic) {
         axis.clear();
@@ -87,6 +91,9 @@ PyObject *read_mmap(PyObject *, PyObject *args) {
     }
     for (auto t = initial; t < stop; ++t) {
       Owned frame{PyDict_New()}, rows{PyDict_New()}, axis{PyList_New(0)};
+      if (calendar[t] > last)
+        axes[t - initial] = std::vector<std::string>(union_symbols.begin(),
+                                                     union_symbols.end());
       for (const auto &id : axes[t - initial]) {
         Owned name{PyUnicode_FromString(id.c_str())};
         PyList_Append(axis.p, name.p);
@@ -95,6 +102,11 @@ PyObject *read_mmap(PyObject *, PyObject *args) {
           continue;
         Owned row{PyDict_New()};
         put(row.p, "open", number(bar->open));
+        if (calendar[t] > last) {
+          if (PyDict_SetItemString(rows.p, id.c_str(), row.p) < 0)
+            throw std::bad_alloc();
+          continue;
+        }
         put(row.p, "high", number(bar->high));
         put(row.p, "low", number(bar->low));
         put(row.p, "close", number(bar->close));
@@ -107,6 +119,21 @@ PyObject *read_mmap(PyObject *, PyObject *args) {
         if (PyDict_SetItemString(rows.p, id.c_str(), row.p) < 0)
           throw std::bad_alloc();
       }
+      // Pricing an old holding must not depend on today's universe membership.
+      // These quote-only rows are never added to the factor's current axis.
+      if (calendar[t] <= last)
+        for (const auto &id : union_symbols) {
+          if (std::binary_search(axes[t - initial].begin(),
+                                 axes[t - initial].end(), id))
+            continue;
+          auto bar = source.raw_get_bar(id, {calendar[t], 15 * 3600}, "1d");
+          if (!bar)
+            continue;
+          Owned quote{PyDict_New()};
+          put(quote.p, "open", number(bar->open));
+          if (PyDict_SetItemString(rows.p, id.c_str(), quote.p) < 0)
+            throw std::bad_alloc();
+        }
       put(frame.p, "date", PyUnicode_FromString(calendar[t].str().c_str()));
       put(frame.p, "symbols", Py_NewRef(axis.p));
       put(frame.p, "rows", Py_NewRef(rows.p));

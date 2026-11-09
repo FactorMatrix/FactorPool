@@ -20,7 +20,7 @@ def fingerprint(root):
 def fixture():
     frames = []
     day = date(2024, 1, 2)
-    for i in range(25):
+    for i in range(240):
         while day.weekday() > 4:
             day += timedelta(days=1)
         rows = {}
@@ -30,4 +30,4 @@ def fixture():
         frames.append(dict(date=day.isoformat(), symbols=["A", "B", "C"], rows=rows))
         day += timedelta(days=1)
     return dict(provider="fixture", adjustment="raw", symbols=["A", "B", "C"], frames=frames,
-                snapshot_id="synthetic-ohlcv-v1", synthetic=True)
+                snapshot_id="synthetic-ohlcv-v2", synthetic=True)

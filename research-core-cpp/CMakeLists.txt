@@ -4,7 +4,7 @@ set(CMAKE_CXX_STANDARD 20)
 find_package(Python3 REQUIRED COMPONENTS Interpreter Development.Module)
 set(FT_ROOT "" CACHE PATH "Pinned FactorTrader checkout")
 set(FT_BUILD "" CACHE PATH "Matching FactorTrader SDK build")
-Python3_add_library(_factorpool_native MODULE src/module.cpp src/analysis.cpp src/provider.cpp)
+Python3_add_library(_factorpool_native MODULE src/module.cpp src/analysis.cpp src/provider.cpp src/statistics.cpp src/portfolios.cpp src/decay.cpp)
 target_include_directories(_factorpool_native PRIVATE
   ${FT_ROOT}/engine-core-cpp/include ${FT_ROOT}/engine-core-cpp/mods/include
   ${FT_ROOT}/engine-sdk/mods/cn-data-mmap-mod/include)

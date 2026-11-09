@@ -38,7 +38,7 @@ ENV SERVER_PORT=8080 LD_LIBRARY_PATH=/opt/factorpool/shared-build/native/abi \
     FACTORPOOL_BUILD_INFO=/opt/factorpool/build-info.json \
     FACTORPOOL_MMAP_ROOT=/data/market PYTHONDONTWRITEBYTECODE=1
 RUN mkdir -p /data/tasks && chown 1000:1000 /data/tasks \
-    && python3 -m unittest discover -s /opt/factorpool/tests -p test_research.py
+    && python3 -m unittest discover -s /opt/factorpool/tests -p 'test_*.py'
 USER 1000:1000
 EXPOSE 8080
 HEALTHCHECK --interval=10s --timeout=5s --start-period=60s --retries=6 \

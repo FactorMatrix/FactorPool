@@ -1,0 +1,122 @@
+"""PDF-style factor diagnostics and an explicit BRAIN-style research preset."""
+from collections import defaultdict
+import math
+import _factorpool_native as native
+from scipy.stats import t as student_t
+from scipy.stats import norm
+
+
+def options(analysis):
+    periods = analysis.get("horizons", [1, 5, 20])
+    if (not isinstance(periods, list) or not periods or len(periods) > 6
+            or any(type(h) is not int or not 1 <= h <= 252 for h in periods)
+            or len(set(periods)) != len(periods)):
+        raise ValueError("horizons must contain 1..6 unique integer periods in 1..252")
+    annual_days = analysis.get("annual_days", 252)
+    steps = analysis.get("decay_steps", 10)
+    if type(annual_days) is not int or not 1 <= annual_days <= 366:
+        raise ValueError("annual_days must be an integer in 1..366")
+    if type(steps) is not int or not 1 <= steps <= 10:
+        raise ValueError("decay_steps must be an integer in 1..10")
+    return sorted(periods), annual_days, steps
+
+
+def inference(values, ddof, lag):
+    result = native.series_stats(values, ddof, lag)
+    for method in ("iid", "hac"):
+        value = result[f"t_{method}"]
+        p = None
+        if value is not None:
+            p = float(2 * (student_t.sf(abs(value), result["n"]-1) if method == "iid" else norm.sf(abs(value))))
+            if p == 0:
+                p = None
+                result[f"p_{method}_status"] = "underflow"
+        result[f"p_{method}"] = p
+    result["inference_note"] = "IID ignores serial dependence; HAC uses Bartlett weights, complete equally spaced observations only"
+    return result
+
+
+def grouped_moments(dates, values, width, ddof):
+    grouped = defaultdict(list)
+    for date, value in zip(dates, values):
+        if date is not None:
+            grouped[date[:width]].append(value)
+    return [{"period": key, **native.series_stats(grouped[key], ddof, 0)} for key in sorted(grouped)]
+
+
+def rolling_mean(values, window=30):
+    # Selection only. The shared report native kernel computes the mean.
+    output = []
+    for i in range(len(values)):
+        subset = values[max(0, i-window+1):i+1]
+        output.append(native.series_stats(subset, 1, 0)["mean"] if len(subset) == window and all(x is not None for x in subset) else None)
+    return output
+
+
+def cumulative_sum(values):
+    # A prefix with missing observations has no complete cumulative IC.
+    total, out = 0.0, []
+    for value in values:
+        if total is None or value is None:
+            total = None
+        else:
+            total += value
+        out.append(total)
+    return out
+
+
+def portfolio_calendar(exit_dates, returns, width=7):
+    grouped = defaultdict(list)
+    for date, value in zip(exit_dates, returns):
+        if date is not None:
+            grouped[date[:width]].append(value)
+    output = []
+    for key in sorted(grouped):
+        values = grouped[key]
+        summary = native.series_stats(values, 1, 0)
+        complete = summary["n"] == len(values) and summary["n"] > 0
+        ret = native.compound_return(values) if complete else None
+        output.append(dict(period=key, value=ret, count=summary["n"], missing=summary["missing"]))
+    return output
+
+
+def build(factors, prices, membership, dates, price_dates, analysis):
+    periods, annual_days, steps = options(analysis)
+    ddof, groups, minimum = analysis.get("icir_ddof", 1), analysis.get("groups", 3), analysis.get("min_ic_pairs", 3)
+    out = {}
+    for h in periods:
+        raw = native.analyze(factors, prices, groups, minimum, ddof, membership, h)
+        daily = raw["daily"]
+        ics = [day["ic"] for day in daily]
+        rics = [day["rank_ic"] for day in daily]
+        ic = inference(ics, ddof, h-1)
+        rank_ic = inference(rics, ddof, h-1)
+        portfolios = native.portfolio_report(factors, prices, membership, groups, h, annual_days)
+        indices = [int(v) for v in portfolios.pop("signal_indices")]
+        signals = [dates[i] for i in indices]
+        exits = [price_dates[i+1+h] if i+1+h < len(price_dates) else None for i in indices]
+        for strategy in portfolios["strategies"].values():
+            strategy["monthly"] = portfolio_calendar(exits, strategy["returns"])
+            strategy["yearly"] = portfolio_calendar(exits, strategy["returns"], 4)
+        out[str(h)] = dict(horizon=h, dates=dates, ic=ic, rank_ic=rank_ic,
+            series=dict(ic=ics, rank_ic=rics, ic_rolling30=rolling_mean(ics), rank_ic_rolling30=rolling_mean(rics),
+                        ic_cumulative=cumulative_sum(ics), rank_ic_cumulative=cumulative_sum(rics)),
+            monthly=dict(ic=grouped_moments(dates, ics, 7, ddof),rank_ic=grouped_moments(dates, rics, 7, ddof)),
+            yearly=dict(ic=grouped_moments(dates, ics, 4, ddof),rank_ic=grouped_moments(dates, rics, 4, ddof)),
+            decay=native.ic_decay(factors, prices, membership, h, steps, minimum),
+            portfolio_signal_dates=signals, portfolio_exit_dates=exits, portfolios=portfolios["strategies"])
+    return dict(version=2, horizons=out, conventions=dict(
+        annual_days=annual_days, ic_ddof=ddof, return_price="raw open", signal_delay=1,
+        portfolio_rebalance="nonoverlapping; first factor date anchors each horizon",
+        long_short="gross exposure 1; long 0.5 and short 0.5", turnover="L1 target minus price-drifted prior weights; initial entry included; daily average divides by holding days",
+        brain_returns="annualized mean fixed-gross-book PnL / 0.5; not CAGR",
+        brain_drawdown="peak-to-trough cumulative arithmetic PnL / 0.5",
+        brain_fitness="Sharpe * sqrt(abs(returns) / max(daily_turnover,0.125))",
+        brain_margin="total normalized PnL / total normalized value traded; display in bp",
+        brain_status="research preset; official BRAIN numerical parity unverified",
+        alpha_weights="visible finite factor, cross-sectional arithmetic demean, L1 normalize; no industry, decay or truncation",
+        missing_returns="any missing nonzero position price invalidates portfolio interval; no hindsight reweighting",
+        monthly_returns="compound nonoverlapping periods assigned to exit month; not daily mark-to-market month attribution",
+        decay="fixed signal, hold horizon h; entry lag 0,h,...,(steps-1)*h",
+        missing_datasets={"market_cap":"no qualified provider", "industry":"no qualified provider", "self_correlation":"no selected alpha pool", "production_correlation":"no BRAIN production pool access"}),
+        unavailable=dict(market_cap=None,industry=None,self_correlation=None,production_correlation=None))

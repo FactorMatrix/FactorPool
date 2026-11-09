@@ -50,3 +50,9 @@ FT 原目录不搬迁；新增 `sys_indicator/src/batch_program/cross_section.cp
 
 [官方 BRAIN 算子页](https://platform.worldquantbrain.com/learn/operators)本次仅可取得 JavaScript 应用壳，
 没有获得可执行语义/权限版本或官方oracle。因此台账保留“官方行为待核验”，不以名称清单宣称兼容完成。
+
+## 报告版本2
+
+原summary/daily/values的一期合同继续保留。新增diagnostics包含独立的多期IC、非重叠组合和BRAIN风格研究预设，
+其公式、资本归一和单位以 [报告指标正本](REPORT-METRICS.md) 为准；不要把旧主字段的annualized=false解释为所有组合指标均未年化。
+Provider按报告范围多读未来报价，报价轴与历史因子成员轴分开；未来输入不推进指标图。

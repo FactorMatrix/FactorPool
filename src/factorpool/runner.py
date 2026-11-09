@@ -10,6 +10,7 @@ import sys
 import time
 from .adapter import IndicatorAdapter
 from .datasource import fingerprint, fixture
+from .reporting.diagnostics import build as build_diagnostics, options as report_options
 
 
 def log(stage, **values):
@@ -42,6 +43,7 @@ def run(directory):
     directory = Path(directory)
     request = json.loads((directory / "request.json").read_text())
     validate(request)
+    horizons, annual_days, decay_steps = report_options(request["analysis"])
     started = time.perf_counter()
     timings = {}
     (directory / "factor.py").write_text(request["source_code"])
@@ -67,7 +69,7 @@ def run(directory):
         dynamic = universe == "all_a_dynamic"
         if not dynamic and (not isinstance(universe, list) or not universe or len(universe) != len(set(universe))):
             raise ValueError("Specify unique symbol list or all_a_dynamic")
-        payload = native.read_mmap([] if dynamic else universe, root, data["factor_start"], data["factor_end"], max(1, warmup), int(dynamic))
+        payload = native.read_mmap([] if dynamic else universe, root, data["factor_start"], data["factor_end"], max(1, warmup), int(dynamic), max(horizons)*decay_steps+1)
         payload.update(snapshot_id=before, synthetic=False)
     else:
         raise ValueError(f"Unknown/unconfigured provider: {provider}")
@@ -105,6 +107,7 @@ def run(directory):
     checkpoint = time.perf_counter()
     options = request["analysis"]
     result = native.analyze(matrices, prices, options.get("groups", 3), options.get("min_ic_pairs", 3), options.get("icir_ddof", 1), membership)
+    result["diagnostics"] = build_diagnostics(matrices, prices, membership, dates, [f["date"] for f in tail], options)
     for date, day in zip(dates, result["daily"]):
         day["date"] = date
     returns, groups = result.pop("forward_returns"), result.pop("groups")
@@ -123,7 +126,8 @@ def run(directory):
         return_interval="T+1 open to T+2 open", group_ties="value then symbol; split ties", group_insufficient="empty groups allowed",
         group_weight="equal among available returns", cumulative="nonoverlapping one-day; invalid after a missing interval",
         ic_rank_ties="average", icir_ddof=options.get("icir_ddof", 1), annualized=False,
-        operator_contract="ft-pool-1", coverage_axis="historical universe membership", stage_seconds=timings, value_count=len(rows))
+        annualized_scope="legacy ICIR only; portfolio annualization is defined in diagnostics.conventions",
+        operator_contract="ft-pool-1", forward_return_horizon=1, report_version=2, report_horizons=horizons, coverage_axis="historical universe membership", stage_seconds=timings, value_count=len(rows))
     temporary = directory / "result.tmp.json"
     temporary.write_text(json.dumps(result, ensure_ascii=False, allow_nan=False))
     temporary.rename(directory / "result.json")
