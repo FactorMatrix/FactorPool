@@ -1,0 +1,37 @@
+// Run with FACTORPOOL_PLAYWRIGHT_MODULE pointing to an installed Playwright module.
+import { createRequire } from 'node:module'
+import assert from 'node:assert/strict'
+const require = createRequire(import.meta.url)
+const { chromium } = require(process.env.FACTORPOOL_PLAYWRIGHT_MODULE || 'playwright')
+const base = process.env.FACTORPOOL_URL || 'http://127.0.0.1:8088'
+const output = process.env.FACTORPOOL_BROWSER_OUTPUT || '/tmp'
+const browser = await chromium.launch({ headless: true })
+const page = await browser.newPage({ viewport: { width: 1512, height: 1050 } })
+const errors = []
+page.on('pageerror', e => errors.push(e.message))
+await page.goto(base, { waitUntil: 'networkidle' })
+await page.getByRole('button', { name: '▶ 运行研究' }).click()
+await page.locator('.badge.SUCCEEDED').waitFor({ timeout: 40000 })
+await page.locator('.metrics').waitFor()
+const metric = await page.locator('.metrics strong').allTextContents()
+assert.deepEqual(metric, ['1.0000', '1.0000', '--', '100.00%'])
+assert.equal(await page.locator('.result-panel table tbody').last().locator('tr').count(), 3)
+await page.waitForTimeout(800)
+await page.screenshot({ path: `${output}/browser-desktop.png`, fullPage: true })
+await page.getByRole('button', { name: '保存版本', exact: true }).click()
+await page.locator('.notice').filter({ hasText: '已保存版本' }).waitFor()
+await page.getByRole('button', { name: '因子库', exact: true }).click()
+assert.ok(await page.locator('.page tbody tr').count() >= 1)
+await page.getByRole('button', { name: '算子兼容', exact: true }).click()
+assert.equal(await page.locator('.page tbody tr').count(), 179)
+await page.getByRole('button', { name: '研究', exact: true }).click()
+await page.reload({ waitUntil: 'networkidle' })
+await page.locator('.metrics').waitFor()
+assert.deepEqual(await page.locator('.metrics strong').allTextContents(), metric)
+await page.setViewportSize({ width: 390, height: 844 })
+await page.waitForTimeout(500)
+assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= 392), 'Unexpected mobile horizontal overflow')
+await page.screenshot({ path: `${output}/browser-mobile.png`, fullPage: true })
+assert.deepEqual(errors, [])
+console.log(JSON.stringify({ desktop: 'passed', mobile: 'passed', metrics: metric, browser_errors: errors }))
+await browser.close()

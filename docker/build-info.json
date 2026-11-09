@@ -1,0 +1,10 @@
+{
+  "environment_image_id": "sha256:6730005dac82d62159abd5461db7852b507f92c90b2561f1b6d24731adcfb8e9",
+  "factortrader_commit": "a847a662aa8f7b2ee7dd4beaaa734d79537ba2d3",
+  "lean_reference": "f49bb9623a3e8782bf22bbd2cb51f691058cfdc3",
+  "environment_image": "factortrader/platform:20261105-factortrader-48804c66-r1",
+  "python": "3.11.16",
+  "operator_contract": "ft-pool-1",
+  "research_kernel": "matrix-analysis-v1",
+  "factorpool_source_sha256": "7bd4bf36444fe56c689fc6767d625f21815c64657befb423c11484974da10191"
+}

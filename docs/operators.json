@@ -1,0 +1,1434 @@
+[
+  {
+    "name": "add",
+    "frontend": "+",
+    "native": true,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "Python"
+  },
+  {
+    "name": "subtract",
+    "frontend": "-",
+    "native": true,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "Python"
+  },
+  {
+    "name": "multiply",
+    "frontend": "*",
+    "native": true,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "Python"
+  },
+  {
+    "name": "divide",
+    "frontend": "/",
+    "native": true,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "Python"
+  },
+  {
+    "name": "abs",
+    "frontend": "abs(x)",
+    "native": true,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "Python"
+  },
+  {
+    "name": "log",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "sqrt",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "power",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "signed_power",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "sign",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "reverse",
+    "frontend": "-x",
+    "native": true,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "Python"
+  },
+  {
+    "name": "inverse",
+    "frontend": "1/x",
+    "native": true,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "Python"
+  },
+  {
+    "name": "min",
+    "frontend": "min(x,y)",
+    "native": true,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "Python"
+  },
+  {
+    "name": "max",
+    "frontend": "max(x,y)",
+    "native": true,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "Python"
+  },
+  {
+    "name": "and",
+    "frontend": "&",
+    "native": true,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "or",
+    "frontend": "|",
+    "native": true,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "not",
+    "frontend": "~",
+    "native": true,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "equal",
+    "frontend": "==",
+    "native": true,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "not_equal",
+    "frontend": "!=",
+    "native": true,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "greater",
+    "frontend": ">",
+    "native": true,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "greater_than_equal",
+    "frontend": ">=",
+    "native": true,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "less",
+    "frontend": "<",
+    "native": true,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "less_than_equal",
+    "frontend": "<=",
+    "native": true,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "if_else",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "is_nan",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "densify",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "pasteurize",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "arc_cos",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "arc_sin",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "arc_tan",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "exp",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "sigmoid",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "tanh",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "ceiling",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "floor",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "round",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "round_down",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "frac",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "clamp",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "negate",
+    "frontend": "-x",
+    "native": true,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "Python"
+  },
+  {
+    "name": "is_finite",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "is_not_finite",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "is_not_nan",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "nan_mask",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "nan_out",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "to_nan",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "replace",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "purify",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "filter",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "left_tail",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "right_tail",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "tail",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "one_side",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "truncate",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "unit",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "ts_mean",
+    "frontend": "self.ts.mean(x,period)",
+    "native": true,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "LEAN 窗口 / FT 扩展"
+  },
+  {
+    "name": "ts_sum",
+    "frontend": "self.ts.sum(x,period)",
+    "native": true,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "LEAN 窗口 / FT 扩展"
+  },
+  {
+    "name": "ts_min",
+    "frontend": "self.ts.min(x,period)",
+    "native": true,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "LEAN 窗口 / FT 扩展"
+  },
+  {
+    "name": "ts_max",
+    "frontend": "self.ts.max(x,period)",
+    "native": true,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "LEAN 窗口 / FT 扩展"
+  },
+  {
+    "name": "ts_std_dev",
+    "frontend": "self.ts.std(x,period,ddof=0)",
+    "native": true,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "LEAN 窗口 / FT 扩展"
+  },
+  {
+    "name": "ts_delay",
+    "frontend": "self.ts.delay(x,period)",
+    "native": true,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "LEAN 窗口 / FT 扩展"
+  },
+  {
+    "name": "ts_delta",
+    "frontend": "self.ts.delta(x,period)",
+    "native": true,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "LEAN 窗口 / FT 扩展"
+  },
+  {
+    "name": "ts_returns",
+    "frontend": "self.ts.returns(x,period)",
+    "native": true,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "LEAN 窗口 / FT 扩展"
+  },
+  {
+    "name": "ts_av_diff",
+    "frontend": "self.ts.av_diff(x,period)",
+    "native": true,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "LEAN 窗口 / FT 扩展"
+  },
+  {
+    "name": "ts_product",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "LEAN 窗口 / FT 扩展"
+  },
+  {
+    "name": "ts_median",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "LEAN 窗口 / FT 扩展"
+  },
+  {
+    "name": "ts_min_diff",
+    "frontend": "self.ts.min_diff(x,period)",
+    "native": true,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "LEAN 窗口 / FT 扩展"
+  },
+  {
+    "name": "ts_max_diff",
+    "frontend": "self.ts.max_diff(x,period)",
+    "native": true,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "LEAN 窗口 / FT 扩展"
+  },
+  {
+    "name": "ts_arg_min",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "LEAN 窗口 / FT 扩展"
+  },
+  {
+    "name": "ts_arg_max",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "LEAN 窗口 / FT 扩展"
+  },
+  {
+    "name": "ts_rank",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "LEAN 窗口 / FT 扩展"
+  },
+  {
+    "name": "ts_quantile",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "LEAN 窗口 / FT 扩展"
+  },
+  {
+    "name": "ts_percentage",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "LEAN 窗口 / FT 扩展"
+  },
+  {
+    "name": "ts_zscore",
+    "frontend": "self.ts.zscore(x,period)",
+    "native": true,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "LEAN 窗口 / FT 扩展"
+  },
+  {
+    "name": "ts_scale",
+    "frontend": "self.ts.scale(x,period)",
+    "native": true,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "LEAN 窗口 / FT 扩展"
+  },
+  {
+    "name": "ts_ir",
+    "frontend": "self.ts.ir(x,period)",
+    "native": true,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "LEAN 窗口 / FT 扩展"
+  },
+  {
+    "name": "ts_skewness",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "LEAN 窗口 / FT 扩展"
+  },
+  {
+    "name": "ts_kurtosis",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "LEAN 窗口 / FT 扩展"
+  },
+  {
+    "name": "ts_moment",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "LEAN 窗口 / FT 扩展"
+  },
+  {
+    "name": "ts_entropy",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "LEAN 窗口 / FT 扩展"
+  },
+  {
+    "name": "ts_corr",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "LEAN 窗口 / FT 扩展"
+  },
+  {
+    "name": "ts_covariance",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "LEAN 窗口 / FT 扩展"
+  },
+  {
+    "name": "ts_regression",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "LEAN 窗口 / FT 扩展"
+  },
+  {
+    "name": "ts_poly_regression",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "LEAN 窗口 / FT 扩展"
+  },
+  {
+    "name": "ts_theilsen",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "LEAN 窗口 / FT 扩展"
+  },
+  {
+    "name": "ts_partial_corr",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "LEAN 窗口 / FT 扩展"
+  },
+  {
+    "name": "ts_triple_corr",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "LEAN 窗口 / FT 扩展"
+  },
+  {
+    "name": "ts_co_skewness",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "LEAN 窗口 / FT 扩展"
+  },
+  {
+    "name": "ts_co_kurtosis",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "LEAN 窗口 / FT 扩展"
+  },
+  {
+    "name": "ts_decay_linear",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "LEAN 窗口 / FT 扩展"
+  },
+  {
+    "name": "ts_decay_exp_window",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "LEAN 窗口 / FT 扩展"
+  },
+  {
+    "name": "ts_weighted_decay",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "LEAN 窗口 / FT 扩展"
+  },
+  {
+    "name": "ts_backfill",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "LEAN 窗口 / FT 扩展"
+  },
+  {
+    "name": "kth_element",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "ts_count_nans",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "LEAN 窗口 / FT 扩展"
+  },
+  {
+    "name": "last_diff_value",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "days_from_last_change",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "ts_step",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "LEAN 窗口 / FT 扩展"
+  },
+  {
+    "name": "ts_min_max_cps",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "LEAN 窗口 / FT 扩展"
+  },
+  {
+    "name": "ts_min_max_diff",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "LEAN 窗口 / FT 扩展"
+  },
+  {
+    "name": "ts_rank_gmean_amean_diff",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "LEAN 窗口 / FT 扩展"
+  },
+  {
+    "name": "ts_vector_neut",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "LEAN 窗口 / FT 扩展"
+  },
+  {
+    "name": "ts_vector_proj",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "LEAN 窗口 / FT 扩展"
+  },
+  {
+    "name": "hump",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "hump_decay",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "jump_decay",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "keep",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "trade_when",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "ts_target_tvr_decay",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "LEAN 窗口 / FT 扩展"
+  },
+  {
+    "name": "ts_target_tvr_hump",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "LEAN 窗口 / FT 扩展"
+  },
+  {
+    "name": "rank",
+    "frontend": "self.cs.rank / self.cs.rank_unit",
+    "native": true,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "zscore",
+    "frontend": "self.cs.zscore(x)",
+    "native": true,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "normalize",
+    "frontend": "self.cs.normalize(x)",
+    "native": true,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "scale",
+    "frontend": "self.cs.scale(x)",
+    "native": true,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "scale_down",
+    "frontend": "self.cs.scale_down(x)",
+    "native": true,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "quantile",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "winsorize",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "bucket",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "group_cartesian_product",
+    "frontend": null,
+    "native": false,
+    "data": "同轴历史分组标签（Provider 待接入）",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "group_rank",
+    "frontend": "self.cs.group_rank(x,g)",
+    "native": true,
+    "data": "同轴历史分组标签（Provider 待接入）",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "group_zscore",
+    "frontend": null,
+    "native": false,
+    "data": "同轴历史分组标签（Provider 待接入）",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "group_neutralize",
+    "frontend": "self.cs.group_neutralize(x,g)",
+    "native": true,
+    "data": "同轴历史分组标签（Provider 待接入）",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "group_mean",
+    "frontend": null,
+    "native": false,
+    "data": "同轴历史分组标签（Provider 待接入）",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "group_sum",
+    "frontend": "self.cs.group_sum(x,g)",
+    "native": true,
+    "data": "同轴历史分组标签（Provider 待接入）",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "group_count",
+    "frontend": "self.cs.group_count(x,g)",
+    "native": true,
+    "data": "同轴历史分组标签（Provider 待接入）",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "group_std_dev",
+    "frontend": "self.cs.group_std(x,g)",
+    "native": true,
+    "data": "同轴历史分组标签（Provider 待接入）",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "group_min",
+    "frontend": "self.cs.group_min(x,g)",
+    "native": true,
+    "data": "同轴历史分组标签（Provider 待接入）",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "group_max",
+    "frontend": "self.cs.group_max(x,g)",
+    "native": true,
+    "data": "同轴历史分组标签（Provider 待接入）",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "group_median",
+    "frontend": "self.cs.group_median(x,g)",
+    "native": true,
+    "data": "同轴历史分组标签（Provider 待接入）",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "group_scale",
+    "frontend": null,
+    "native": false,
+    "data": "同轴历史分组标签（Provider 待接入）",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "group_normalize",
+    "frontend": null,
+    "native": false,
+    "data": "同轴历史分组标签（Provider 待接入）",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "group_percentage",
+    "frontend": null,
+    "native": false,
+    "data": "同轴历史分组标签（Provider 待接入）",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "group_backfill",
+    "frontend": null,
+    "native": false,
+    "data": "同轴历史分组标签（Provider 待接入）",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "group_vector_neut",
+    "frontend": null,
+    "native": false,
+    "data": "同轴历史分组标签（Provider 待接入）",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "group_vector_proj",
+    "frontend": null,
+    "native": false,
+    "data": "同轴历史分组标签（Provider 待接入）",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "group_extra",
+    "frontend": null,
+    "native": false,
+    "data": "同轴历史分组标签（Provider 待接入）",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "regression_neut",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "regression_proj",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "vector_neut",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "vector_proj",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "rank_by_side",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "rank_gmean_amean_diff",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "vec_avg",
+    "frontend": null,
+    "native": false,
+    "data": "真实向量 / Alpha 上下文（未接入）",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "vec_sum",
+    "frontend": null,
+    "native": false,
+    "data": "真实向量 / Alpha 上下文（未接入）",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "vec_count",
+    "frontend": null,
+    "native": false,
+    "data": "真实向量 / Alpha 上下文（未接入）",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "vec_min",
+    "frontend": null,
+    "native": false,
+    "data": "真实向量 / Alpha 上下文（未接入）",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "vec_max",
+    "frontend": null,
+    "native": false,
+    "data": "真实向量 / Alpha 上下文（未接入）",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "vec_range",
+    "frontend": null,
+    "native": false,
+    "data": "真实向量 / Alpha 上下文（未接入）",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "vec_stddev",
+    "frontend": null,
+    "native": false,
+    "data": "真实向量 / Alpha 上下文（未接入）",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "vec_ir",
+    "frontend": null,
+    "native": false,
+    "data": "真实向量 / Alpha 上下文（未接入）",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "vec_skewness",
+    "frontend": null,
+    "native": false,
+    "data": "真实向量 / Alpha 上下文（未接入）",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "vec_kurtosis",
+    "frontend": null,
+    "native": false,
+    "data": "真实向量 / Alpha 上下文（未接入）",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "vec_percentage",
+    "frontend": null,
+    "native": false,
+    "data": "真实向量 / Alpha 上下文（未接入）",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "vec_powersum",
+    "frontend": null,
+    "native": false,
+    "data": "真实向量 / Alpha 上下文（未接入）",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "vec_choose",
+    "frontend": null,
+    "native": false,
+    "data": "真实向量 / Alpha 上下文（未接入）",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "vec_norm",
+    "frontend": null,
+    "native": false,
+    "data": "真实向量 / Alpha 上下文（未接入）",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "reduce_avg",
+    "frontend": null,
+    "native": false,
+    "data": "真实向量 / Alpha 上下文（未接入）",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "reduce_sum",
+    "frontend": null,
+    "native": false,
+    "data": "真实向量 / Alpha 上下文（未接入）",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "reduce_count",
+    "frontend": null,
+    "native": false,
+    "data": "真实向量 / Alpha 上下文（未接入）",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "reduce_min",
+    "frontend": null,
+    "native": false,
+    "data": "真实向量 / Alpha 上下文（未接入）",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "reduce_max",
+    "frontend": null,
+    "native": false,
+    "data": "真实向量 / Alpha 上下文（未接入）",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "reduce_range",
+    "frontend": null,
+    "native": false,
+    "data": "真实向量 / Alpha 上下文（未接入）",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "reduce_stddev",
+    "frontend": null,
+    "native": false,
+    "data": "真实向量 / Alpha 上下文（未接入）",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "reduce_ir",
+    "frontend": null,
+    "native": false,
+    "data": "真实向量 / Alpha 上下文（未接入）",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "reduce_skewness",
+    "frontend": null,
+    "native": false,
+    "data": "真实向量 / Alpha 上下文（未接入）",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "reduce_kurtosis",
+    "frontend": null,
+    "native": false,
+    "data": "真实向量 / Alpha 上下文（未接入）",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "reduce_percentage",
+    "frontend": null,
+    "native": false,
+    "data": "真实向量 / Alpha 上下文（未接入）",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "reduce_choose",
+    "frontend": null,
+    "native": false,
+    "data": "真实向量 / Alpha 上下文（未接入）",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "reduce_powersum",
+    "frontend": null,
+    "native": false,
+    "data": "真实向量 / Alpha 上下文（未接入）",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "reduce_norm",
+    "frontend": null,
+    "native": false,
+    "data": "真实向量 / Alpha 上下文（未接入）",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "self_corr",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "generate_stats",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "combo_weight",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "convert",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "count",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "universe_size",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "inst_pnl",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "inst_tvr",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  },
+  {
+    "name": "position_safeguard",
+    "frontend": null,
+    "native": false,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FT 截面扩展"
+  }
+]

@@ -1,0 +1,16 @@
+.git
+build
+runtime
+.env
+frontend/node_modules
+frontend/dist
+backend/target
+**/__pycache__
+shared/factortrader/.git
+shared/factortrader/vendor
+shared/factortrader/build
+shared/factortrader/.tools
+shared/factortrader/参考案例
+shared/factortrader/engine-core-cpp/.tools
+shared/factortrader/engine-core-cpp/build
+shared/factortrader/engine-sdk/build

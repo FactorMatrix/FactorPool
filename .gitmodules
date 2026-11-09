@@ -1,0 +1,3 @@
+[submodule "shared/factortrader"]
+	path = shared/factortrader
+	url = git@github.com:FactorMatrix/FTServer.git

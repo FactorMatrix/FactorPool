@@ -1,0 +1,10 @@
+/build/
+/runtime/
+.env
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+backend/target/
+frontend/node_modules/
+frontend/dist/

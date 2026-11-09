@@ -1,0 +1,27 @@
+server:
+  port: 8080
+  max-http-request-header-size: 16KB
+spring:
+  datasource:
+    url: ${FACTORPOOL_DB_URL:jdbc:postgresql://db:5432/factorpool}
+    username: factorpool
+    password: ${FACTORPOOL_DB_PASSWORD}
+  sql:
+    init:
+      mode: always
+  servlet:
+    multipart:
+      max-request-size: 256KB
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true
+factorpool:
+  task-root: ${FACTORPOOL_TASK_ROOT:/data/tasks}
+  max-concurrent: ${FACTORPOOL_MAX_CONCURRENT:1}
+  timeout-seconds: ${FACTORPOOL_TIMEOUT_SECONDS:1800}

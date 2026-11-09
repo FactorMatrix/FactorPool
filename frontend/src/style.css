@@ -1,0 +1,498 @@
+:root {
+  font-family:
+    Inter,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    "Noto Sans SC",
+    sans-serif;
+  color: #d8e2ed;
+  background: #0d141d;
+  font-synthesis: none;
+  font-size: 13px;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+button,
+input,
+select {
+  font: inherit;
+}
+button {
+  cursor: pointer;
+  color: #a9b9c9;
+  background: #1a2633;
+  border: 1px solid #2a3948;
+  border-radius: 5px;
+  padding: 7px 12px;
+  transition: background 0.15s;
+}
+button:hover {
+  background: #28394b;
+  color: #fff;
+}
+button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+button.active {
+  color: #48dcb3;
+  background: #19382f;
+  border-color: #285444;
+}
+input,
+select {
+  background: #111c27;
+  border: 1px solid #2a3a49;
+  border-radius: 4px;
+  color: #d8e2ed;
+  padding: 8px;
+  min-width: 0;
+  width: 100%;
+  outline: none;
+}
+input:focus,
+select:focus {
+  border-color: #44c69f;
+}
+input[type="checkbox"] {
+  width: auto;
+  accent-color: #45d6aa;
+}
+header {
+  height: 65px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 25px;
+  border-bottom: 1px solid #24313e;
+  background: #111b26;
+  gap: 20px;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.brand strong {
+  font-size: 20px;
+  letter-spacing: -0.5px;
+}
+.brand .muted {
+  border-left: 1px solid #3a4a59;
+  padding-left: 12px;
+}
+.mark {
+  color: #0c211a;
+  background: #47d5ac;
+  border-radius: 7px;
+  padding: 5px 10px;
+  font-size: 21px;
+  font-weight: 900;
+}
+nav {
+  display: flex;
+  gap: 4px;
+}
+nav button {
+  border: 0;
+  background: transparent;
+  padding: 10px 17px;
+}
+.version {
+  font-size: 11px;
+  color: #6d8399;
+}
+.muted {
+  color: #7b91a6;
+}
+.notice {
+  background: #153b30;
+  color: #79d9b5;
+  padding: 8px 25px;
+}
+.error {
+  padding: 12px;
+  background: #48272c;
+  color: #ffb5b5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.error button {
+  float: right;
+}
+main {
+  height: calc(100vh - 95px);
+  min-height: 740px;
+}
+.code-panel,
+.result-panel {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: #111923;
+  min-width: 0;
+}
+.panel-top {
+  height: 53px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 20px;
+  border-bottom: 1px solid #25313d;
+  flex-shrink: 0;
+}
+.panel-top button {
+  margin-left: 5px;
+}
+.eyebrow {
+  font-size: 10px;
+  color: #6e879e;
+  letter-spacing: 1.6px;
+  font-weight: 600;
+}
+.factor-name {
+  display: flex;
+  padding: 12px 18px;
+  gap: 8px;
+}
+.factor-name input {
+  font-weight: 600;
+}
+.factor-name select {
+  width: 135px;
+  font-size: 11px;
+}
+.config {
+  background: #141f2c;
+  border-top: 1px solid #283745;
+  padding: 14px 18px;
+}
+.config-title {
+  font-weight: 600;
+  margin-bottom: 12px;
+  display: flex;
+  justify-content: space-between;
+}
+.config-title span {
+  font-size: 10px;
+  color: #7690a5;
+  font-weight: 400;
+}
+.field-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.field-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 11px;
+  color: #8fa5ba;
+}
+.field-grid .wide {
+  grid-column: 1/-1;
+}
+.field-grid label span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.fixed-field {
+  background: #101b26;
+  padding: 10px;
+  border-radius: 4px;
+  min-height: 33px;
+}
+.run-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-top: 1px solid #263441;
+  font-size: 10px;
+  color: #7790a4;
+}
+.run-bar div {
+  display: flex;
+  gap: 8px;
+}
+.primary {
+  background: #3cbd96 !important;
+  color: #08271d !important;
+  border-color: #3cbd96 !important;
+  font-weight: 700;
+}
+.primary:hover {
+  background: #55d8b0 !important;
+}
+.result-panel {
+  padding: 0 20px;
+  overflow: auto;
+  background: #0f1822;
+}
+.result-panel .panel-top {
+  margin: 0 -20px;
+}
+.result-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 16px;
+  gap: 10px;
+}
+.result-heading h1 {
+  font-size: 21px;
+  margin: 6px 0 12px;
+}
+.result-heading button {
+  font-size: 11px;
+  white-space: nowrap;
+}
+.result-meta {
+  font-size: 10px;
+  color: #668198;
+  margin-bottom: 18px;
+  line-height: 1.8;
+}
+.badge {
+  display: inline-block;
+  font-size: 10px;
+  white-space: nowrap;
+  padding: 5px 8px;
+  border-radius: 4px;
+  color: #8ca1b6;
+  background: #213040;
+}
+.badge.SUCCEEDED {
+  color: #5cdeaf;
+  background: #153c30;
+}
+.badge.RUNNING,
+.badge.QUEUED {
+  color: #8dbbff;
+  background: #1e3555;
+}
+.badge.FAILED,
+.badge.INTERRUPTED {
+  color: #ffa7a7;
+  background: #482b33;
+}
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+.metrics > div {
+  border: 1px solid #263746;
+  background: #14202b;
+  border-radius: 6px;
+  padding: 15px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+}
+.metrics span {
+  font-size: 10px;
+  color: #8ba3b8;
+}
+.metrics strong {
+  font-size: 23px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.metrics > div:first-child strong {
+  color: #5bdeba;
+}
+.chart-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 22px;
+}
+.chart-toolbar button {
+  font-size: 11px;
+  padding: 6px 10px;
+  border: 0;
+}
+.chart-toolbar span {
+  font-size: 10px;
+  color: #718a9e;
+}
+.caption {
+  font-size: 10px;
+  color: #7f96aa;
+  line-height: 1.8;
+  margin: 5px 0 16px;
+}
+details {
+  border-top: 1px solid #263746;
+  padding: 13px 0;
+}
+summary {
+  cursor: pointer;
+  color: #a7bbce;
+  font-size: 12px;
+}
+summary span {
+  float: right;
+  color: #6c879d;
+  font-size: 10px;
+}
+.table-scroll {
+  overflow: auto;
+}
+table {
+  border-collapse: collapse;
+  width: 100%;
+  text-align: left;
+  font-size: 11px;
+  white-space: nowrap;
+}
+th {
+  color: #748fa5;
+  font-weight: 500;
+  background: #14202c;
+}
+th,
+td {
+  padding: 12px 10px;
+  border-bottom: 1px solid #233240;
+}
+td {
+  font-variant-numeric: tabular-nums;
+}
+tbody tr:hover {
+  background: #172534;
+}
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 10px;
+  color: #6c8498;
+  font-size: 10px;
+}
+.pagination button {
+  font-size: 10px;
+}
+.empty {
+  text-align: center;
+  padding: 60px 35px;
+  color: #839bb0;
+  line-height: 1.9;
+  flex: 1;
+}
+.empty h2 {
+  font-size: 20px;
+  color: #bccece;
+  font-weight: 500;
+}
+.empty-symbol {
+  font-size: 60px;
+  color: #3d7d70;
+  border: 1px solid #2b4b46;
+  border-radius: 15px;
+  width: 90px;
+  line-height: 85px;
+  margin: 20px auto;
+}
+.empty p {
+  max-width: 380px;
+  margin: 12px auto;
+}
+pre {
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  line-height: 1.8;
+  color: #93aabc;
+  background: #0b121b;
+  padding: 15px;
+  overflow: auto;
+  max-height: 350px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.logs {
+  margin-top: auto;
+}
+.page {
+  max-width: 1450px;
+  margin: 0 auto;
+  padding: 35px;
+  min-height: calc(100vh - 95px);
+}
+.page-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.page h1 {
+  font-size: 26px;
+}
+.page > .muted {
+  line-height: 1.8;
+}
+.mono {
+  font-family: monospace;
+}
+.supported {
+  color: #59d9ab;
+}
+footer {
+  height: 30px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 9px;
+  color: #617a8d;
+  padding: 0 24px;
+  border-top: 1px solid #243443;
+}
+@media (max-width: 900px) {
+  header {
+    padding: 10px;
+    flex-wrap: wrap;
+    height: auto;
+    gap: 10px;
+  }
+  .brand .muted,
+  .version {
+    display: none;
+  }
+  nav button {
+    padding: 7px 12px;
+  }
+  main {
+    height: auto;
+    min-height: 1600px;
+  }
+  .split-pane {
+    height: 1700px !important;
+  }
+  .metrics {
+    gap: 5px;
+  }
+  .metrics > div {
+    padding: 12px 7px;
+  }
+  .metrics strong {
+    font-size: 19px;
+  }
+  .page {
+    padding: 20px;
+    overflow: auto;
+  }
+  .code-panel {
+    min-height: 600px;
+  }
+  .empty {
+    padding: 25px 10px;
+  }
+}
