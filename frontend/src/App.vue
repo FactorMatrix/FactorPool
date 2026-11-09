@@ -2,8 +2,9 @@
 import { ref, computed, onMounted, onBeforeUnmount } from "vue";
 import FactorEditor from "./components/FactorEditor.vue";
 import SplitPane from "./components/SplitPane.vue";
-import ResearchChart from "./components/ResearchChart.vue";
-import FactorDiagnostics from "./components/FactorDiagnostics.vue";
+import UiIcon from "./components/UiIcon.vue";
+import WorkspaceSettings from "./components/WorkspaceSettings.vue";
+import SimulationResults from "./components/SimulationResults.vue";
 import { api } from "./api";
 const source = ref(""),
   name = ref("20日低成交量因子"),
@@ -18,7 +19,6 @@ const start = ref("2024-01-29"),
 const horizons = ref("1,5,20"),
   decaySteps = ref(10);
 const tab = ref("research"),
-  chartMode = ref("ic"),
   error = ref(""),
   busy = ref(false);
 const factors = ref([]),
@@ -50,10 +50,93 @@ const states = {
   CANCELLED: "已停止",
   INTERRUPTED: "已中断",
 };
-const numeric = (value) => (value == null ? "--" : Number(value).toFixed(4));
-const percent = (value) =>
-  value == null ? "--" : `${(Number(value) * 100).toFixed(2)}%`;
-const summary = computed(() => result.value?.summary || {});
+const settingsOpen = ref(false),
+  showCode = ref(true),
+  showResults = ref(true);
+const workspaces = ref([
+  { id: 1, label: "Simulation 1", draft: null, taskId: null },
+]);
+const workspaceId = ref(1);
+let workspaceSequence = 1;
+const settings = computed(() => ({
+  provider: provider.value,
+  universe: universe.value,
+  dynamic: dynamic.value,
+  start: start.value,
+  end: end.value,
+  groups: groups.value,
+  horizons: horizons.value,
+  decaySteps: decaySteps.value,
+  factorClass: factorClass.value,
+  params: params.value,
+}));
+function applySettings(d) {
+  provider.value = d.provider;
+  universe.value = d.universe;
+  dynamic.value = d.dynamic;
+  start.value = d.start;
+  end.value = d.end;
+  groups.value = d.groups;
+  horizons.value = d.horizons;
+  decaySteps.value = d.decaySteps;
+  factorClass.value = d.factorClass;
+  params.value = d.params;
+}
+function captureWorkspace() {
+  const current = workspaces.value.find((w) => w.id === workspaceId.value);
+  current.draft = {
+    ...settings.value,
+    source: source.value,
+    name: name.value,
+    factorId: factorId.value,
+  };
+  current.taskId = task.value?.id || null;
+}
+function clearResult() {
+  ++revision;
+  task.value = null;
+  result.value = null;
+  values.value = [];
+  logs.value = "";
+  offset.value = 0;
+  sessionStorage.removeItem("factorpool.task");
+}
+async function selectWorkspace(id) {
+  if (id === workspaceId.value || busy.value) return;
+  await action(async () => {
+    captureWorkspace();
+    const next = workspaces.value.find((w) => w.id === id);
+    workspaceId.value = id;
+    applySettings(next.draft);
+    source.value = next.draft.source;
+    name.value = next.draft.name;
+    factorId.value = next.draft.factorId;
+    settingsOpen.value = false;
+    notice.value = "";
+    clearResult();
+    if (next.taskId) await openTask(next.taskId);
+  });
+}
+function newWorkspace(copy = false) {
+  captureWorkspace();
+  const id = ++workspaceSequence;
+  workspaces.value.push({
+    id,
+    label: `Simulation ${id}`,
+    draft: null,
+    taskId: null,
+  });
+  workspaceId.value = id;
+  clearResult();
+  settingsOpen.value = false;
+  notice.value = "";
+  factorId.value = null;
+  if (copy) name.value += " · 副本";
+  else clearDraft();
+  captureWorkspace();
+  tab.value = "research";
+  showCode.value = true;
+}
 function request() {
   const factorParams = JSON.parse(params.value);
   if (
@@ -143,6 +226,7 @@ async function loadFactor(id) {
   await action(async () => {
     const f = await api(`/factors/${id}`);
     const d = f.latest;
+    newWorkspace();
     factorId.value = id;
     source.value = d.source_code;
     factorClass.value = d.factor_class;
@@ -233,15 +317,33 @@ async function runBatch() {
     await refreshLists();
   });
 }
-function loadSnapshot() {
-  const r = task.value?.snapshot;
-  if (!r) return;
+function restoreSnapshot(r) {
   source.value = r.source_code;
   name.value = r.name;
   factorClass.value = r.factor_class;
   params.value = JSON.stringify(r.factor_params || {});
   factorId.value = null;
-  notice.value = "已将任务源码快照载入草稿";
+  if (r.data) {
+    provider.value = r.data.provider;
+    dynamic.value = r.data.universe === "all_a_dynamic";
+    if (Array.isArray(r.data.universe))
+      universe.value = r.data.universe.join(",");
+    start.value = r.data.factor_start;
+    end.value = r.data.factor_end;
+  }
+  if (r.analysis) {
+    groups.value = r.analysis.groups;
+    horizons.value = (r.analysis.horizons || [1]).join(",");
+    decaySteps.value = r.analysis.decay_steps || 10;
+  }
+}
+function loadSnapshot() {
+  const r = task.value?.snapshot;
+  if (!r) return;
+  newWorkspace(true);
+  restoreSnapshot(r);
+  captureWorkspace();
+  notice.value = "已从任务快照新建模拟；原任务源码与结果保持在原模拟中";
 }
 onMounted(async () => {
   await action(async () => {
@@ -257,7 +359,11 @@ onMounted(async () => {
       );
     await refreshLists();
     const previous = sessionStorage.getItem("factorpool.task");
-    if (previous) await openTask(previous);
+    if (previous) {
+      await openTask(previous);
+      if (task.value?.snapshot) restoreSnapshot(task.value.snapshot);
+    }
+    captureWorkspace();
   });
   timer = setInterval(async () => {
     if (polling) return;
@@ -283,292 +389,194 @@ onBeforeUnmount(() => {
 </script>
 <template>
   <div class="app-shell">
-    <header>
+    <header class="topbar">
       <div class="brand">
-        <span class="mark">F</span><strong>FactorPool</strong
-        ><span class="muted">因子研究工作台</span>
+        <span class="brand-symbol">F<span>·</span></span
+        ><strong>FactorPool</strong>
       </div>
-      <nav>
+      <nav aria-label="主导航">
         <button
-          v-for="[key, title] in [
-            ['research', '研究'],
-            ['library', '因子库'],
-            ['history', '测试记录'],
-            ['operators', '算子兼容'],
+          v-for="[key, icon, title, label] in [
+            ['research', 'terminal', 'Simulate', '研究'],
+            ['library', 'alpha', 'Alphas', '因子库'],
+            ['learn', 'book', 'Learn', '使用说明'],
+            ['operators', 'data', 'Data', '算子兼容'],
+            ['history', 'history', 'History', '测试记录'],
           ]"
           :key="key"
           :class="{ active: tab === key }"
+          :aria-label="label"
           @click="tab = key"
         >
-          {{ title }}
+          <UiIcon :name="icon" :size="19" /><span>{{ title }}</span>
         </button>
       </nav>
-      <span class="version">FT Indicator · 报告 v2</span>
+      <span class="version">PythonIndicator <span>· Research</span></span>
     </header>
     <div v-if="error" class="error" role="alert">
       {{ error }}<button @click="error = ''">关闭</button>
     </div>
-    <div v-if="notice" class="notice">{{ notice }}</div>
-    <main v-if="tab === 'research'">
+    <div v-if="notice" class="notice" role="status">
+      {{ notice
+      }}<button class="icon-button" aria-label="关闭提示" @click="notice = ''">
+        <UiIcon name="close" :size="15" />
+      </button>
+    </div>
+    <main v-if="tab === 'research'" class="simulation-main">
+      <div class="workspace-bar">
+        <div class="workspace-tabs" role="tablist" aria-label="模拟草稿">
+          <button
+            v-for="w in workspaces"
+            :key="w.id"
+            role="tab"
+            :aria-selected="workspaceId === w.id"
+            :disabled="busy"
+            :class="{ active: workspaceId === w.id }"
+            @click="selectWorkspace(w.id)"
+          >
+            <span
+              class="simulation-dot"
+              :class="{ running: workspaceId === w.id && running }"
+            ></span
+            >{{ w.label }}
+          </button>
+          <button
+            class="new-simulation icon-button"
+            aria-label="新建模拟"
+            title="New simulation"
+            :disabled="busy"
+            @click="newWorkspace()"
+          >
+            <UiIcon name="plus" :size="18" />
+          </button>
+        </div>
+        <div class="pane-toggles">
+          <label
+            ><input
+              v-model="showCode"
+              type="checkbox"
+              :disabled="showCode && !showResults"
+            />Code</label
+          ><label
+            ><input
+              v-model="showResults"
+              type="checkbox"
+              :disabled="showResults && !showCode"
+            />Results</label
+          >
+        </div>
+      </div>
       <SplitPane
-        storage-key="workbench"
+        storage-key="brain-simulation-v1"
         label="调整代码与研究结果比例"
-        :initial="42"
+        :initial="50"
         :breakpoint="900"
+        :class="{ 'code-only': !showResults, 'results-only': !showCode }"
       >
         <template #first
           ><section class="code-panel">
-            <div class="panel-top">
-              <span class="eyebrow">FACTOR / PYTHON</span>
-              <div>
-                <button @click="clearDraft">新建</button
-                ><button :disabled="busy" @click="save">保存版本</button>
-              </div>
+            <div class="editor-toolbar">
+              <button
+                class="settings-trigger"
+                :class="{ active: settingsOpen }"
+                :aria-expanded="settingsOpen"
+                @click="settingsOpen = !settingsOpen"
+              >
+                <UiIcon name="settings" :size="16" />Settings</button
+              ><span
+                >{{ provider === "fixture" ? "SYNTHETIC" : "CHN" }} / D1 /
+                {{
+                  provider === "fixture"
+                    ? "A, B, C"
+                    : dynamic
+                      ? "All A Dynamic"
+                      : "Custom universe"
+                }}</span
+              ><button
+                class="icon-button"
+                aria-label="复制为新模拟"
+                title="Clone simulation"
+                :disabled="busy"
+                @click="newWorkspace(true)"
+              >
+                <UiIcon name="clone" :size="16" />
+              </button>
             </div>
             <div class="factor-name">
-              <input v-model="name" aria-label="因子名称" /><select
-                aria-label="载入示例"
-                @change="example(examples[$event.target.value])"
+              <input
+                v-model="name"
+                aria-label="因子名称"
+                placeholder="Alpha name"
+              /><span>PythonIndicator</span>
+            </div>
+            <div class="editor-stage">
+              <FactorEditor
+                :key="workspaceId"
+                v-model="source"
+              /><WorkspaceSettings
+                v-if="settingsOpen"
+                :values="settings"
+                :sources="sources"
+                @apply="applySettings"
+                @close="settingsOpen = false"
+              />
+            </div>
+            <div class="editor-status">
+              <span><span class="status-dot"></span>{{ factorClass }}</span
+              ><span
+                >{{ provider === "fixture" ? "合成样例" : "行情只读" }} ·
+                {{ start }} — {{ end }}</span
               >
-                <option disabled selected>载入示例</option>
-                <option v-for="(e, i) in examples" :value="i">
+            </div>
+            <div class="editor-actions">
+              <select
+                aria-label="载入示例"
+                @change="
+                  example(examples[$event.target.value]);
+                  $event.target.value = '';
+                "
+                :disabled="busy"
+              >
+                <option value="">Examples</option>
+                <option v-for="(e, i) in examples" :key="e.name" :value="i">
                   {{ e.name }}
                 </option>
               </select>
-            </div>
-            <FactorEditor v-model="source" />
-            <div class="config">
-              <div class="config-title">
-                研究配置 <span>日线 · 原始价格 · 无费用</span>
-              </div>
-              <div class="field-grid">
-                <label>因子类<input v-model="factorClass" /></label
-                ><label>构造参数 JSON<input v-model="params" /></label>
-                <label class="wide"
-                  >数据源<select v-model="provider">
-                    <option
-                      v-for="s in sources"
-                      :key="s.id"
-                      :value="s.id"
-                      :disabled="!s.available"
-                    >
-                      {{ s.name }}{{ s.available ? "" : " · 不可用" }}
-                    </option>
-                  </select></label
-                >
-                <label v-if="provider !== 'fixture'" class="wide"
-                  >股票池
-                  <span
-                    ><input v-model="dynamic" type="checkbox" /> 历史动态全 A
-                    股</span
-                  ><input
-                    v-if="!dynamic"
-                    v-model="universe"
-                    placeholder="逗号分隔证券代码"
-                /></label>
-                <label>开始日期<input v-model="start" type="date" /></label
-                ><label>结束日期<input v-model="end" type="date" /></label>
-                <label
-                  >分析周期<input
-                    v-model="horizons"
-                    aria-label="分析周期"
-                    placeholder="1,5,20" /></label
-                ><label
-                  >衰减阶数<input
-                    v-model="decaySteps"
-                    type="number"
-                    min="1"
-                    max="10"
-                    aria-label="衰减阶数"
-                /></label>
-                <label
-                  >分组数<input
-                    v-model="groups"
-                    type="number"
-                    min="1"
-                    max="100" /></label
-                ><label
-                  >一期明细区间<span class="fixed-field"
-                    >T+1 开盘 → T+2 开盘</span
-                  ></label
-                >
-              </div>
-            </div>
-            <div class="run-bar">
-              <span>{{
-                provider === "fixture"
-                  ? "合成样例 · A / B / C"
-                  : "真实行情 · 只读快照"
-              }}</span>
               <div>
-                <button :disabled="!running || busy" @click="cancel">
-                  停止</button
-                ><button class="primary" :disabled="busy" @click="run">
-                  ▶ 运行研究
+                <button :disabled="busy" @click="save" aria-label="保存版本">
+                  <UiIcon name="save" :size="15" /><span>Save</span></button
+                ><button
+                  v-if="running"
+                  :disabled="busy"
+                  @click="cancel"
+                  aria-label="停止"
+                >
+                  <UiIcon name="stop" :size="14" />Stop</button
+                ><button
+                  class="simulate-button"
+                  :disabled="busy"
+                  @click="run"
+                  aria-label="运行研究"
+                >
+                  <UiIcon name="play" :size="15" />Simulate
                 </button>
               </div>
             </div>
           </section></template
         >
         <template #second
-          ><section class="result-panel">
-            <div class="panel-top">
-              <span class="eyebrow">RESEARCH / RESULT</span
-              ><span class="badge" :class="task?.status">{{
-                task ? states[task.status] || task.status : "等待运行"
-              }}</span>
-            </div>
-            <div class="result-heading">
-              <h1>{{ task?.name || "从一个因子开始" }}</h1>
-              <button v-if="task?.snapshot" @click="loadSnapshot">
-                载入本次源码
-              </button>
-            </div>
-            <div class="result-meta" v-if="task">
-              {{ task.id
-              }}<span v-if="result">
-                · {{ result.metadata.execution_mode }} · 预热
-                {{ result.metadata.warm_up_period }} 期 ·
-                {{ result.metadata.synthetic ? "合成数据" : "真实行情" }}</span
-              >
-            </div>
-            <p v-if="task?.error" class="error">{{ task.error }}</p>
-            <template v-if="result">
-              <div class="metrics">
-                <div
-                  v-for="[title, value] in [
-                    ['IC 均值 · 1期', numeric(summary.ic_mean)],
-                    ['Rank IC · 1期', numeric(summary.rank_ic_mean)],
-                    ['ICIR · 1期', numeric(summary.icir)],
-                    ['因子覆盖率', percent(summary.coverage)],
-                  ]"
-                >
-                  <span>{{ title }}</span
-                  ><strong>{{ value }}</strong>
-                </div>
-              </div>
-              <FactorDiagnostics
-                v-if="result.diagnostics"
-                :report="result.diagnostics"
-              />
-              <template v-if="!result.diagnostics">
-                <div class="chart-toolbar">
-                  <div>
-                    <button
-                      :class="{ active: chartMode === 'ic' }"
-                      @click="chartMode = 'ic'"
-                    >
-                      IC 序列</button
-                    ><button
-                      :class="{ active: chartMode === 'group' }"
-                      @click="chartMode = 'group'"
-                    >
-                      分组收益
-                    </button>
-                  </div>
-                  <span>{{ summary.valid_dates }} 个有效 IC 日期</span>
-                </div>
-                <ResearchChart :daily="result.daily" :mode="chartMode" />
-                <div class="caption">
-                  等权研究收益，未计费用、滑点和成交限制。缺失值显示 --；ICIR
-                  未年化。
-                </div>
-                <details>
-                  <summary>每日 IC 与分组明细</summary>
-                  <div class="table-scroll">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>日期</th>
-                          <th>IC</th>
-                          <th>Rank IC</th>
-                          <th>配对数</th>
-                          <th v-for="(_, i) in result.daily[0]?.group_returns">
-                            G{{ i + 1 }}
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr v-for="d in result.daily">
-                          <td>{{ d.date }}</td>
-                          <td>{{ numeric(d.ic) }}</td>
-                          <td>{{ numeric(d.rank_ic) }}</td>
-                          <td>{{ d.pairs }}</td>
-                          <td v-for="r in d.group_returns">{{ percent(r) }}</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </details>
-              </template>
-              <details open class="factor-values">
-                <summary>
-                  因子值 <span>{{ result.metadata.value_count }} 条</span>
-                </summary>
-                <div class="table-scroll">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>日期</th>
-                        <th>证券</th>
-                        <th>因子值</th>
-                        <th>未来收益（1期）</th>
-                        <th>分组</th>
-                        <th>状态</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr v-for="(r, i) in values" :key="i">
-                        <td>{{ r.trading_date }}</td>
-                        <td>{{ r.symbol }}</td>
-                        <td>{{ numeric(r.value) }}</td>
-                        <td>{{ percent(r.forward_return) }}</td>
-                        <td>{{ r.factor_group ?? "--" }}</td>
-                        <td>{{ r.reason }}</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-                <div class="pagination">
-                  <button :disabled="offset === 0 || busy" @click="page(-100)">
-                    上一页</button
-                  ><span>{{ offset + 1 }}–{{ offset + values.length }}</span
-                  ><button
-                    :disabled="
-                      offset + values.length >= result.metadata.value_count ||
-                      busy
-                    "
-                    @click="page(100)"
-                  >
-                    下一页
-                  </button>
-                </div>
-              </details>
-              <details>
-                <summary>复现信息与口径</summary>
-                <pre>{{ JSON.stringify(result.metadata, null, 2) }}</pre>
-              </details>
-            </template>
-            <div v-else class="empty">
-              <div class="empty-symbol">ƒ</div>
-              <h2>{{ running ? "正在执行研究任务" : "一份定义，共享计算" }}</h2>
-              <p>
-                {{
-                  running
-                    ? "准备、读取与计算进度见下方日志。"
-                    : "编写 PythonIndicator，选择股票池与日期，查看因子值、IC 和分组表现。"
-                }}
-              </p>
-              <p v-if="!task" class="muted">
-                默认样例可手工核对：IC = 1，分组收益 -10% / 0% / 10%。
-              </p>
-            </div>
-            <details class="logs" :open="running || task?.status === 'FAILED'">
-              <summary>任务日志</summary>
-              <pre>{{ logs || "暂无日志" }}</pre>
-            </details>
-          </section></template
-        >
+          ><SimulationResults
+            :task="task"
+            :result="result"
+            :logs="logs"
+            :values="values"
+            :offset="offset"
+            :busy="busy"
+            :running="running"
+            :states="states"
+            @load-snapshot="loadSnapshot"
+            @page="page"
+        /></template>
       </SplitPane>
     </main>
     <section v-else-if="tab === 'library'" class="page">
@@ -604,7 +612,9 @@ onBeforeUnmount(() => {
             <td>{{ f.name }}</td>
             <td>v{{ f.version }}</td>
             <td class="mono">{{ f.source_hash.slice(0, 12) }}</td>
-            <td><button @click="loadFactor(f.id)">打开</button></td>
+            <td>
+              <button :disabled="busy" @click="loadFactor(f.id)">打开</button>
+            </td>
           </tr>
         </tbody>
       </table>
@@ -657,6 +667,47 @@ onBeforeUnmount(() => {
         运行后，源码与结果会保存在这里。
       </p>
     </section>
+    <section v-else-if="tab === 'learn'" class="page learn-page">
+      <span class="eyebrow">LEARN / PYTHON INDICATOR</span>
+      <h1>同一份因子定义，直接做矩阵研究</h1>
+      <p>
+        通过 PythonIndicator 定义输入、预热窗口和计算方法。TS / CS 算子复用
+        FactorTrader 共享实现，点击 Data 查看每个算子的兼容状态。
+      </p>
+      <div class="learn-columns">
+        <article>
+          <h2>1. 编写因子</h2>
+          <p>
+            从 Examples 载入示例。Settings
+            中的因子类名、构造参数与代码保持一致，支持编译的算子使用原生执行路径。
+          </p>
+          <pre>{{ examples[0]?.source_code || "正在载入示例" }}</pre>
+        </article>
+        <article>
+          <h2>2. 设置与模拟</h2>
+          <p>
+            选择数据源、股票池和信号日期。默认使用合成数据。行情源读取已有文件，不会下载或更新数据。
+          </p>
+          <p>
+            信号后下一期开盘入场，按所选持有期退出。当前研究组合等权、无费用，不包含订单与撮合。
+          </p>
+          <h2>3. 查看与复现</h2>
+          <p>
+            右侧导航查看 IC、分组、Alpha
+            统计、因子值、日志和提交时的源码。保存版本写入因子库，每次任务保留不可变快照。
+          </p>
+          <p>
+            模拟草稿切换保存在本页内存中；刷新后从最近任务快照恢复。未运行、未保存的编辑请先保存版本。
+          </p>
+          <h2>数据源</h2>
+          <ul>
+            <li v-for="s in sources" :key="s.id">
+              {{ s.name }} · {{ s.available ? "可用" : "不可用" }}
+            </li>
+          </ul>
+        </article>
+      </div>
+    </section>
     <section v-else class="page">
       <span class="eyebrow">SHARED INDICATOR / COMPATIBILITY</span>
       <h1>算子兼容台账</h1>
@@ -692,7 +743,7 @@ onBeforeUnmount(() => {
         </table>
       </div>
     </section>
-    <footer>
+    <footer v-if="tab !== 'research'">
       <span>FactorPool / Research workspace</span
       ><span>PythonIndicator · FT C++ Core · PostgreSQL</span>
     </footer>

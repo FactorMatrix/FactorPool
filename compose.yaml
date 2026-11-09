@@ -37,7 +37,7 @@ services:
     cpus: 4
     stop_grace_period: 30s
   frontend:
-    image: factorpool/frontend:${FACTORPOOL_RELEASE:?}
+    image: factorpool/frontend:${FACTORPOOL_FRONTEND_RELEASE:-${FACTORPOOL_RELEASE:?}}
     build:
       context: .
       dockerfile: docker/Dockerfile.frontend

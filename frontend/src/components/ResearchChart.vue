@@ -28,19 +28,19 @@ function draw() {
   chart.setOption(
     {
       backgroundColor: "transparent",
-      color: ["#45d6aa", "#73a7ff", "#f5b85e", "#d49bfc", "#f68080"],
+      color: ["#18bed0", "#74b96a", "#efb240", "#d49bfc", "#f68080"],
       tooltip: { trigger: "axis" },
-      legend: { textStyle: { color: "#9dafbf" }, top: 5 },
+      legend: { textStyle: { color: "#8491a2" }, top: 5 },
       grid: { left: 60, right: 25, top: 50, bottom: 35 },
-      xAxis: { type: "category", data: dates, axisLabel: { color: "#7f94a8" } },
+      xAxis: { type: "category", data: dates, axisLabel: { color: "#8491a2" } },
       yAxis: {
         type: "value",
         axisLabel: {
-          color: "#7f94a8",
+          color: "#8491a2",
           formatter:
             props.mode === "ic" ? "{value}" : (v) => `${(v * 100).toFixed(1)}%`,
         },
-        splitLine: { lineStyle: { color: "#23313e" } },
+        splitLine: { lineStyle: { color: "#e3e8ef" } },
       },
       series,
     },

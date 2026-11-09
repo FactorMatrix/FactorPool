@@ -1,12 +1,24 @@
 <script setup>
 import { ref, computed, watch } from "vue";
 import ReportChart from "./ReportChart.vue";
-const props = defineProps({ report: Object });
-const period = ref("1"),
-  section = ref("ic"),
+const props = defineProps({
+  report: Object,
+  initialSection: { type: String, default: "ic" },
+  initialPeriod: { type: String, default: "1" },
+});
+const emit = defineEmits(["period-change"]);
+watch(
+  () => props.initialPeriod,
+  (value) => {
+    period.value = value;
+  },
+);
+const period = ref(props.initialPeriod),
+  section = ref(props.initialSection),
   metric = ref("rank_ic"),
-  view = ref("series"),
+  view = ref(props.initialSection === "ic" ? "series" : "nav"),
   strategy = ref("high_low");
+watch(period, (value) => emit("period-change", value));
 const periods = computed(() => Object.keys(props.report.horizons));
 watch(
   periods,
@@ -249,11 +261,11 @@ const brainCards = computed(() => {
 </template>
 <style scoped>
 .diagnostics {
-  border: 1px solid #293d4d;
-  border-radius: 7px;
+  border: 1px solid #dce2ea;
+  border-radius: 0;
   margin: 20px 0;
-  background: #111d28;
-  padding: 13px;
+  background: transparent;
+  padding: 12px;
   min-width: 0;
 }
 .diagnostic-heading {
@@ -279,7 +291,7 @@ const brainCards = computed(() => {
 }
 .diagnostic-tabs {
   padding-bottom: 12px;
-  border-bottom: 1px solid #273a49;
+  border-bottom: 1px solid #dce2ea;
 }
 .report-controls {
   display: flex;
@@ -293,7 +305,7 @@ const brainCards = computed(() => {
 }
 .report-note {
   font-size: 10px;
-  color: #8ba0b2;
+  color: #8a97a8;
   line-height: 1.8;
   margin: 10px 0;
 }
@@ -301,7 +313,7 @@ const brainCards = computed(() => {
   max-height: 330px;
 }
 .chosen {
-  background: #1a3c34;
+  background: #e5f2f5;
 }
 .brain-metrics {
   display: grid;
@@ -314,12 +326,12 @@ const brainCards = computed(() => {
   flex-direction: column;
   gap: 10px;
   padding: 12px;
-  background: #182936;
-  border-radius: 5px;
+  background: #edf2f6;
+  border-radius: 0;
 }
 .brain-metrics span {
   font-size: 11px;
-  color: #8fa8bf;
+  color: #8391a5;
 }
 .brain-metrics strong {
   font-weight: 500;
@@ -330,7 +342,7 @@ const brainCards = computed(() => {
   grid-template-columns: 1fr 1fr;
   gap: 10px;
   font-size: 10px;
-  color: #8fa8bf;
+  color: #8391a5;
   margin: 12px 0;
 }
 .brain-missing b {
@@ -341,11 +353,11 @@ dl {
   line-height: 1.9;
 }
 dt {
-  color: #71c5ad;
+  color: #4794a9;
 }
 dd {
   margin: 0 0 8px;
-  color: #9db0c4;
+  color: #8190a3;
 }
 @media (max-width: 500px) {
   .brain-metrics strong {

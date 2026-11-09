@@ -12,6 +12,7 @@ cd /home/quant/dev/FactorPool
 git submodule update --init shared/factortrader
 python3 scripts/configure.py
 python3 scripts/build_info.py
+python3 scripts/frontend_build_info.py
 # 沿用已核验的 FactorTrader Python 3.11.16 研究环境镜像。
 docker image inspect factortrader/platform:20261105-factortrader-48804c66-r1 >/dev/null
 docker compose build
@@ -19,9 +20,9 @@ docker compose up -d --wait
 curl --fail http://127.0.0.1:8088/health
 ```
 
-浏览器打开 `http://127.0.0.1:8088`。默认载入 LowVolumeFactor；点击“运行研究”，手算样例 IC=1、Rank IC=1、
+浏览器打开 `http://127.0.0.1:8088`。默认载入 LowVolumeFactor；点击“Simulate”，手算样例 IC=1、Rank IC=1、
 三组收益 -10%/0%/10%，单日 ICIR 为 `--`。样例明确标为合成数据。
-真实行情选择“FactorTrader 日线 · 只读真实行情”，输入证券代码或历史动态全 A 股、日期后运行。
+真实行情在 Settings 中选择“FactorTrader 日线 · 只读真实行情”，输入证券代码或历史动态全 A 股、日期后运行。
 后台按因子预热量读此前交易日，并多读两天开盘价用于收益，未来数据不进入 Indicator。
 
 ```bash
@@ -66,6 +67,8 @@ BRAIN rate=2/dense/日历窗口等需要官方执行器对账，不能用原 FT 
 | `frontend/` | Vue 编辑器、配置、结果、历史与兼容台账 |
 | `tests/` / `scripts/smoke.py` | 数值/跨项目对账与 HTTP 闭环验证 |
 | `参考文档/` | 用户提供的目标规范，未实现目标不等于当前能力 |
+
+BRAIN 布局、PythonIndicator 交互、独立前端发布与验证见 [Simulation 工作台](docs/WORKBENCH.md)。
 
 新报告的 [指标定义、PDF对照与BRAIN研究口径](docs/REPORT-METRICS.md) 是当前报告正本。
 

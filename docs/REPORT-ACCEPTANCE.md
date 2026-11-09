@@ -2,6 +2,7 @@
 
 当前指标合同是 [REPORT-METRICS](REPORT-METRICS.md)，API见 [多周期响应](API.md#多周期报告report-version-2)。
 本记录对应本轮执行，不将测试或PDF已有结果称为BRAIN官方对账。
+后续前端独立更新见 [Simulation 工作台](WORKBENCH.md)，后台仍沿用本页报告v2镜像。
 
 ## 实现与部署
 

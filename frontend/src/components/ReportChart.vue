@@ -16,15 +16,15 @@ function draw() {
     k = props.metric;
   const base = {
     backgroundColor: "transparent",
-    color: ["#45d6aa", "#f5b85e", "#73a7ff"],
+    color: ["#18bed0", "#efb240", "#74b96a"],
     tooltip: { trigger: "axis" },
-    legend: { top: 0, textStyle: { color: "#9dafbf" } },
+    legend: { top: 0, textStyle: { color: "#8491a2" } },
     grid: { left: 55, right: 55, top: 45, bottom: 40 },
-    xAxis: { type: "category", axisLabel: { color: "#8198ac" } },
+    xAxis: { type: "category", axisLabel: { color: "#8491a2" } },
     yAxis: {
       type: "value",
-      axisLabel: { color: "#8198ac" },
-      splitLine: { lineStyle: { color: "#263747" } },
+      axisLabel: { color: "#8491a2" },
+      splitLine: { lineStyle: { color: "#e3e8ef" } },
     },
   };
   let option = { ...base };
@@ -50,17 +50,17 @@ function draw() {
       xAxis: {
         type: "category",
         data: Array.from({ length: 12 }, (_, i) => `${i + 1}月`),
-        axisLabel: { color: "#8198ac" },
+        axisLabel: { color: "#8491a2" },
       },
-      yAxis: { type: "category", data: years, axisLabel: { color: "#8198ac" } },
+      yAxis: { type: "category", data: years, axisLabel: { color: "#8491a2" } },
       visualMap: {
         min: -extent,
         max: extent,
         orient: "horizontal",
         left: "center",
         bottom: 0,
-        textStyle: { color: "#9dafbf" },
-        inRange: { color: ["#32745f", "#263340", "#ab555a"] },
+        textStyle: { color: "#8491a2" },
+        inRange: { color: ["#93c7af", "#f3f6f8", "#d99191"] },
       },
       series: [
         {
@@ -71,7 +71,7 @@ function draw() {
             formatter: (v) =>
               p ? (v.value[2] * 100).toFixed(1) + "%" : v.value[2].toFixed(3),
           },
-          itemStyle: { borderColor: "#101b25", borderWidth: 2 },
+          itemStyle: { borderColor: "#fafbfc", borderWidth: 2 },
         },
       ],
     };
