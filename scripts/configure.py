@@ -9,7 +9,7 @@ import hashlib
 
 root=Path(__file__).resolve().parents[1]
 p=argparse.ArgumentParser()
-p.add_argument('--state-dir',default='/home/quant/dev/FactorPool-data')
+p.add_argument('--state-dir',default='/home/quant/colorful-data/FactorPool-data')
 p.add_argument('--market-root',default='/home/quant/quant_data/mmap')
 p.add_argument('--release',default='20261109-r2')
 a=p.parse_args()

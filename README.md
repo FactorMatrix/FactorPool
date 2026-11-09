@@ -34,9 +34,9 @@ python3 scripts/smoke.py --base http://127.0.0.1:8088
 docker compose down
 ```
 
-`.env` 由脚本首次生成且不覆盖，权限0600，不提交密码。默认状态目录 `/home/quant/dev/FactorPool-data`；
-市场目录 `/home/quant/quant_data/mmap` 以只读挂载。可首次通过 `--state-dir/--market-root/--release` 指定，
-已有配置直接编辑 `.env`，随后 `docker compose up -d`。不对数据做下载、更新、重建或定时刷新。
+`.env` 由脚本首次生成且不覆盖，权限0600，不提交密码。默认状态目录 `/home/quant/colorful-data/FactorPool-data`；
+PostgreSQL 保存因子版本与研究历史，不包含产品账号、注册或登录表。已有共用行情目录 `/home/quant/quant_data/mmap` 以只读挂载。可首次通过 `--state-dir/--market-root/--release` 指定，
+存储范围与本次迁移验证见 [数据存储](docs/STORAGE.md)。已有配置直接编辑 `.env`，随后 `docker compose up -d`。不对数据做下载、更新、重建或定时刷新。
 环境基线镜像须已存在；可通过 `FT_ENV_IMAGE` 指定兼容镜像。构建从固定共享源码重编指标，绝不使用旧应用里的指标二进制。
 
 ## 实际支持范围
@@ -67,6 +67,8 @@ BRAIN rate=2/dense/日历窗口等需要官方执行器对账，不能用原 FT 
 | `frontend/` | Vue 编辑器、配置、结果、历史与兼容台账 |
 | `tests/` / `scripts/smoke.py` | 数值/跨项目对账与 HTTP 闭环验证 |
 | `参考文档/` | 用户提供的目标规范，未实现目标不等于当前能力 |
+
+核心性能的开源参考、通用优化、同预算实测及复现方式见 [矩阵核心性能](docs/PERFORMANCE.md)。
 
 BRAIN 布局、PythonIndicator 交互、独立前端发布与验证见 [Simulation 工作台](docs/WORKBENCH.md)。
 

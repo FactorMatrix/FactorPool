@@ -9,7 +9,7 @@
 - 环境：继承 `factortrader/platform:20261105-factortrader-48804c66-r1` 的 Python3.11.16及研究依赖；新指标与研究模块由固定源码重新编译。
 - 镜像标签：`factorpool/backend:20261109-r1`、`factorpool/frontend:20261109-r1`；数据库 `pgvector/pgvector:pg17` 使用普通PostgreSQL表，不依赖向量扩展。
 - 实际源码清单SHA及父环境镜像ID记录在 `docker/build-info.json`，并由每次任务结果metadata带回。
-- 默认数据目录 `/home/quant/dev/FactorPool-data`；已有行情 `/home/quant/quant_data/mmap` 只读挂载。本轮没有下载、更新或重建行情。
+- 首版当时默认数据目录 `/home/quant/dev/FactorPool-data`，现已按用户要求迁移并删除，当前路径见 [存储正本](STORAGE.md)；已有行情 `/home/quant/quant_data/mmap` 只读挂载。本轮没有下载、更新或重建行情。
 
 ## 访问与探测
 
