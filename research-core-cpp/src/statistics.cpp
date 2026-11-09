@@ -19,7 +19,8 @@ std::vector<double> numbers(PyObject *obj) {
 std::vector<double> rank_values(const std::vector<double> &v) {
   std::vector<std::size_t> order(v.size());
   std::iota(order.begin(), order.end(), 0);
-  std::stable_sort(order.begin(), order.end(),
+  // Equal values all receive the same average rank; their internal order is unobserved.
+  std::sort(order.begin(), order.end(),
                    [&](auto a, auto b) { return v[a] < v[b]; });
   std::vector<double> out(v.size());
   for (std::size_t i = 0; i < order.size();) {

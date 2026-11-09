@@ -1,6 +1,7 @@
 #include "analysis.hpp"
 #include "python_values.hpp"
 #include "statistics.hpp"
+#include "research_input.hpp"
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -20,13 +21,9 @@ PyObject *analyze(PyObject *, PyObject *args) {
     if (horizon < 1 || horizon > 252 || groups < 1 || groups > 100 ||
         minimum < 2 || ddof < 0 || ddof > 1)
       throw std::invalid_argument("Invalid analysis options");
-    auto f = matrix(factor), p = matrix(opens);
-    auto membership = eligible ? matrix(eligible) : Matrix{};
-    if (eligible && (membership.size() != f.size() ||
-                     (!f.empty() && membership[0].size() != f[0].size())))
-      throw std::invalid_argument("Membership axes differ");
-    if (f.size() > p.size() || (!f.empty() && f[0].size() != p[0].size()))
-      throw std::invalid_argument("Factor/price axes differ");
+    InputRef holder(factor, opens, eligible);
+    const auto &input = *holder.value;
+    const auto &f = input.factors, &p = input.prices;
     Owned result{PyDict_New()}, days{PyList_New(0)}, returns{PyList_New(0)},
         assignments{PyList_New(0)};
     std::vector<double> ics, rankics, cumulative(groups, 1.0);
@@ -35,18 +32,19 @@ PyObject *analyze(PyObject *, PyObject *args) {
     for (std::size_t t = 0; t < f.size(); ++t) {
       std::vector<double> r(f[t].size(), missing), a, b,
           labels(f[t].size(), missing);
-      std::vector<std::size_t> order;
+      const auto &order = input.order[t];
+      std::vector<std::size_t> pair_symbols;
       for (std::size_t n = 0; n < f[t].size(); ++n) {
-        if (!eligible || membership[t][n] > 0)
+        if (input.eligible(t, n))
           ++total;
         if (t + 1 + horizon < p.size() && std::isfinite(p[t + 1][n]) &&
             std::isfinite(p[t + 1 + horizon][n]) && p[t + 1][n] > 0 &&
             p[t + 1 + horizon][n] > 0)
           r[n] = p[t + 1 + horizon][n] / p[t + 1][n] - 1;
-        if (std::isfinite(f[t][n]) && (!eligible || membership[t][n] > 0)) {
+        if (std::isfinite(f[t][n]) && input.eligible(t, n)) {
           ++covered;
-          order.push_back(n);
           if (std::isfinite(r[n])) {
+            pair_symbols.push_back(n);
             a.push_back(f[t][n]);
             b.push_back(r[n]);
             ++pairs;
@@ -54,13 +52,13 @@ PyObject *analyze(PyObject *, PyObject *args) {
         }
       }
       const double ic = correlation(a, b, minimum),
-                   ric = correlation(rank_values(a), rank_values(b), minimum);
+                   ric = a.size() >= static_cast<std::size_t>(minimum)
+                     ? correlation(paired_factor_ranks(input, t, pair_symbols), rank_values(b), minimum)
+                     : missing;
       if (std::isfinite(ic))
         ics.push_back(ic);
       if (std::isfinite(ric))
         rankics.push_back(ric);
-      std::stable_sort(order.begin(), order.end(),
-                       [&](auto x, auto y) { return f[t][x] < f[t][y]; });
       std::vector<double> sums(groups, 0), counts(groups, 0),
           members(groups, 0), means(groups, missing), nav(groups, missing);
       for (std::size_t k = 0; k < order.size(); ++k) {

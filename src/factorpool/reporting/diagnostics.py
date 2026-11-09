@@ -80,18 +80,21 @@ def portfolio_calendar(exit_dates, returns, width=7):
     return output
 
 
-def build(factors, prices, membership, dates, price_dates, analysis):
+def build(factors, prices, membership, dates, price_dates, analysis, *, primary=None):
     periods, annual_days, steps = options(analysis)
     ddof, groups, minimum = analysis.get("icir_ddof", 1), analysis.get("groups", 3), analysis.get("min_ic_pairs", 3)
+    prepared = factors if prices is None else native.prepare_research(factors, prices, membership)
     out = {}
     for h in periods:
-        raw = native.analyze(factors, prices, groups, minimum, ddof, membership, h)
-        daily = raw["daily"]
-        ics = [day["ic"] for day in daily]
-        rics = [day["rank_ic"] for day in daily]
+        if h == 1 and primary is not None:
+            ics = [day["ic"] for day in primary["daily"]]
+            rics = [day["rank_ic"] for day in primary["daily"]]
+        else:
+            series = native.ic_series(prepared, h, minimum)
+            ics, rics = series["ic"], series["rank_ic"]
         ic = inference(ics, ddof, h-1)
         rank_ic = inference(rics, ddof, h-1)
-        portfolios = native.portfolio_report(factors, prices, membership, groups, h, annual_days)
+        portfolios = native.portfolio_report(prepared, None, None, groups, h, annual_days)
         indices = [int(v) for v in portfolios.pop("signal_indices")]
         signals = [dates[i] for i in indices]
         exits = [price_dates[i+1+h] if i+1+h < len(price_dates) else None for i in indices]
@@ -103,7 +106,7 @@ def build(factors, prices, membership, dates, price_dates, analysis):
                         ic_cumulative=cumulative_sum(ics), rank_ic_cumulative=cumulative_sum(rics)),
             monthly=dict(ic=grouped_moments(dates, ics, 7, ddof),rank_ic=grouped_moments(dates, rics, 7, ddof)),
             yearly=dict(ic=grouped_moments(dates, ics, 4, ddof),rank_ic=grouped_moments(dates, rics, 4, ddof)),
-            decay=native.ic_decay(factors, prices, membership, h, steps, minimum),
+            decay=native.ic_decay(prepared, None, None, h, steps, minimum),
             portfolio_signal_dates=signals, portfolio_exit_dates=exits, portfolios=portfolios["strategies"])
     return dict(version=2, horizons=out, conventions=dict(
         annual_days=annual_days, ic_ddof=ddof, return_price="raw open", signal_delay=1,

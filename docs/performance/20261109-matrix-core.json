@@ -1,0 +1,348 @@
+{
+  "date": "2026-11-09",
+  "host_cpu": "Intel Core i7-9750H",
+  "python": "3.11.16",
+  "numpy": "1.26.4",
+  "budget": {
+    "cpus": 1,
+    "affinity": [
+      0
+    ],
+    "memory": "4GiB",
+    "network": "none",
+    "market_or_state_mounts": false
+  },
+  "baseline": {
+    "image": "factorpool/backend:20261109-r2",
+    "build": {
+      "environment_image_id": "sha256:6730005dac82d62159abd5461db7852b507f92c90b2561f1b6d24731adcfb8e9",
+      "factortrader_commit": "a847a662aa8f7b2ee7dd4beaaa734d79537ba2d3",
+      "lean_reference": "f49bb9623a3e8782bf22bbd2cb51f691058cfdc3",
+      "environment_image": "factortrader/platform:20261105-factortrader-48804c66-r1",
+      "python": "3.11.16",
+      "operator_contract": "ft-pool-1",
+      "research_kernel": "matrix-analysis-v2",
+      "factorpool_source_sha256": "b9987a50930261f792b4c9c6f07db5116fdd4fe1eff4ac640233d8ad4c45c235"
+    }
+  },
+  "candidate": {
+    "image": "factorpool/backend:20261109-r4",
+    "build": {
+      "environment_image_id": "sha256:6730005dac82d62159abd5461db7852b507f92c90b2561f1b6d24731adcfb8e9",
+      "factortrader_commit": "a847a662aa8f7b2ee7dd4beaaa734d79537ba2d3",
+      "lean_reference": "f49bb9623a3e8782bf22bbd2cb51f691058cfdc3",
+      "environment_image": "factortrader/platform:20261105-factortrader-48804c66-r1",
+      "python": "3.11.16",
+      "operator_contract": "ft-pool-1",
+      "research_kernel": "matrix-analysis-v2",
+      "factorpool_source_sha256": "93dc101f1112abb76cd3fc0caaa1e0a52173aa9136a45e421db5d03dc0203f55"
+    }
+  },
+  "scope": "matrix prepare + primary + complete diagnostics; synthetic input generation and canonical serialization outside timing; no disk cache comparison",
+  "oracle_cases": {
+    "dense-G1-ddof0": "ffdc0bca839d94e3e48f0319ad39078da74cdc87219ba4fac25680566b9da0e5",
+    "dense-G1-ddof1": "d8b2b124c2afe5e7d91a06b242da20c75fd309c56cae7417590a49748a7e5095",
+    "dense-G2-ddof0": "fd2778505d515702294f11f9ba37c4746dcb94cdf82dbbde6cb05384e9aed11a",
+    "dense-G2-ddof1": "9cbda20316c6e3e837b12b5892763dc7df6ffe6d9ce692d1de1b26df9915eb3d",
+    "dense-G7-ddof0": "29ebdc19cb925d7dfb248982ff6a7ca58fa2eae907cb51ec635f87498d0c70d4",
+    "dense-G7-ddof1": "fd6821085fd49ba4a956404a3e739e9e3a185abaf6034923b6d07ab8f9bd4a57",
+    "dense-G30-ddof0": "8fd74813ff4e6fb8ec1f3a17041dcdc03240818226c3ce3705042c290f4782ad",
+    "dense-G30-ddof1": "994bdb0d18e0dfa38b796ec3ca065ca0baf4629c723b55493c16f6d4add005e3",
+    "sparse-G1-ddof0": "e0b7ccc6643fb15938e6204194a1e6ecef00bf8458649d2c97e71d9e26be38a3",
+    "sparse-G1-ddof1": "a5aa028561a7b7a562e52ff860643b24f413feb299819b62e0b1e6495a7ab6ca",
+    "sparse-G2-ddof0": "7c0a6febc0a9afed8388447a26e7184d517268d54b8f51a0d593b33348ae4c40",
+    "sparse-G2-ddof1": "cfb32ff9abdb8ecff50847e67655fa18451aeba70c3afdbb1996c2f4bc3ec9a2",
+    "sparse-G7-ddof0": "ce14bf82533d9f0341112461cd542d013049d4248edcdfb71c9b09c27cef3de2",
+    "sparse-G7-ddof1": "c541f81221d1c893bf66878ed8bc1d5b713af6afcd3e9ce74e53b9895c43920c",
+    "sparse-G30-ddof0": "d15d3e0e29549f09624b802665bb176fb80bac0c9683d5d8c97814428604036a",
+    "sparse-G30-ddof1": "071222174df23597d399010b13aab0ccb7267846a06adf9fa5006305708f1fc1",
+    "empty": "fbfc1238658eb043f565f0bbe116cb2d5fa4c1d5ba2acc8361b335ca6dfe4d5a",
+    "zero-columns": "7a931bca69b527595fb060cd06c9db51b997c262a584a772e4983e1424271f28",
+    "overflow": "08abae6d3de6604d38e0a10be528433d0bf60831629f7490106c3cacc89ab4e5",
+    "underflow": "654e4ae3ffcf5f874cab96d45de3f40f0c27aeeb72c1f1022778415b66ba1aea"
+  },
+  "cases": [
+    {
+      "dates": 128,
+      "symbols": 64,
+      "kind": "dense",
+      "analysis": {
+        "groups": 5,
+        "horizons": [
+          1,
+          5,
+          20
+        ],
+        "decay_steps": 10
+      },
+      "baseline": {
+        "seconds": [
+          0.0377963759819977,
+          0.03591803403105587,
+          0.03546835499582812
+        ],
+        "median_seconds": 0.03591803403105587,
+        "max_rss_kib": 121572,
+        "full_result_sha256": "7a3fd90c61bb7766509e536e2e02ff36bf1cebfe62257a9a53a5ccca581bc3d8",
+        "native_sha256": "e11c211f23110a58963a7cb6791b7445f8deefb407253b655c292951601f80f9",
+        "shared_library_sha256": "6794771f9959b23d749ea69b1047711902012d71c052affac2c5483dc31c40ff",
+        "affinity": [
+          0
+        ],
+        "cpu_max": "100000 100000"
+      },
+      "candidate": {
+        "seconds": [
+          0.024207982991356403,
+          0.0234088659635745,
+          0.023909876006655395
+        ],
+        "median_seconds": 0.023909876006655395,
+        "max_rss_kib": 119648,
+        "full_result_sha256": "7a3fd90c61bb7766509e536e2e02ff36bf1cebfe62257a9a53a5ccca581bc3d8",
+        "native_sha256": "b19c2530d587eaaba51cf59ef3990f5fe2f81aa413d4586db9811edd47a16bd3",
+        "shared_library_sha256": "6794771f9959b23d749ea69b1047711902012d71c052affac2c5483dc31c40ff",
+        "affinity": [
+          0
+        ],
+        "cpu_max": "100000 100000"
+      },
+      "speedup": 1.5022258593502518
+    },
+    {
+      "dates": 128,
+      "symbols": 64,
+      "kind": "sparse",
+      "analysis": {
+        "groups": 5,
+        "horizons": [
+          1,
+          5,
+          20
+        ],
+        "decay_steps": 10
+      },
+      "baseline": {
+        "seconds": [
+          0.032578307029325515,
+          0.03117242903681472,
+          0.03197237296262756
+        ],
+        "median_seconds": 0.03197237296262756,
+        "max_rss_kib": 120028,
+        "full_result_sha256": "bfae6f9d2f55bcf7797ccba30b2b5f7bc7ce6f4e6975c846512c81bdba3762a4",
+        "native_sha256": "e11c211f23110a58963a7cb6791b7445f8deefb407253b655c292951601f80f9",
+        "shared_library_sha256": "6794771f9959b23d749ea69b1047711902012d71c052affac2c5483dc31c40ff",
+        "affinity": [
+          0
+        ],
+        "cpu_max": "100000 100000"
+      },
+      "candidate": {
+        "seconds": [
+          0.020781199971679598,
+          0.020630996965337545,
+          0.02047958702314645
+        ],
+        "median_seconds": 0.020630996965337545,
+        "max_rss_kib": 119252,
+        "full_result_sha256": "bfae6f9d2f55bcf7797ccba30b2b5f7bc7ce6f4e6975c846512c81bdba3762a4",
+        "native_sha256": "b19c2530d587eaaba51cf59ef3990f5fe2f81aa413d4586db9811edd47a16bd3",
+        "shared_library_sha256": "6794771f9959b23d749ea69b1047711902012d71c052affac2c5483dc31c40ff",
+        "affinity": [
+          0
+        ],
+        "cpu_max": "100000 100000"
+      },
+      "speedup": 1.5497250577053951
+    },
+    {
+      "dates": 504,
+      "symbols": 512,
+      "kind": "dense",
+      "analysis": {
+        "groups": 5,
+        "horizons": [
+          1,
+          5,
+          20
+        ],
+        "decay_steps": 10
+      },
+      "baseline": {
+        "seconds": [
+          1.1812144999857992,
+          1.1679860620060936,
+          1.250571712036617
+        ],
+        "median_seconds": 1.1812144999857992,
+        "max_rss_kib": 207960,
+        "full_result_sha256": "22e3e2e3a39d0d334c928afc448fee2bc11ddef5f1115450fe15f2f3a6f9e86a",
+        "native_sha256": "e11c211f23110a58963a7cb6791b7445f8deefb407253b655c292951601f80f9",
+        "shared_library_sha256": "6794771f9959b23d749ea69b1047711902012d71c052affac2c5483dc31c40ff",
+        "affinity": [
+          0
+        ],
+        "cpu_max": "100000 100000"
+      },
+      "candidate": {
+        "seconds": [
+          0.6299962010234594,
+          0.6215642159804702,
+          0.617219342966564
+        ],
+        "median_seconds": 0.6215642159804702,
+        "max_rss_kib": 178400,
+        "full_result_sha256": "22e3e2e3a39d0d334c928afc448fee2bc11ddef5f1115450fe15f2f3a6f9e86a",
+        "native_sha256": "b19c2530d587eaaba51cf59ef3990f5fe2f81aa413d4586db9811edd47a16bd3",
+        "shared_library_sha256": "6794771f9959b23d749ea69b1047711902012d71c052affac2c5483dc31c40ff",
+        "affinity": [
+          0
+        ],
+        "cpu_max": "100000 100000"
+      },
+      "speedup": 1.9003901280296893
+    },
+    {
+      "dates": 504,
+      "symbols": 512,
+      "kind": "sparse",
+      "analysis": {
+        "groups": 5,
+        "horizons": [
+          1,
+          5,
+          20
+        ],
+        "decay_steps": 10
+      },
+      "baseline": {
+        "seconds": [
+          0.9318055019830354,
+          0.9330339069711044,
+          0.9325481890118681
+        ],
+        "median_seconds": 0.9325481890118681,
+        "max_rss_kib": 201704,
+        "full_result_sha256": "f7f88a077dfa463a83c92049a9e1a7e5e9aed6d5969f6c2b09e48e7995c835f8",
+        "native_sha256": "e11c211f23110a58963a7cb6791b7445f8deefb407253b655c292951601f80f9",
+        "shared_library_sha256": "6794771f9959b23d749ea69b1047711902012d71c052affac2c5483dc31c40ff",
+        "affinity": [
+          0
+        ],
+        "cpu_max": "100000 100000"
+      },
+      "candidate": {
+        "seconds": [
+          0.5239336329977959,
+          0.5178171360166743,
+          0.5289626090088859
+        ],
+        "median_seconds": 0.5239336329977959,
+        "max_rss_kib": 173800,
+        "full_result_sha256": "f7f88a077dfa463a83c92049a9e1a7e5e9aed6d5969f6c2b09e48e7995c835f8",
+        "native_sha256": "b19c2530d587eaaba51cf59ef3990f5fe2f81aa413d4586db9811edd47a16bd3",
+        "shared_library_sha256": "6794771f9959b23d749ea69b1047711902012d71c052affac2c5483dc31c40ff",
+        "affinity": [
+          0
+        ],
+        "cpu_max": "100000 100000"
+      },
+      "speedup": 1.7798975486190844
+    },
+    {
+      "dates": 1000,
+      "symbols": 2000,
+      "kind": "dense",
+      "analysis": {
+        "groups": 5,
+        "horizons": [
+          1,
+          5,
+          20
+        ],
+        "decay_steps": 10
+      },
+      "baseline": {
+        "seconds": [
+          10.336934261023998,
+          10.252719749987591,
+          10.312774434976745
+        ],
+        "median_seconds": 10.312774434976745,
+        "max_rss_kib": 884552,
+        "full_result_sha256": "9e32c4d0aac4f943012c3a7374412e53e1ce64647e0f1e2f698d82184635d60c",
+        "native_sha256": "e11c211f23110a58963a7cb6791b7445f8deefb407253b655c292951601f80f9",
+        "shared_library_sha256": "6794771f9959b23d749ea69b1047711902012d71c052affac2c5483dc31c40ff",
+        "affinity": [
+          0
+        ],
+        "cpu_max": "100000 100000"
+      },
+      "candidate": {
+        "seconds": [
+          5.3622019419563,
+          5.361217332014348,
+          5.374695445003454
+        ],
+        "median_seconds": 5.3622019419563,
+        "max_rss_kib": 584608,
+        "full_result_sha256": "9e32c4d0aac4f943012c3a7374412e53e1ce64647e0f1e2f698d82184635d60c",
+        "native_sha256": "b19c2530d587eaaba51cf59ef3990f5fe2f81aa413d4586db9811edd47a16bd3",
+        "shared_library_sha256": "6794771f9959b23d749ea69b1047711902012d71c052affac2c5483dc31c40ff",
+        "affinity": [
+          0
+        ],
+        "cpu_max": "100000 100000"
+      },
+      "speedup": 1.9232349968554747
+    },
+    {
+      "dates": 1000,
+      "symbols": 2000,
+      "kind": "sparse",
+      "analysis": {
+        "groups": 5,
+        "horizons": [
+          1,
+          5,
+          20
+        ],
+        "decay_steps": 10
+      },
+      "baseline": {
+        "seconds": [
+          7.63665508601116,
+          7.63094820297556,
+          7.59093214396853
+        ],
+        "median_seconds": 7.63094820297556,
+        "max_rss_kib": 845492,
+        "full_result_sha256": "00e2aa645d767494e66651fc3ceff90278854f3196ac7283b96546ac79a045ef",
+        "native_sha256": "e11c211f23110a58963a7cb6791b7445f8deefb407253b655c292951601f80f9",
+        "shared_library_sha256": "6794771f9959b23d749ea69b1047711902012d71c052affac2c5483dc31c40ff",
+        "affinity": [
+          0
+        ],
+        "cpu_max": "100000 100000"
+      },
+      "candidate": {
+        "seconds": [
+          4.411735597997904,
+          4.374384675000329,
+          4.398287740012165
+        ],
+        "median_seconds": 4.398287740012165,
+        "max_rss_kib": 565476,
+        "full_result_sha256": "00e2aa645d767494e66651fc3ceff90278854f3196ac7283b96546ac79a045ef",
+        "native_sha256": "b19c2530d587eaaba51cf59ef3990f5fe2f81aa413d4586db9811edd47a16bd3",
+        "shared_library_sha256": "6794771f9959b23d749ea69b1047711902012d71c052affac2c5483dc31c40ff",
+        "affinity": [
+          0
+        ],
+        "cpu_max": "100000 100000"
+      },
+      "speedup": 1.7349815778433937
+    }
+  ]
+}

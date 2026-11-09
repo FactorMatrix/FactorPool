@@ -106,8 +106,9 @@ def run(directory):
     timings["calculate"] = time.perf_counter() - checkpoint
     checkpoint = time.perf_counter()
     options = request["analysis"]
-    result = native.analyze(matrices, prices, options.get("groups", 3), options.get("min_ic_pairs", 3), options.get("icir_ddof", 1), membership)
-    result["diagnostics"] = build_diagnostics(matrices, prices, membership, dates, [f["date"] for f in tail], options)
+    prepared = native.prepare_research(matrices, prices, membership)
+    result = native.analyze(prepared, None, options.get("groups", 3), options.get("min_ic_pairs", 3), options.get("icir_ddof", 1))
+    result["diagnostics"] = build_diagnostics(prepared, None, None, dates, [f["date"] for f in tail], options, primary=result)
     for date, day in zip(dates, result["daily"]):
         day["date"] = date
     returns, groups = result.pop("forward_returns"), result.pop("groups")

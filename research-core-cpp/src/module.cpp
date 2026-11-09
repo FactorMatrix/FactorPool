@@ -1,5 +1,10 @@
 #include "analysis.hpp"
+#include "research_input.hpp"
 static PyMethodDef methods[] = {
+    {"prepare_research", prepare_research, METH_VARARGS,
+     "Own and validate matrices once; share stable factor order within one task."},
+    {"ic_series", ic_series, METH_VARARGS,
+     "Requested IC/Rank IC series without materializing unused value/group arrays."},
     {"analyze", analyze, METH_VARARGS,
      "Batch IC, Rank IC, ICIR, groups and T+1 -> T+2 open returns."},
     {"read_mmap", read_mmap, METH_VARARGS,

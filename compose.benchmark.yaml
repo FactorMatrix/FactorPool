@@ -1,0 +1,17 @@
+name: factorpool-benchmark
+services:
+  benchmark:
+    image: ${FACTORPOOL_BENCH_IMAGE:-factorpool/backend:20261109-r2}
+    entrypoint: [python3, /bench/scripts/benchmark_core.py]
+    network_mode: none
+    read_only: true
+    cpus: 1
+    cpuset: ${FACTORPOOL_BENCH_CPU:-0}
+    mem_limit: 4g
+    tmpfs:
+      - /tmp:size=512m
+    volumes:
+      - ./scripts:/bench/scripts:ro
+      - ./tests:/bench/tests:ro
+      - ./examples:/bench/examples:ro
+      - ./build/performance:/bench/output

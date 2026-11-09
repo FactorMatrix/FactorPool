@@ -1,5 +1,6 @@
 #include "analysis.hpp"
 #include "statistics.hpp"
+#include "research_input.hpp"
 #include <algorithm>
 #include <numeric>
 #include <string>
@@ -22,11 +23,9 @@ PyObject *portfolio_report(PyObject *, PyObject *args) {
     if (groups < 1 || groups > 100 || h < 1 || h > 252 || annual_days < 1 ||
         annual_days > 366)
       throw std::invalid_argument("Invalid portfolio options");
-    auto f = matrix(factor), p = matrix(opens), m = matrix(members);
-    if (f.size() > p.size() || f.size() != m.size() ||
-        (!f.empty() &&
-         (f[0].size() != p[0].size() || f[0].size() != m[0].size())))
-      throw std::invalid_argument("Portfolio axes differ");
+    InputRef holder(factor, opens, members);
+    const auto &input = *holder.value;
+    const auto &f = input.factors, &p = input.prices;
     const std::size_t count = f.empty() ? 0 : f[0].size();
     std::vector<Strategy> strategies;
     for (int g = 0; g < groups; ++g)
@@ -44,12 +43,7 @@ PyObject *portfolio_report(PyObject *, PyObject *args) {
     std::vector<double> indices;
     for (std::size_t t = 0; t < f.size(); t += h) {
       indices.push_back(double(t));
-      std::vector<std::size_t> order;
-      for (std::size_t n = 0; n < count; ++n)
-        if (std::isfinite(f[t][n]) && m[t][n] > 0)
-          order.push_back(n);
-      std::stable_sort(order.begin(), order.end(),
-                       [&](auto a, auto b) { return f[t][a] < f[t][b]; });
+      const auto &order = input.order[t];
       std::vector<std::size_t> labels(count, groups), sizes(groups, 0);
       long double mean = 0;
       for (std::size_t k = 0; k < order.size(); ++k) {
