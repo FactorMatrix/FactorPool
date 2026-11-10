@@ -8,10 +8,3 @@ __pycache__/
 backend/target/
 frontend/node_modules/
 frontend/dist/
-
-# Development-only material; publish only when the user says it is ready.
-/README.md
-/AGENTS.md
-/参考文档/
-/docs/*
-!/docs/operators.json

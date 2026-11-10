@@ -1,2 +1,0 @@
-# Preserve user-provided Markdown, including intentional two-space line breaks.
-参考文档/*.md whitespace=-blank-at-eol
