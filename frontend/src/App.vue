@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount } from "vue";
+import { ref, computed, watch, onMounted, onBeforeUnmount } from "vue";
 import FactorEditor from "./components/FactorEditor.vue";
 import SplitPane from "./components/SplitPane.vue";
 import UiIcon from "./components/UiIcon.vue";
@@ -7,9 +7,15 @@ import WorkspaceSettings from "./components/WorkspaceSettings.vue";
 import SimulationResults from "./components/SimulationResults.vue";
 import { api } from "./api";
 const source = ref(""),
+  sourceMode = ref("script"),
   name = ref("20日低成交量因子"),
   factorClass = ref("LowVolumeFactor"),
   params = ref('{"period":20}');
+const resolvedScript = ref(null),
+  resolveError = ref(""),
+  resolving = ref(false);
+let resolveRevision = 0;
+const scriptMode = computed(() => sourceMode.value === "script");
 const provider = ref("market_matrix"),
   snapshotId = ref(null),
   universe = ref("000001.XSHE,000002.XSHE,600000.XSHG"),
@@ -59,6 +65,12 @@ const workspaces = ref([
 ]);
 const workspaceId = ref(1);
 let workspaceSequence = 1;
+watch([source, sourceMode, workspaceId], () => {
+  ++resolveRevision;
+  resolvedScript.value = null;
+  resolveError.value = "";
+  resolving.value = false;
+});
 const settings = computed(() => ({
   provider: provider.value,
   snapshotId: snapshotId.value,
@@ -89,6 +101,7 @@ function captureWorkspace() {
   const current = workspaces.value.find((w) => w.id === workspaceId.value);
   current.draft = {
     ...settings.value,
+    sourceMode: sourceMode.value,
     source: source.value,
     name: name.value,
     factorId: factorId.value,
@@ -110,6 +123,7 @@ async function selectWorkspace(id) {
     captureWorkspace();
     const next = workspaces.value.find((w) => w.id === id);
     workspaceId.value = id;
+    sourceMode.value = next.draft.sourceMode || "legacy";
     applySettings(next.draft);
     source.value = next.draft.source;
     name.value = next.draft.name;
@@ -141,6 +155,8 @@ function newWorkspace(copy = false) {
   showCode.value = true;
 }
 function request() {
+  if (scriptMode.value)
+    return { name: name.value, source_mode: "script", source_code: source.value };
   const factorParams = JSON.parse(params.value);
   if (
     !factorParams ||
@@ -186,6 +202,24 @@ function request() {
     },
   };
 }
+async function resolveScript() {
+  const token = ++resolveRevision,
+    text = source.value,
+    workspace = workspaceId.value;
+  resolving.value = true;
+  resolveError.value = "";
+  resolvedScript.value = null;
+  try {
+    const resolved = await api("/script/resolve", { source_code: text });
+    if (token === resolveRevision && source.value === text && workspaceId.value === workspace && scriptMode.value)
+      resolvedScript.value = resolved;
+  } catch (e) {
+    if (token === resolveRevision && source.value === text && workspaceId.value === workspace)
+      resolveError.value = e.message;
+  } finally {
+    if (token === resolveRevision) resolving.value = false;
+  }
+}
 async function action(fn) {
   error.value = "";
   busy.value = true;
@@ -204,13 +238,8 @@ async function refreshLists() {
   ]);
 }
 function example(item) {
+  sourceMode.value = "script";
   source.value = item.source_code;
-  factorClass.value = item.source_code.match(/class\s+(\w+)\(/)?.[1] || "";
-  params.value = item.name.includes("volume_rank")
-    ? '{"volume_period":20,"rank_period":5}'
-    : item.name.includes("close_mean")
-      ? '{"period":3}'
-      : '{"period":20}';
   name.value = item.name.includes("volume_rank")
     ? "成交量多阶段截面"
     : item.name.includes("close_mean")
@@ -235,16 +264,13 @@ async function loadFactor(id) {
     newWorkspace();
     restoreSnapshot(d);
     factorId.value = id;
-    source.value = d.source_code;
-    factorClass.value = d.factor_class;
-    params.value = JSON.stringify(d.factor_params || {});
-    name.value = d.name;
     tab.value = "research";
     notice.value = `已载入因子 v${f.versions[0].version}`;
   });
 }
 function clearDraft() {
   factorId.value = null;
+  sourceMode.value = "script";
   provider.value = "market_matrix";
   snapshotId.value = null;
   name.value = "新因子";
@@ -315,24 +341,25 @@ async function cancel() {
 }
 async function runBatch() {
   await action(async () => {
-    const r = request();
-    const batch = await api("/tasks/batch", {
-      factors: selected.value,
-      data: r.data,
-      analysis: r.analysis,
-    });
+    let body = { factors: selected.value };
+    if (!scriptMode.value) {
+      const r = request();
+      body = { ...body, data: r.data, analysis: r.analysis };
+    }
+    const batch = await api("/tasks/batch", body);
     notice.value = `批次 ${batch.id} · ${batch.tasks.length} 个任务已提交`;
     tab.value = "history";
     await refreshLists();
   });
 }
 function restoreSnapshot(r) {
+  sourceMode.value = r.source_mode === "script" ? "script" : "legacy";
   source.value = r.source_code;
   name.value = r.name;
   factorClass.value = r.factor_class;
   params.value = JSON.stringify(r.factor_params || {});
   factorId.value = null;
-  if (r.data) {
+  if (!scriptMode.value && r.data) {
     const migrated = r.data.provider === "ft_daily_mmap";
     provider.value = migrated ? "market_matrix" : r.data.provider;
     snapshotId.value = migrated ? null : r.data.snapshot_id || null;
@@ -342,7 +369,7 @@ function restoreSnapshot(r) {
     start.value = r.data.factor_start;
     end.value = r.data.factor_end;
   }
-  if (r.analysis) {
+  if (!scriptMode.value && r.analysis) {
     groups.value = r.analysis.groups;
     horizons.value = (r.analysis.horizons || [1]).join(",");
     decaySteps.value = r.analysis.decay_steps || 10;
@@ -494,7 +521,8 @@ onBeforeUnmount(() => {
                 @click="settingsOpen = !settingsOpen"
               >
                 <UiIcon name="settings" :size="16" />Settings</button
-              ><span
+              ><span v-if="scriptMode">Python · config · MyFactor.run(config)</span
+              ><span v-else
                 >{{ provider === "fixture" ? "SYNTHETIC" : "CHN" }} / D1 /
                 {{
                   provider === "fixture"
@@ -518,7 +546,10 @@ onBeforeUnmount(() => {
                 v-model="name"
                 aria-label="因子名称"
                 placeholder="Alpha name"
-              /><span>PythonIndicator</span>
+              /><select v-model="sourceMode" aria-label="运行入口">
+                <option value="script">config 脚本</option>
+                <option value="legacy">历史类入口</option>
+              </select>
             </div>
             <div class="editor-stage">
               <FactorEditor
@@ -528,13 +559,19 @@ onBeforeUnmount(() => {
                 v-if="settingsOpen"
                 :values="settings"
                 :sources="sources"
+                :source-mode="sourceMode"
+                :resolved="resolvedScript"
+                :resolve-error="resolveError"
+                :resolving="resolving"
                 @apply="applySettings"
+                @resolve="resolveScript"
                 @close="settingsOpen = false"
               />
             </div>
             <div class="editor-status">
-              <span><span class="status-dot"></span>{{ factorClass }}</span
-              ><span
+              <span><span class="status-dot"></span>{{ scriptMode ? resolvedScript?.factor_class || 'PythonIndicator.run(config)' : factorClass }}</span
+              ><span v-if="scriptMode">{{ resolvedScript ? `${resolvedScript.data.factor_start} — ${resolvedScript.data.factor_end}` : '日期、股票池与参数以代码中的 config 为准' }}</span
+              ><span v-else
                 >{{ provider === "fixture" ? "合成样例" : "行情只读" }} ·
                 {{ start }} — {{ end }}</span
               >
@@ -605,7 +642,7 @@ onBeforeUnmount(() => {
         </button>
       </div>
       <p class="muted">
-        批量任务使用工作台当前数据与研究参数；每个子任务保留独立源码快照。
+        {{ scriptMode ? '批量任务使用每个已保存脚本自己的 config；每个子任务保留独立源码与配置快照。' : '历史因子模式：批量任务使用工作台当前数据与研究参数；每个子任务保留独立源码快照。' }}
       </p>
       <table>
         <thead>
@@ -689,15 +726,15 @@ onBeforeUnmount(() => {
         <article>
           <h2>1. 编写因子</h2>
           <p>
-            从 Examples 载入示例。Settings
-            中的因子类名、构造参数与代码保持一致，支持编译的算子使用原生执行路径。
+            从 Examples 载入完整脚本：先写 config，再定义 PythonIndicator 类，最后调用 MyFactor.run(config)。
+            日期、股票池、构造参数与研究设置都在代码中；Settings 可校验并查看源码配置。
           </p>
           <pre>{{ examples[0]?.source_code || "正在载入示例" }}</pre>
         </article>
         <article>
           <h2>2. 设置与模拟</h2>
           <p>
-            选择数据源、股票池和信号日期。默认读取 PostgreSQL 中已导入的行情矩阵，提交时固定快照；任务不会导入或刷新行情。也可显式选择合成样例。
+            在 config 中选择数据源、股票池和信号日期。默认读取 PostgreSQL 中已导入的行情矩阵，提交时固定快照；任务不会导入或刷新行情。也可显式配置合成样例。
           </p>
           <p>
             日收益为收盘价 / 前收盘价 − 1，信号使用下一交易日起的收益矩阵。持有期内权重自然漂移，逐日计算净值与回撤；无费用。

@@ -13,7 +13,7 @@ import static org.mockito.Mockito.*;
 class StoreTest {
   final JdbcTemplate db = mock(JdbcTemplate.class);
   final ObjectMapper json = new ObjectMapper();
-  final Store store = new Store(db, json, mock(PlatformTransactionManager.class));
+  final Store store = new Store(db, json, mock(PlatformTransactionManager.class), mock(ScriptResolver.class));
 
   @Test
   void latestSnapshotIsPinnedWithoutMutatingCaller() {

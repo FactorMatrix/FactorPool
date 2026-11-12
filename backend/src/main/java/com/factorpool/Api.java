@@ -3,6 +3,7 @@ import com.fasterxml.jackson.databind.*;
 import com.fasterxml.jackson.databind.node.*;
 import java.nio.file.*;
 import java.util.*;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
 
@@ -11,9 +12,15 @@ import org.springframework.web.bind.annotation.*;
 public class Api {
   final Store store;
   final Tasks tasks;
+  final Path settingsCatalog;
+  @Autowired
   Api(Store store, Tasks tasks) {
+    this(store, tasks, Path.of("/opt/factorpool/src/factorpool/settings_catalog.json"));
+  }
+  Api(Store store, Tasks tasks, Path settingsCatalog) {
     this.store = store;
     this.tasks = tasks;
+    this.settingsCatalog = settingsCatalog;
   }
   @GetMapping("/factors")
   Object factors() {
@@ -21,8 +28,13 @@ public class Api {
   }
   @PostMapping("/factors")
   Object save(@RequestBody JsonNode body) {
-    Store.validateDefinition(body);
     return store.factor(body);
+  }
+  @PostMapping("/script/resolve")
+  Object resolve(@RequestBody JsonNode body) {
+    if (!body.path("source_code").isTextual())
+      throw new IllegalArgumentException("source_code is required");
+    return store.scripts.resolve(body.path("source_code").asText());
   }
   @GetMapping("/factors/{id}")
   Object factor(@PathVariable UUID id) {
@@ -77,27 +89,7 @@ public class Api {
   }
   @PostMapping("/tasks/batch")
   Object batch(@RequestBody JsonNode body) {
-    if (!body.path("factors").isArray() || body.get("factors").isEmpty() ||
-        body.get("factors").size() > 100)
-      throw new IllegalArgumentException("Select 1..100 factors");
-    return store.tx.execute(status -> {
-      ObjectNode pinned = body.deepCopy();
-      pinned.set("data", store.pinMarketData(body.path("data")));
-      UUID id = UUID.randomUUID();
-      store.db.update(
-          "INSERT INTO research_batches(id,config) VALUES (?,?::jsonb)", id,
-          pinned.toString());
-      List<UUID> ids = new ArrayList<>();
-      for (JsonNode fid : body.get("factors")) {
-        var r = ((ObjectNode)store.factor(UUID.fromString(fid.asText()))
-                     .get("latest"))
-                    .deepCopy();
-        r.set("data", pinned.path("data"));
-        r.set("analysis", pinned.path("analysis"));
-        ids.add(store.enqueue(r, id));
-      }
-      return Map.of("id", id, "tasks", ids);
-    });
+    return store.batch(body);
   }
   @GetMapping("/batches/{id}")
   Object batch(@PathVariable UUID id) {
@@ -110,7 +102,7 @@ public class Api {
   @GetMapping("/examples")
   Object examples() throws Exception {
     List<Object> out = new ArrayList<>();
-    try (var files = Files.list(Path.of("/opt/factorpool/examples/factors"))) {
+    try (var files = Files.list(Path.of("/opt/factorpool/examples/scripts"))) {
       for (Path p :
            files.filter(x -> x.toString().endsWith(".py")).sorted().toList())
         out.add(Map.of("name", p.getFileName().toString(), "source_code",
@@ -122,6 +114,10 @@ public class Api {
   Object operators() throws Exception {
     return store.json.readTree(
         Path.of("/opt/factorpool/docs/operators.json").toFile());
+  }
+  @GetMapping("/simulation-settings")
+  Object simulationSettings() throws Exception {
+    return store.json.readTree(settingsCatalog.toFile());
   }
   @GetMapping("/data-sources")
   Object sources() {

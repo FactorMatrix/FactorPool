@@ -85,20 +85,26 @@ def return_contract(payload):
     return policy, description, price
 
 
-def run(directory):
+def run(directory, *, factory=None):
     import _factorpool_native as native
     directory = Path(directory)
     request = json.loads((directory / "request.json").read_text())
+    if request.get("source_mode") == "script":
+        from .script import bind_request
+        request = bind_request(request)
     validate(request)
     horizons, annual_days, decay_steps = report_options(request["analysis"])
     started = time.perf_counter()
     timings = {}
     (directory / "factor.py").write_text(request["source_code"])
-    factory = load_factor(directory / "factor.py", request["factor_class"], request.get("factor_params", {}))
+    if factory is None:
+        factory = load_factor(directory / "factor.py", request["factor_class"], request.get("factor_params", {}))
     # Only the shared compiler/Graph binding is used; no Engine/Runtime instance.
     indicator = factory()
     adapter = IndicatorAdapter(indicator)
     warmup = indicator.warm_up_period
+    settings = request.get("brain_settings")
+    simulation_warmup = max(0, settings["decay"] - 1) if settings is not None else 0
     timings["prepare"] = time.perf_counter() - started
     log("prepared", mode=adapter.mode, warmup=warmup)
     checkpoint = time.perf_counter()
@@ -110,7 +116,8 @@ def run(directory):
             raise ValueError("Fixture universe is A/B/C")
     elif provider == "market_matrix":
         from .market_store import load
-        payload = load(data, max(1, warmup), max(horizons)*decay_steps)
+        extra = {"pasteurization": "OFF"} if settings is not None and settings["pasteurization"] == "OFF" else {}
+        payload = load(data, max(1, warmup + simulation_warmup), max(horizons)*decay_steps, **extra)
     else:
         raise ValueError(f"Unknown/unconfigured provider: {provider}")
     timings["read"] = time.perf_counter() - checkpoint
@@ -125,19 +132,27 @@ def run(directory):
         raise ValueError("Input symbols must be unique")
     symbols = sorted(source_symbols)
     matrices, rows, dates, membership = [], [], [], []
+    warm_factors, warm_membership = [], []
     for index, frame in enumerate(frames):
         if frame["date"] > data["factor_end"]:
             continue  # Future prices never enter Indicator state.
         values = adapter.update(frame, factory)
+        lookup = {r["symbol"]: r for r in values}
+        current_members = set(frame.get("research_symbols", frame["symbols"]))
+        current_factors = [lookup[s]["value"] if s in current_members and s in lookup else None for s in symbols]
+        current_membership = [s in current_members for s in symbols]
+        if settings is not None:
+            warm_factors.append(current_factors)
+            warm_membership.append(current_membership)
         if frame["date"] < data["factor_start"]:
             continue
-        lookup = {r["symbol"]: r for r in values}
-        current_members = set(frame["symbols"])
-        matrices.append([lookup[s]["value"] if s in lookup else None for s in symbols])
+        matrices.append(current_factors)
         dates.append(frame["date"])
-        membership.append([s in current_members for s in symbols])
+        membership.append(current_membership)
         for symbol in symbols:
-            cell = lookup.get(symbol, dict(symbol=symbol, value=None, valid=False, ready=False, reason="outside_universe"))
+            cell = lookup.get(symbol) if symbol in current_members else None
+            if cell is None:
+                cell = dict(symbol=symbol, value=None, valid=False, ready=False, reason="outside_universe")
             rows.append(dict(date=frame["date"], **cell))
         if index % 20 == 0:
             log("calculate", progress=round((index+1)/len(frames), 4))
@@ -165,7 +180,15 @@ def run(directory):
     timings["calculate"] = time.perf_counter() - checkpoint
     checkpoint = time.perf_counter()
     options = request["analysis"]
-    prepared = native.prepare_research(factors, returns, members)
+    alpha_weights = None
+    if settings is not None:
+        from .simulation import alpha_targets
+        all_targets = alpha_targets(np.asarray(warm_factors, dtype=np.float64),
+                                    np.asarray(warm_membership, dtype=np.float64), settings)
+        if all_targets is not None:
+            alpha_weights = np.ascontiguousarray(all_targets[-len(dates):])
+    prepared = (native.prepare_research(factors, returns, members) if alpha_weights is None
+                else native.prepare_research(factors, returns, members, alpha_weights))
     result = native.analyze(prepared, None, options.get("groups", 3), options.get("min_ic_pairs", 3), options.get("icir_ddof", 1))
     result["diagnostics"] = build_diagnostics(prepared, None, None, dates, [f["date"] for f in tail], options, primary=result)
     conventions = result["diagnostics"]["conventions"]
@@ -173,6 +196,12 @@ def run(directory):
                        return_price=return_price,
                        return_matrix="signal t uses daily returns R[t+1]..R[t+h]; derivation follows return_policy",
                        missing_returns="missing nonzero position daily returns remain invalid; no reader-side zero filling or hindsight reweighting; source derivation follows return_policy")
+    if settings is not None:
+        from .simulation import ALPHA_POLICY, SETTINGS_SCOPE
+        conventions.update(brain_settings=deepcopy(settings), alpha_weights=ALPHA_POLICY,
+                           settings_scope=SETTINGS_SCOPE)
+        from .reporting.partition import add_test_period
+        add_test_period(result["diagnostics"], settings["testPeriod"], data["factor_end"], annual_days, data["factor_start"])
     for date, day in zip(dates, result["daily"]):
         day["date"] = date
     returns, groups = result.pop("forward_returns"), result.pop("groups")
@@ -191,6 +220,11 @@ def run(directory):
         ic_rank_ties="average", icir_ddof=options.get("icir_ddof", 1), annualized=False,
         annualized_scope="legacy ICIR only; portfolio annualization is defined in diagnostics.conventions",
         operator_contract="ft-pool-1", forward_return_horizon=1, report_version=3, report_horizons=horizons, coverage_axis="historical universe membership", stage_seconds=timings, value_count=len(rows))
+    result["metadata"]["source_mode"] = request.get("source_mode", "class")
+    if request.get("source_mode") == "script":
+        for key in ("source_config", "effective_config", "brain_settings"):
+            result["metadata"][key] = deepcopy(request[key])
+        result["metadata"]["simulation_warm_up_period"] = simulation_warmup
     temporary = directory / "result.tmp.json"
     temporary.write_text(json.dumps(result, ensure_ascii=False, allow_nan=False))
     temporary.rename(directory / "result.json")

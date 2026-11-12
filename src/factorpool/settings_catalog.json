@@ -1,0 +1,1072 @@
+{
+  "schema_version": 1,
+  "updated_at": "2026-11-12",
+  "primary_mode": "REGULAR",
+  "official_schema_complete": false,
+  "official_numerical_parity": false,
+  "source_of_truth": "脚本字面量config经同一AST解析器解析；外部冲突参数拒绝；保存原配置及独立有效配置",
+  "defaults_policy": "所有official_default均为null，表示未核实；project_default只描述本项目，不取自示例或官网客户端fallback",
+  "option_inheritance": "每个option继承父field的field/location/type/默认值/stage/依赖/证据/validation；显式同名属性覆盖父项；value_kind=display_name不是API枚举",
+  "scope": "普通Indicator研究优先。字段登记不代表已支持该选项；数据缺口、未知规则和独立模式均明确拒绝。非默认数值能力仅按局部验证范围成立。",
+  "status_labels": {"implemented_verified": "已实现且本地验证","implemented_pending_parity": "已实现待官方对照","missing_data": "缺数据","rule_unverified": "规则待核实","unsupported_mode": "暂不支持","mixed": "按选项核对"},
+  "sources": {
+    "official_client": {
+      "evidence_class": "official_public_client",
+      "source_url": "https://platform.worldquantbrain.com/static/js/index.3bd0d671.js",
+      "sha256": "35f187f94f8e022d3339173ad6f567391a0ede4468f3feeb4c665f5d42298a26",
+      "scope": "2026-11-12公开客户端字段、提示和部分客户端范围；不证明完整服务端schema、默认值或数值一致性"
+    },
+    "official_options": {"evidence_class": "official_endpoint_access_check","source_url": "https://api.worldquantbrain.com/simulations","scope": "匿名OPTIONS返回401；未读取账户schema或凭据"},
+    "user_inventory": {"evidence_class": "user_supplied_research_inventory","source_url": null,"scope": "用户提供的参数与候选选项清单；不是当前BRAIN账户schema；此资源只登记字段事实和本项目能力"},
+    "risk_candidates": {
+      "evidence_class": "user_inventory_citation_unverified",
+      "source_url": "https://www.contangoai.com/worldquant-brain-neutralization-consultant-insights/",
+      "scope": "高级中性化候选名称线索；当前权限、模型定义和计算公式均未验证"
+    },
+    "super_entry": {
+      "evidence_class": "official_documentation_entry_unreadable",
+      "source_url": "https://platform.worldquantbrain.com/learn/documentation/superalpha/selection-expression",
+      "scope": "官方入口；本次未取得认证正文或实际SuperAlpha输入输出"
+    },
+    "python_inventory": {
+      "evidence_class": "user_inventory_citation_unverified",
+      "source_url": "https://www.scribd.com/document/1050304875/Getting-Started-with-Brain-Python-Alphas-WorldQuant-BRAIN",
+      "scope": "Python Alpha协议及snake_case字段映射线索；未独立核实当前官方协议"
+    },
+    "implementation": {
+      "evidence_class": "project_source",
+      "source_url": null,
+      "paths": [
+        "src/factorpool/config.py",
+        "src/factorpool/settings.py",
+        "src/factorpool/simulation.py",
+        "src/factorpool/market_store.py",
+        "src/factorpool/runner.py",
+        "src/factorpool/reporting/partition.py",
+        "research-core-cpp/src/portfolios.cpp",
+        "frontend/src/components/SimulationResults.vue"
+      ],
+      "scope": "本项目默认值、实际输入轴和Alpha权重路径；不是官方默认值"
+    },
+    "local_tests": {
+      "evidence_class": "project_tests",
+      "source_url": null,
+      "paths": ["tests/test_script.py","tests/test_settings.py","tests/test_simulation.py","tests/test_diagnostics.py","tests/test_return_matrix.py","tests/test_market_database.py"],
+      "scope": "所列测试覆盖的本地小矩阵、共享Indicator对照、轴隔离和失败路径；不是所有参数边界的全覆盖，也未对账官方BRAIN账户oracle"
+    }
+  },
+  "fields": [
+    {
+      "field": "type",
+      "location": "config",
+      "category": "brain_correspondence",
+      "type": "enum",
+      "legal_values": {
+        "project": ["REGULAR"],
+        "observed_candidates": ["REGULAR","SUPER"],
+        "complete_official": false
+      },
+      "official_default": null,
+      "project_default": "REGULAR",
+      "stage": "模式选择",
+      "data_dependencies": ["模式对应的输入和执行协议"],
+      "evidence": ["user_inventory","official_client","implementation","local_tests"],
+      "status": "mixed",
+      "validation": {"scope": "普通脚本执行；SUPER及其表达式明确拒绝","official_numerical_parity": false},
+      "options": [
+        {"value": "REGULAR","meaning": "单个Indicator因子研究","status": "implemented_verified"},
+        {"value": "SUPER","meaning": "候选Alpha选择和组合","status": "unsupported_mode","reason": "缺候选Alpha池、选择执行器和组合执行器"}
+      ]
+    },
+    {
+      "field": "instrumentType",
+      "location": "config.settings",
+      "category": "brain_correspondence",
+      "type": "enum",
+      "legal_values": {
+        "project": ["EQUITY"],
+        "complete_official": false
+      },
+      "official_default": null,
+      "project_default": "EQUITY",
+      "stage": "数据资格校验",
+      "data_dependencies": ["证券标识、日历、行情"],
+      "evidence": ["official_client","implementation","local_tests"],
+      "status": "implemented_verified",
+      "validation": {"scope": "只接受本地股票数据；其他资产明确拒绝","official_numerical_parity": false},
+      "options": [
+        {"value": "EQUITY","meaning": "本地股票","status": "implemented_verified"}
+      ],
+      "aliases": [
+        {"field": "instrument_type","interface": "BRAIN Python Alpha","accepted": false,"evidence": "python_inventory"}
+      ]
+    },
+    {
+      "field": "region",
+      "location": "config.settings",
+      "category": "brain_correspondence",
+      "type": "enum",
+      "legal_values": {
+        "project": ["CHN"],
+        "observed_candidates": ["CHN","USA","EUR","ASI","HKG","JPN","KOR","TWN","IND","AMR","GLB"],
+        "complete_official": false
+      },
+      "official_default": null,
+      "project_default": "CHN",
+      "stage": "数据资格校验",
+      "data_dependencies": ["对应区域历史行情、交易日历和币种定义"],
+      "evidence": ["user_inventory","implementation","local_tests"],
+      "status": "mixed",
+      "validation": {"scope": "CHN为项目数据范围；不将本地数据映射为其他市场","official_numerical_parity": false},
+      "options": [
+        {"value": "CHN","meaning": "本地中国股票数据","status": "implemented_verified"},
+        {"value": "USA","meaning": "候选市场标识","status": "missing_data","reason": "未配置该区域的合格历史数据"},
+        {"value": "EUR","meaning": "候选市场标识","status": "missing_data","reason": "未配置该区域的合格历史数据"},
+        {"value": "ASI","meaning": "候选市场标识","status": "missing_data","reason": "未配置该区域的合格历史数据"},
+        {"value": "HKG","meaning": "候选市场标识","status": "missing_data","reason": "未配置该区域的合格历史数据"},
+        {"value": "JPN","meaning": "候选市场标识","status": "missing_data","reason": "未配置该区域的合格历史数据"},
+        {"value": "KOR","meaning": "候选市场标识","status": "missing_data","reason": "未配置该区域的合格历史数据"},
+        {"value": "TWN","meaning": "候选市场标识","status": "missing_data","reason": "未配置该区域的合格历史数据"},
+        {"value": "IND","meaning": "候选市场标识","status": "missing_data","reason": "未配置该区域的合格历史数据"},
+        {"value": "AMR","meaning": "候选市场标识","status": "missing_data","reason": "未配置该区域的合格历史数据"},
+        {"value": "GLB","meaning": "候选市场标识","status": "missing_data","reason": "未配置该区域的合格历史数据"}
+      ]
+    },
+    {
+      "field": "universe",
+      "location": "config.settings",
+      "category": "brain_correspondence",
+      "type": "string_or_unique_symbol_array",
+      "legal_values": {
+        "project": ["all_a_dynamic","fixture","unique symbol array"],
+        "observed_candidates": ["TOP200","TOP500","TOP1000","TOP1200","TOP1600","TOP2000","TOP3000","MINVOL1M","ILLIQUID_MINVOL1M"],
+        "complete_official": false
+      },
+      "official_default": null,
+      "project_default": {"from": "config.data.universe"},
+      "stage": "历史成员和研究输出轴",
+      "data_dependencies": ["按时点生效的成员、证券生命周期、日历"],
+      "evidence": ["official_client","implementation","local_tests"],
+      "status": "mixed",
+      "validation": {"scope": "动态成员边界、显式证券轴和池外计算分离；不推算官方TOP池","official_numerical_parity": false},
+      "options": [
+        {
+          "value": "all_a_dynamic",
+          "meaning": "项目本地CS历史成员池",
+          "status": "implemented_verified",
+          "evidence": ["implementation","local_tests"],
+          "origin": "project_extension"
+        },
+        {
+          "value": "fixture",
+          "meaning": "A/B/C合成样例",
+          "status": "implemented_verified",
+          "evidence": ["implementation","local_tests"],
+          "origin": "project_extension"
+        },
+        {
+          "value": {"type": "unique_symbol_array"},
+          "meaning": "显式研究证券列表",
+          "status": "implemented_verified",
+          "evidence": ["implementation","local_tests"],
+          "origin": "project_extension"
+        },
+        {
+          "value": "TOP200",
+          "meaning": "候选平台股票池",
+          "status": "missing_data",
+          "reason": "缺官方历史成分及排序、生效、过滤口径；不以本地成交额排名冒充",
+          "evidence": ["user_inventory"]
+        },
+        {
+          "value": "TOP500",
+          "meaning": "候选平台股票池",
+          "status": "missing_data",
+          "reason": "缺官方历史成分及排序、生效、过滤口径；不以本地成交额排名冒充",
+          "evidence": ["user_inventory"]
+        },
+        {
+          "value": "TOP1000",
+          "meaning": "候选平台股票池",
+          "status": "missing_data",
+          "reason": "缺官方历史成分及排序、生效、过滤口径；不以本地成交额排名冒充",
+          "evidence": ["user_inventory"]
+        },
+        {
+          "value": "TOP1200",
+          "meaning": "候选平台股票池",
+          "status": "missing_data",
+          "reason": "缺官方历史成分及排序、生效、过滤口径；不以本地成交额排名冒充",
+          "evidence": ["user_inventory"]
+        },
+        {
+          "value": "TOP1600",
+          "meaning": "候选平台股票池",
+          "status": "missing_data",
+          "reason": "缺官方历史成分及排序、生效、过滤口径；不以本地成交额排名冒充",
+          "evidence": ["user_inventory"]
+        },
+        {
+          "value": "TOP2000",
+          "meaning": "候选平台股票池",
+          "status": "missing_data",
+          "reason": "缺官方历史成分及排序、生效、过滤口径；不以本地成交额排名冒充",
+          "evidence": ["user_inventory"]
+        },
+        {
+          "value": "TOP3000",
+          "meaning": "候选平台股票池",
+          "status": "missing_data",
+          "reason": "缺官方历史成分及排序、生效、过滤口径；不以本地成交额排名冒充",
+          "evidence": ["user_inventory"]
+        },
+        {
+          "value": "MINVOL1M",
+          "meaning": "候选平台股票池",
+          "status": "missing_data",
+          "reason": "缺官方历史成分及排序、生效、过滤口径；不以本地成交额排名冒充",
+          "evidence": ["user_inventory"]
+        },
+        {
+          "value": "ILLIQUID_MINVOL1M",
+          "meaning": "候选平台股票池",
+          "status": "missing_data",
+          "reason": "缺官方历史成分及排序、生效、过滤口径；不以本地成交额排名冒充",
+          "evidence": ["user_inventory"]
+        }
+      ],
+      "constraint": "必须与config.data.universe一致；本地池不称为官方同名池"
+    },
+    {
+      "field": "language",
+      "location": "config.settings",
+      "category": "brain_correspondence",
+      "type": "enum",
+      "legal_values": {
+        "project": ["PYTHONINDICATOR"],
+        "observed_candidates": ["FASTEXPR","PYTHON"],
+        "complete_official": false
+      },
+      "official_default": null,
+      "project_default": "PYTHONINDICATOR",
+      "stage": "源码和执行协议",
+      "data_dependencies": ["对应语言编译器及输入协议"],
+      "evidence": ["official_client","implementation","local_tests"],
+      "status": "mixed",
+      "validation": {"scope": "项目PythonIndicator脚本与共享编译器；不执行FASTEXPR或BRAIN Python Alpha协议","official_numerical_parity": false},
+      "options": [
+        {"value": "PYTHONINDICATOR","meaning": "FactorPool脚本及共享Indicator","status": "implemented_verified","origin": "project_extension"},
+        {"value": "FASTEXPR","meaning": "BRAIN表达式","status": "unsupported_mode","reason": "未实现该语言解析和执行协议"},
+        {"value": "PYTHON","meaning": "BRAIN Python Alpha协议","status": "unsupported_mode","reason": "不是任意Python脚本；尚无该模式执行协议"}
+      ]
+    },
+    {
+      "field": "delay",
+      "location": "config.settings",
+      "category": "brain_correspondence",
+      "type": "integer",
+      "legal_values": {
+        "project": [1],
+        "observed_candidates": [0,1],
+        "complete_official": false
+      },
+      "official_default": null,
+      "project_default": 1,
+      "stage": "信号到日收益的时间对齐",
+      "data_dependencies": ["字段可见时点、交易日历、对应价格"],
+      "evidence": ["official_client","implementation","local_tests"],
+      "status": "mixed",
+      "validation": {"scope": "当前信号t只使用未来R[t+1]..R[t+h]；不重复移位","official_numerical_parity": false},
+      "options": [
+        {"value": 1,"meaning": "当前收盘信号对应下一交易日收益","status": "implemented_pending_parity"},
+        {"value": 0,"meaning": "当日晚间数据和定价模式","status": "missing_data","reason": "日线矩阵不能证明同日晚间执行价和字段截止时刻"}
+      ]
+    },
+    {
+      "field": "lookback",
+      "location": "config.settings",
+      "category": "brain_correspondence",
+      "type": "integer_candidate",
+      "legal_values": {
+        "project": [],
+        "official_range": null,
+        "observed_client_range": {"min": 0,"max": 1024}
+      },
+      "official_default": null,
+      "project_default": null,
+      "stage": "BRAIN Python Alpha输入窗口",
+      "data_dependencies": ["该模式的多行输入、窗口长度和预热协议"],
+      "evidence": ["official_client","python_inventory","implementation","local_tests"],
+      "status": "unsupported_mode",
+      "validation": {"scope": "字段被识别并拒绝；未将其混同于Indicator窗口或回测区间","official_numerical_parity": false},
+      "options": [
+        {
+          "value": {
+            "examples": [0,5,21,63]
+          },
+          "meaning": "Python模式的额外历史窗口线索",
+          "status": "unsupported_mode",
+          "reason": "多行输入协议未实现；lookback+1仅为所述模式线索，不作本地算法",
+          "evidence": ["python_inventory"]
+        }
+      ]
+    },
+    {
+      "field": "decay",
+      "location": "config.settings",
+      "category": "brain_correspondence",
+      "type": "integer",
+      "legal_values": {
+        "project_range": {"min": 0,"max": 512},
+        "official_range": null
+      },
+      "official_default": null,
+      "project_default": 0,
+      "stage": "Alpha目标生成前的历史因子衰减",
+      "data_dependencies": ["共享FT ts.decay_linear、历史信号和成员状态"],
+      "evidence": ["official_client","implementation","local_tests"],
+      "status": "implemented_pending_parity",
+      "validation": {"scope": "本地线性窗口及缺失/移出再入对照共享Indicator；不声称官方整条流水线一致","official_numerical_parity": false},
+      "options": [
+        {"value": 0,"meaning": "不施加衰减","status": "implemented_verified"},
+        {"value": 1,"meaning": "单期恒等窗口","status": "implemented_verified"},
+        {
+          "value": {"min": 2,"max": 512},
+          "meaning": "共享线性衰减窗口，近期有效输入权重更高",
+          "status": "implemented_pending_parity",
+          "reason": "有效观测计数、预热和重入状态沿共享Indicator；官方窗口边界尚未对账"
+        }
+      ],
+      "pipeline": "共享线性衰减→NONE/MARKET→L1→权重截断；不改原始IC和分组"
+    },
+    {
+      "field": "neutralization",
+      "location": "config.settings",
+      "category": "brain_correspondence",
+      "type": "enum",
+      "legal_values": {
+        "project": ["NONE","MARKET"],
+        "observed_candidates": ["NONE","MARKET","COUNTRY","SECTOR","INDUSTRY","SUBINDUSTRY","STATISTICAL","RAM","CROWDING","FAST","SLOW","SLOW_AND_FAST"],
+        "complete_official": false
+      },
+      "official_default": null,
+      "project_default": "MARKET",
+      "stage": "Alpha目标权重生成",
+      "data_dependencies": ["有效研究截面；分组/风险选项另需历史分类或风险暴露"],
+      "evidence": ["official_client","implementation","local_tests"],
+      "status": "mixed",
+      "validation": {"scope": "NONE/MARKET独立手算与原始IC/分组不变验证；其他选项明确拒绝","official_numerical_parity": false},
+      "options": [
+        {"value": "NONE","meaning": "不做设置级减均值，随后L1归一","status": "implemented_pending_parity"},
+        {"value": "MARKET","meaning": "当期有效研究截面减算术均值，随后L1归一","status": "implemented_pending_parity"},
+        {
+          "value": "COUNTRY",
+          "meaning": "历史分组中性化",
+          "status": "missing_data",
+          "reason": "缺按时点的国家/行业分类及其完整合同",
+          "evidence": ["user_inventory"]
+        },
+        {
+          "value": "SECTOR",
+          "meaning": "历史分组中性化",
+          "status": "missing_data",
+          "reason": "缺按时点的国家/行业分类及其完整合同",
+          "evidence": ["user_inventory"]
+        },
+        {
+          "value": "INDUSTRY",
+          "meaning": "历史分组中性化",
+          "status": "missing_data",
+          "reason": "缺按时点的国家/行业分类及其完整合同",
+          "evidence": ["user_inventory"]
+        },
+        {
+          "value": "SUBINDUSTRY",
+          "meaning": "历史分组中性化",
+          "status": "missing_data",
+          "reason": "缺按时点的国家/行业分类及其完整合同",
+          "evidence": ["user_inventory"]
+        },
+        {
+          "value": "STATISTICAL",
+          "meaning": "候选风险模型中性化",
+          "status": "missing_data",
+          "reason": "缺精确模型定义、历史风险暴露和官方计算对照",
+          "evidence": ["risk_candidates","user_inventory"]
+        },
+        {
+          "value": "RAM",
+          "meaning": "候选风险模型中性化",
+          "status": "missing_data",
+          "reason": "缺精确模型定义、历史风险暴露和官方计算对照",
+          "evidence": ["risk_candidates","user_inventory"]
+        },
+        {
+          "value": "CROWDING",
+          "meaning": "候选风险模型中性化",
+          "status": "missing_data",
+          "reason": "缺精确模型定义、历史风险暴露和官方计算对照",
+          "evidence": ["risk_candidates","user_inventory"]
+        },
+        {
+          "value": "FAST",
+          "meaning": "候选风险模型中性化",
+          "status": "missing_data",
+          "reason": "缺精确模型定义、历史风险暴露和官方计算对照",
+          "evidence": ["risk_candidates","user_inventory"]
+        },
+        {
+          "value": "SLOW",
+          "meaning": "候选风险模型中性化",
+          "status": "missing_data",
+          "reason": "缺精确模型定义、历史风险暴露和官方计算对照",
+          "evidence": ["risk_candidates","user_inventory"]
+        },
+        {
+          "value": "SLOW_AND_FAST",
+          "meaning": "候选风险模型中性化",
+          "status": "missing_data",
+          "reason": "缺精确模型定义、历史风险暴露和官方计算对照",
+          "evidence": ["risk_candidates","user_inventory"]
+        }
+      ],
+      "distinction": "模拟设置级操作；不替代表达式中的group_neutralize"
+    },
+    {
+      "field": "truncation",
+      "location": "config.settings",
+      "category": "brain_correspondence",
+      "type": "number",
+      "legal_values": {
+        "project_range": {"min": 0,"max": 1},
+        "official_range": null
+      },
+      "official_default": null,
+      "project_default": 0,
+      "stage": "L1归一后的单证券权重上限",
+      "data_dependencies": ["实际Alpha目标权重"],
+      "evidence": ["official_client","implementation","local_tests"],
+      "status": "implemented_pending_parity",
+      "validation": {"scope": "独立目标、实际持有收益、最大权重及保留现金验证；未对账官方再分配算法","official_numerical_parity": false},
+      "options": [
+        {"value": 0,"meaning": "关闭本地权重上限","status": "implemented_verified"},
+        {
+          "value": {"exclusive_min": 0,"max": 1},
+          "meaning": "绝对权重裁剪到上限，剩余gross不再配足",
+          "status": "implemented_pending_parity",
+          "reason": "这是已披露的本地严格cap规则；不是原始因子winsorize，也不假称官方再分配"
+        }
+      ]
+    },
+    {
+      "field": "pasteurization",
+      "location": "config.settings",
+      "category": "brain_correspondence",
+      "type": "enum",
+      "legal_values": {
+        "project": ["ON","OFF"],
+        "complete_official": false
+      },
+      "official_default": null,
+      "project_default": "ON",
+      "stage": "共享Indicator的输入轴",
+      "data_dependencies": ["历史成员、池外真实行情、明确的数据预算"],
+      "evidence": ["official_client","implementation","local_tests"],
+      "status": "mixed",
+      "validation": {"scope": "增加池外证券改变池内CS rank；原始研究轴和未来收益轴保持隔离","official_numerical_parity": false},
+      "options": [
+        {"value": "ON","meaning": "以目标历史成员轴推进Indicator","status": "implemented_pending_parity"},
+        {"value": "OFF","meaning": "以历史活跃全市场轴推进Indicator，仅输出研究池","status": "implemented_pending_parity","reason": "额外全市场输入仅加载预热到因子截止日；超过2百万所需源单元明确拒绝"}
+      ]
+    },
+    {
+      "field": "nanHandling",
+      "location": "config.settings",
+      "category": "brain_correspondence",
+      "type": "enum",
+      "legal_values": {
+        "project": ["OFF"],
+        "observed_candidates": ["OFF","ON"],
+        "complete_official": false
+      },
+      "official_default": null,
+      "project_default": "OFF",
+      "stage": "算子输入和聚合语义",
+      "data_dependencies": ["逐算子NaN、有效位和预热合同"],
+      "evidence": ["official_client","implementation","local_tests"],
+      "status": "mixed",
+      "validation": {"scope": "缺失、真实0和未就绪保留区别；ON明确拒绝","official_numerical_parity": false},
+      "options": [
+        {"value": "OFF","meaning": "保留共享算子的缺失合同","status": "implemented_pending_parity"},
+        {"value": "ON","meaning": "逐算子的BRAIN缺失处理","status": "rule_unverified","reason": "对应算子合同尚未实现和对账；不使用终端fillna(0)冒充"}
+      ]
+    },
+    {
+      "field": "unitHandling",
+      "location": "config.settings",
+      "category": "brain_correspondence",
+      "type": "enum",
+      "legal_values": {
+        "project": ["OFF"],
+        "observed_candidates": ["VERIFY"],
+        "complete_official": false
+      },
+      "official_default": null,
+      "project_default": "OFF",
+      "stage": "表达式单位校验",
+      "data_dependencies": ["字段单位元数据和算子单位传播"],
+      "evidence": ["official_client","implementation","local_tests"],
+      "status": "mixed",
+      "validation": {"scope": "本地OFF不进行单位检查；VERIFY明确拒绝","official_numerical_parity": false},
+      "options": [
+        {"value": "OFF","meaning": "项目不启用单位校验","status": "implemented_verified","reason": "OFF是否为当前BRAIN所有模式的枚举未确认","origin": "project_extension"},
+        {"value": "VERIFY","meaning": "单位兼容性检查或警告","status": "missing_data","reason": "缺字段单位及共享编译器单位传播能力"}
+      ]
+    },
+    {
+      "field": "testPeriod",
+      "location": "config.settings",
+      "category": "brain_correspondence",
+      "type": "ISO_daily_duration",
+      "legal_values": {
+        "project_patterns": ["P<n>Y<n>M<n>D","P<n>W"],
+        "components": "nonnegative integers; at least one component",
+        "official_range": null
+      },
+      "official_default": null,
+      "project_default": "P0Y0M",
+      "stage": "完整回测之后，在config.base日期范围内按实际估值日分段；完整结果保留未来持有收益尾部",
+      "data_dependencies": ["实际交易日收益日期、参考截止日、同一统计内核"],
+      "evidence": ["official_client","implementation","local_tests"],
+      "status": "implemented_pending_parity",
+      "validation": {"scope": "训练/测试按实际估值日分段；月末/闰年边界、分段收益/净值/回撤/月年统计通过独立计算对照；不是隐藏OS","official_numerical_parity": false},
+      "options": [
+        {"value": "P0Y0M","meaning": "零长度测试段","status": "implemented_verified"},
+        {
+          "value": {
+            "examples": ["P1Y6M","P30D","P2W"]
+          },
+          "meaning": "按本地日历期间划分末尾测试段",
+          "status": "implemented_pending_parity",
+          "reason": "不支持小时、负数、小数期间；官方边界与账户上限未核验"
+        }
+      ]
+    },
+    {
+      "field": "maxTrade",
+      "location": "config.settings",
+      "category": "brain_correspondence",
+      "type": "enum",
+      "legal_values": {
+        "project": ["OFF"],
+        "observed_candidates": ["OFF","ON"],
+        "complete_official": false
+      },
+      "official_default": null,
+      "project_default": "OFF",
+      "stage": "交易/持仓约束",
+      "data_dependencies": ["ADV20交易比例、参考book和执行顺序","官方阈值和执行oracle"],
+      "evidence": ["official_client","implementation","local_tests"],
+      "status": "mixed",
+      "validation": {"scope": "OFF保留无交易限制的比例研究；ON明确拒绝","official_numerical_parity": false},
+      "options": [
+        {"value": "OFF","meaning": "不添加该限制","status": "implemented_verified"},
+        {"value": "ON","meaning": "应用对应的平台约束","status": "rule_unverified","reason": "公式、阈值和归一化基准未核实；不以换手、手续费、整手或truncation替代"}
+      ],
+      "aliases": [
+        {"field": "max_trade","interface": "BRAIN Python Alpha","accepted": false,"evidence": "python_inventory"}
+      ]
+    },
+    {
+      "field": "maxPosition",
+      "location": "config.settings",
+      "category": "brain_correspondence",
+      "type": "enum",
+      "legal_values": {
+        "project": ["OFF"],
+        "observed_candidates": ["OFF","ON"],
+        "complete_official": false
+      },
+      "official_default": null,
+      "project_default": "OFF",
+      "stage": "交易/持仓约束",
+      "data_dependencies": ["成交额相关持仓约束、参考book和执行顺序","官方阈值和执行oracle"],
+      "evidence": ["official_client","implementation","local_tests"],
+      "status": "mixed",
+      "validation": {"scope": "OFF保留无交易限制的比例研究；ON明确拒绝","official_numerical_parity": false},
+      "options": [
+        {"value": "OFF","meaning": "不添加该限制","status": "implemented_verified"},
+        {"value": "ON","meaning": "应用对应的平台约束","status": "rule_unverified","reason": "公式、阈值和归一化基准未核实；不以换手、手续费、整手或truncation替代"}
+      ],
+      "aliases": [
+        {"field": "max_position","interface": "BRAIN Python Alpha","accepted": false,"evidence": "python_inventory"}
+      ]
+    },
+    {
+      "field": "visualization",
+      "location": "config.settings",
+      "category": "brain_correspondence",
+      "type": "boolean",
+      "legal_values": {
+        "project": [true,false],
+        "complete_official": false
+      },
+      "official_default": null,
+      "project_default": true,
+      "stage": "结果展示",
+      "data_dependencies": ["已计算的报告数值和前端图表"],
+      "evidence": ["official_client","implementation","local_tests"],
+      "status": "implemented_verified",
+      "validation": {"scope": "布尔及显式false配置验证；前端图表路径已接，浏览器开关验收按实际版本记录；数值和导出保持可用","official_numerical_parity": false},
+      "options": [
+        {"value": true,"meaning": "展示图表","status": "implemented_verified"},
+        {"value": false,"meaning": "关闭图表但保留数值和导出","status": "implemented_verified"}
+      ]
+    },
+    {
+      "field": "simulationMode",
+      "location": "config.settings",
+      "category": "brain_correspondence",
+      "type": "enum",
+      "legal_values": {
+        "project": ["FULL"],
+        "observed_client_choices": ["FULL","QUICK"],
+        "complete_official": false
+      },
+      "official_default": null,
+      "project_default": "FULL",
+      "stage": "执行模式",
+      "data_dependencies": ["对应模式的检查和执行合同"],
+      "evidence": ["official_client","implementation","local_tests"],
+      "status": "mixed",
+      "validation": {"scope": "只执行完整本地研究；不假装提供官方Quick检查集","official_numerical_parity": false},
+      "options": [
+        {"value": "FULL","meaning": "完整本地研究路径","status": "implemented_verified"},
+        {"value": "QUICK","meaning": "官网客户端快速模式","status": "unsupported_mode","reason": "快速模式检查、输出和提交条件未实现"}
+      ]
+    },
+    {
+      "field": "selectionHandling",
+      "location": "config.settings",
+      "category": "brain_correspondence",
+      "type": "candidate_enum",
+      "legal_values": {
+        "project": [],
+        "api_values": null,
+        "display_names": ["Positive","Non-Zero","Non-NaN"]
+      },
+      "official_default": null,
+      "project_default": null,
+      "stage": "SuperAlpha候选筛选",
+      "data_dependencies": ["候选Alpha、选择表达式结果和对应API枚举"],
+      "evidence": ["user_inventory","official_client","super_entry","implementation"],
+      "status": "unsupported_mode",
+      "validation": {"scope": "只登记缺口，不运行或将UI显示名转换为API值","official_numerical_parity": false},
+      "options": [
+        {"value": "Positive","meaning": "界面含义为正选择分数","status": "unsupported_mode","value_kind": "display_name","api_value": null},
+        {"value": "Non-Zero","meaning": "界面含义为非零且非NaN选择分数","status": "unsupported_mode","value_kind": "display_name","api_value": null},
+        {"value": "Non-NaN","meaning": "界面含义为非NaN选择分数","status": "unsupported_mode","reason": "无穷值和当前API枚举未核实","value_kind": "display_name","api_value": null}
+      ]
+    },
+    {
+      "field": "selectionLimit",
+      "location": "config.settings",
+      "category": "brain_correspondence",
+      "type": "candidate_integer",
+      "legal_values": {
+        "project": [],
+        "official_range": null,
+        "historical_reported_minimum": 10
+      },
+      "official_default": null,
+      "project_default": null,
+      "stage": "SuperAlpha候选排序后的数量限制",
+      "data_dependencies": ["候选池、排序及平局规则、账户选项"],
+      "evidence": ["user_inventory","official_client","super_entry","implementation"],
+      "status": "unsupported_mode",
+      "validation": {"scope": "明确拒绝；不将历史转载的最小数量视为当前合法范围","official_numerical_parity": false},
+      "options": [
+        {
+          "value": {"type": "integer","range": null},
+          "meaning": "候选Alpha数量上限",
+          "status": "unsupported_mode",
+          "reason": "当前最小值、最大值及空结果行为未核验"
+        }
+      ]
+    },
+    {
+      "field": "componentActivation",
+      "location": "candidate settings or component metadata",
+      "category": "brain_correspondence",
+      "type": "candidate_enum",
+      "legal_values": {
+        "project": [],
+        "api_values": null,
+        "display_names": ["IS","OS"]
+      },
+      "official_default": null,
+      "project_default": null,
+      "stage": "SuperAlpha组件可用起点",
+      "data_dependencies": ["组件IS/OS区间、时点与可写字段合同"],
+      "evidence": ["official_client","user_inventory","implementation"],
+      "status": "rule_unverified",
+      "validation": {"scope": "官网客户端可观察到字段和IS/OS提示；服务端位置和可写性未确认，项目拒绝执行","official_numerical_parity": false},
+      "options": [
+        {"value": "IS","meaning": "从组件样本内起点激活的界面线索","status": "unsupported_mode","value_kind": "display_name","api_value": null},
+        {"value": "OS","meaning": "从组件样本外起点激活的界面线索","status": "unsupported_mode","value_kind": "display_name","api_value": null}
+      ]
+    },
+    {
+      "field": "universeOverride",
+      "location": "config.settings",
+      "category": "brain_correspondence",
+      "type": "candidate_setting",
+      "legal_values": {
+        "project": [],
+        "official_values": null
+      },
+      "official_default": null,
+      "project_default": null,
+      "stage": "Super/Combo组件股票池",
+      "data_dependencies": ["组件原池和组合目标池的历史成员"],
+      "evidence": ["official_client","user_inventory","implementation"],
+      "status": "unsupported_mode",
+      "validation": {"scope": "有官网客户端字段/提示，未实现组件重算","official_numerical_parity": false},
+      "options": [
+        {
+          "value": {"presence": "provided"},
+          "meaning": "使用组合指定的池替换组件原池",
+          "status": "unsupported_mode"
+        }
+      ]
+    },
+    {
+      "field": "regular",
+      "location": "BRAIN request envelope",
+      "category": "brain_correspondence",
+      "type": "expression_string",
+      "legal_values": {
+        "project": [],
+        "official_values": null
+      },
+      "official_default": null,
+      "project_default": null,
+      "stage": "对应模式的表达式执行",
+      "data_dependencies": ["该模式执行器、输入对象和时点合同"],
+      "evidence": ["user_inventory","official_client","implementation"],
+      "status": "unsupported_mode",
+      "validation": {"scope": "FactorPool用Indicator脚本作为普通因子入口；不把股票截面当Alpha组件池","official_numerical_parity": false},
+      "options": [
+        {
+          "value": {"presence": "provided"},
+          "meaning": "普通BRAIN表达式",
+          "status": "unsupported_mode"
+        }
+      ]
+    },
+    {
+      "field": "selection",
+      "location": "BRAIN request envelope",
+      "category": "brain_correspondence",
+      "type": "expression_string",
+      "legal_values": {
+        "project": [],
+        "official_values": null
+      },
+      "official_default": null,
+      "project_default": null,
+      "stage": "对应模式的表达式执行",
+      "data_dependencies": ["该模式执行器、输入对象和时点合同"],
+      "evidence": ["user_inventory","official_client","implementation"],
+      "status": "unsupported_mode",
+      "validation": {"scope": "FactorPool用Indicator脚本作为普通因子入口；不把股票截面当Alpha组件池","official_numerical_parity": false},
+      "options": [
+        {
+          "value": {"presence": "provided"},
+          "meaning": "SuperAlpha选择表达式",
+          "status": "unsupported_mode"
+        }
+      ]
+    },
+    {
+      "field": "combo",
+      "location": "BRAIN request envelope",
+      "category": "brain_correspondence",
+      "type": "expression_string",
+      "legal_values": {
+        "project": [],
+        "official_values": null
+      },
+      "official_default": null,
+      "project_default": null,
+      "stage": "对应模式的表达式执行",
+      "data_dependencies": ["该模式执行器、输入对象和时点合同"],
+      "evidence": ["user_inventory","official_client","implementation"],
+      "status": "unsupported_mode",
+      "validation": {"scope": "FactorPool用Indicator脚本作为普通因子入口；不把股票截面当Alpha组件池","official_numerical_parity": false},
+      "options": [
+        {
+          "value": {"presence": "provided"},
+          "meaning": "SuperAlpha组合表达式",
+          "status": "unsupported_mode"
+        }
+      ]
+    },
+    {
+      "field": "model",
+      "location": "unverified UI label; no confirmed API location",
+      "category": "unverified_mode",
+      "type": "unverified_ui_label",
+      "legal_values": {
+        "project": [],
+        "official_values": null
+      },
+      "official_default": null,
+      "project_default": null,
+      "stage": "未核实ML模式",
+      "data_dependencies": ["模型协议、训练输入、真实时点和运行器"],
+      "evidence": ["official_client","implementation"],
+      "status": "rule_unverified",
+      "validation": {"scope": "仅官网客户端UI标签可见；未确认属于当前可写API字段，项目明确拒绝","official_numerical_parity": false},
+      "options": [
+        {
+          "value": {"presence": "provided"},
+          "meaning": "仅登记UI标签",
+          "status": "unsupported_mode"
+        }
+      ]
+    },
+    {
+      "field": "lossFunction",
+      "location": "unverified UI label; no confirmed API location",
+      "category": "unverified_mode",
+      "type": "unverified_ui_label",
+      "legal_values": {
+        "project": [],
+        "official_values": null
+      },
+      "official_default": null,
+      "project_default": null,
+      "stage": "未核实ML模式",
+      "data_dependencies": ["模型协议、训练输入、真实时点和运行器"],
+      "evidence": ["official_client","implementation"],
+      "status": "rule_unverified",
+      "validation": {"scope": "仅官网客户端UI标签可见；未确认属于当前可写API字段，项目明确拒绝","official_numerical_parity": false},
+      "options": [
+        {
+          "value": {"presence": "provided"},
+          "meaning": "仅登记UI标签",
+          "status": "unsupported_mode"
+        }
+      ]
+    },
+    {
+      "field": "epochCount",
+      "location": "unverified UI label; no confirmed API location",
+      "category": "unverified_mode",
+      "type": "unverified_ui_label",
+      "legal_values": {
+        "project": [],
+        "official_values": null
+      },
+      "official_default": null,
+      "project_default": null,
+      "stage": "未核实ML模式",
+      "data_dependencies": ["模型协议、训练输入、真实时点和运行器"],
+      "evidence": ["official_client","implementation"],
+      "status": "rule_unverified",
+      "validation": {"scope": "仅官网客户端UI标签可见；未确认属于当前可写API字段，项目明确拒绝","official_numerical_parity": false},
+      "options": [
+        {
+          "value": {"presence": "provided"},
+          "meaning": "仅登记UI标签",
+          "status": "unsupported_mode"
+        }
+      ]
+    },
+    {
+      "field": "earlyStop",
+      "location": "unverified UI label; no confirmed API location",
+      "category": "unverified_mode",
+      "type": "unverified_ui_label",
+      "legal_values": {
+        "project": [],
+        "official_values": null
+      },
+      "official_default": null,
+      "project_default": null,
+      "stage": "未核实ML模式",
+      "data_dependencies": ["模型协议、训练输入、真实时点和运行器"],
+      "evidence": ["official_client","implementation"],
+      "status": "rule_unverified",
+      "validation": {"scope": "仅官网客户端UI标签可见；未确认属于当前可写API字段，项目明确拒绝","official_numerical_parity": false},
+      "options": [
+        {
+          "value": {"presence": "provided"},
+          "meaning": "仅登记UI标签",
+          "status": "unsupported_mode"
+        }
+      ]
+    },
+    {
+      "field": "trainingPeriod",
+      "location": "unverified UI label; no confirmed API location",
+      "category": "unverified_mode",
+      "type": "unverified_ui_label",
+      "legal_values": {
+        "project": [],
+        "official_values": null
+      },
+      "official_default": null,
+      "project_default": null,
+      "stage": "未核实ML模式",
+      "data_dependencies": ["模型协议、训练输入、真实时点和运行器"],
+      "evidence": ["official_client","implementation"],
+      "status": "rule_unverified",
+      "validation": {"scope": "仅官网客户端UI标签可见；未确认属于当前可写API字段，项目明确拒绝","official_numerical_parity": false},
+      "options": [
+        {
+          "value": {"presence": "provided"},
+          "meaning": "仅登记UI标签",
+          "status": "unsupported_mode"
+        }
+      ]
+    },
+    {
+      "field": "randomSeed",
+      "location": "unverified UI label; no confirmed API location",
+      "category": "unverified_mode",
+      "type": "unverified_ui_label",
+      "legal_values": {
+        "project": [],
+        "official_values": null
+      },
+      "official_default": null,
+      "project_default": null,
+      "stage": "未核实ML模式",
+      "data_dependencies": ["模型协议、训练输入、真实时点和运行器"],
+      "evidence": ["official_client","implementation"],
+      "status": "rule_unverified",
+      "validation": {"scope": "仅官网客户端UI标签可见；未确认属于当前可写API字段，项目明确拒绝","official_numerical_parity": false},
+      "options": [
+        {
+          "value": {"presence": "provided"},
+          "meaning": "仅登记UI标签",
+          "status": "unsupported_mode"
+        }
+      ]
+    },
+    {
+      "field": "base",
+      "location": "config",
+      "category": "project_extension",
+      "type": "object",
+      "legal_values": {
+        "required": ["start_date","end_date"],
+        "frequency": ["1d"]
+      },
+      "official_default": null,
+      "project_default": null,
+      "stage": "研究日历与输入范围",
+      "data_dependencies": ["已发布数据快照和交易日历"],
+      "evidence": ["implementation","local_tests"],
+      "status": "implemented_verified",
+      "validation": {"scope": "起止日期包含边界；只读取所需预热和未来收益，不把未来帧送入Indicator","official_numerical_parity": false},
+      "options": [],
+      "properties": {
+        "start_date": {"type": "ISO_date","project_default": null,"required": true},
+        "end_date": {"type": "ISO_date","project_default": null,"required": true},
+        "frequency": {
+          "type": "enum",
+          "values": ["1d"],
+          "project_default": "1d"
+        }
+      }
+    },
+    {
+      "field": "data",
+      "location": "config",
+      "category": "project_extension",
+      "type": "object",
+      "legal_values": {
+        "providers": ["market_matrix","fixture"],
+        "adjustment": ["raw"]
+      },
+      "official_default": null,
+      "project_default": null,
+      "stage": "只读快照和研究池",
+      "data_dependencies": ["PostgreSQL行情矩阵；合成fixture可离线验证"],
+      "evidence": ["implementation","local_tests"],
+      "status": "implemented_verified",
+      "validation": {"scope": "入队固定快照ID；批量未指定ID只选一次；不自动导入、刷新或补行情","official_numerical_parity": false},
+      "options": [],
+      "properties": {
+        "provider": {
+          "type": "enum",
+          "values": ["market_matrix","fixture"],
+          "project_default": null,
+          "required": true
+        },
+        "universe": {"type": "local_pool_or_symbol_array","project_default": null,"required": true},
+        "adjustment": {
+          "type": "enum",
+          "values": ["raw"],
+          "project_default": "raw"
+        },
+        "snapshot_id": {"type": "string","project_default": null,"default_rule": "未指定时由入队事务固定最新已发布快照；指定值保持"}
+      }
+    },
+    {
+      "field": "factor",
+      "location": "config",
+      "category": "project_extension",
+      "type": "object",
+      "legal_values": {"values": "finite JSON; constructor-specific keys"},
+      "official_default": null,
+      "project_default": {},
+      "stage": "Indicator构造参数",
+      "data_dependencies": ["用户类的构造签名及共享Indicator"],
+      "evidence": ["implementation","local_tests"],
+      "status": "implemented_verified",
+      "validation": {"scope": "字面量有限JSON参数交给因子类；不增加第二套指标算法","official_numerical_parity": false},
+      "options": []
+    },
+    {
+      "field": "analysis",
+      "location": "config",
+      "category": "project_extension",
+      "type": "object",
+      "legal_values": {
+        "entry": ["signal_close"],
+        "exit": ["next_close"],
+        "groups": {"min": 1,"max": 100},
+        "group_weight": ["equal"],
+        "min_ic_pairs": {"min": 2,"max": 2147483647,"limit_reason": "Java/native signed 32-bit integer interface"},
+        "icir_ddof": [0,1],
+        "annualize_icir": [false],
+        "horizons": {"length_min": 1,"length_max": 6,"unique": true,"item_min": 1,"item_max": 252},
+        "annual_days": {"min": 1,"max": 366},
+        "decay_steps": {"min": 1,"max": 10}
+      },
+      "official_default": null,
+      "project_default": {
+        "entry": "signal_close",
+        "exit": "next_close",
+        "groups": 3,
+        "group_weight": "equal",
+        "min_ic_pairs": 3,
+        "icir_ddof": 1,
+        "annualize_icir": false,
+        "horizons": [1,5,20],
+        "annual_days": 252,
+        "decay_steps": 10
+      },
+      "stage": "原始IC/IR、分组和多期研究",
+      "data_dependencies": ["原始因子、收益矩阵和历史研究成员"],
+      "evidence": ["implementation","local_tests"],
+      "status": "implemented_verified",
+      "validation": {"scope": "设置级Alpha目标变换不覆盖原始因子IC、分组和项目研究口径；不加入费用/整手/交易引擎","official_numerical_parity": false},
+      "options": []
+    }
+  ]
+}

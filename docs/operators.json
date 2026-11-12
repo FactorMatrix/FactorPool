@@ -713,11 +713,11 @@
   },
   {
     "name": "ts_decay_linear",
-    "frontend": null,
-    "native": false,
+    "frontend": "self.ts.decay_linear",
+    "native": true,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "LEAN 窗口 / FT 扩展"
+    "source": "固定 LEAN LinearWeightedMovingAverage / FT 有效样本窗口"
   },
   {
     "name": "ts_decay_exp_window",

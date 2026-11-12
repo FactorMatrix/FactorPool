@@ -8,9 +8,10 @@ namespace fp {
 // Owned, immutable task input. Sorting depends only on factor/membership, so it
 // is shared across horizons, portfolios and lagged return masks.
 struct ResearchInput {
-  Matrix factors, returns, members;
+  Matrix factors, returns, members, alpha_weights;
   std::vector<std::vector<std::size_t>> order;
-  ResearchInput(PyObject *factor, PyObject *daily_returns, PyObject *membership);
+  ResearchInput(PyObject *factor, PyObject *daily_returns, PyObject *membership,
+                PyObject *weights = nullptr);
   // Row t compounds days t+1..t+h. Cached intervals include every daily
   // observation; neither a missing day nor a total loss can be skipped.
   const Matrix &forward(int h) const;

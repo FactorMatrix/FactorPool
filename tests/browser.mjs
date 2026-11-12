@@ -1,3 +1,4 @@
+import {fixtureScript, setSource} from './browser-script-utils.mjs'
 // Run with FACTORPOOL_PLAYWRIGHT_MODULE pointing to an installed Playwright module.
 import { createRequire } from 'node:module'
 import assert from 'node:assert/strict'
@@ -10,12 +11,7 @@ const page = await browser.newPage({ viewport: { width: 1512, height: 1050 } })
 const errors = []
 page.on('pageerror', e => errors.push(e.message))
 await page.goto(base, { waitUntil: 'networkidle' })
-await page.getByRole('button', {name: 'Settings', exact: true}).click()
-const settings = page.getByRole('region', {name: '模拟设置'})
-await settings.getByLabel('数据源', {exact: true}).selectOption('fixture')
-await settings.getByLabel('开始日期').fill('2024-01-29')
-await settings.getByLabel('结束日期').fill('2024-01-29')
-await settings.getByRole('button', {name: 'Apply', exact: true}).click()
+await setSource(page, fixtureScript())
 await page.getByRole('button', { name: '运行研究', exact: true }).click()
 await page.locator('.badge.SUCCEEDED').waitFor({ timeout: 40000 })
 await page.locator('.metrics').waitFor()

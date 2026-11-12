@@ -1,8 +1,16 @@
 <script setup>
 import { computed, reactive, ref } from "vue";
 import UiIcon from "./UiIcon.vue";
-const props = defineProps({ values: Object, sources: Array });
-const emit = defineEmits(["apply", "close"]);
+import SettingsCapabilities from "./SettingsCapabilities.vue";
+const props = defineProps({
+  values: Object,
+  sources: Array,
+  sourceMode: String,
+  resolved: Object,
+  resolveError: String,
+  resolving: Boolean,
+});
+const emit = defineEmits(["apply", "close", "resolve"]);
 const draft = reactive({ ...props.values }),
   error = ref("");
 const selectedSource = computed(() => props.sources?.find((source) => source.id === draft.provider));
@@ -53,7 +61,22 @@ function apply() {
         <UiIcon name="close" />
       </button>
     </div>
-    <form @submit.prevent="apply">
+    <div v-if="sourceMode === 'script'" class="script-settings">
+      <p>配置以代码中的 config 为准。请直接在代码中修改日期、股票池、因子参数与研究设置。</p>
+      <button type="button" class="apply-button" aria-label="校验源码配置" :disabled="resolving" @click="emit('resolve')">
+        {{ resolving ? '正在校验…' : '校验配置' }}
+      </button>
+      <p v-if="resolveError" class="settings-error" role="alert">{{ resolveError }}</p>
+      <template v-else-if="resolved">
+        <p class="resolved-entry">{{ resolved.factor_class }}.run(config)</p>
+        <pre aria-label="源码配置">{{ JSON.stringify(resolved.source_config, null, 2) }}</pre>
+        <p>校验通过。保存与运行时会重新解析当前源码，提交时固定行情快照。</p>
+      </template>
+      <p v-else>尚未校验当前源码。代码修改后需要重新校验。</p>
+      <SettingsCapabilities />
+    </div>
+    <form v-else @submit.prevent="apply">
+      <p class="legacy-note">历史因子模式：外部设置用于此旧版因子，新示例使用代码中的 config。</p>
       <div class="settings-grid">
         <label
           >LANGUAGE <span>语言</span
@@ -174,3 +197,30 @@ function apply() {
     </form>
   </section>
 </template>
+<style scoped>
+.script-settings {
+  padding: 0 20px 20px;
+  overflow: auto;
+  min-height: 0;
+  color: #91a0b3;
+  font-size: 11px;
+  line-height: 1.8;
+}
+.script-settings pre {
+  margin: 12px 0;
+  padding: 12px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: #080c12;
+  color: #cfd9e2;
+  font-size: 11px;
+}
+.resolved-entry {
+  color: #6ecb4b;
+}
+.legacy-note {
+  color: #91a0b3;
+  font-size: 11px;
+}
+</style>

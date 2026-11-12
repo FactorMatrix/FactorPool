@@ -259,3 +259,21 @@ PyObject *compound_return(PyObject *, PyObject *args) {
     return nullptr;
   }
 }
+
+PyObject *performance_stats(PyObject *, PyObject *args) {
+  try {
+    PyObject *returns, *turnover, *book;
+    int annual_days;
+    if (!PyArg_ParseTuple(args, "OOOi", &returns, &turnover, &book, &annual_days))
+      return nullptr;
+    if (annual_days < 1 || annual_days > 366)
+      throw std::invalid_argument("annual_days must be 1..366");
+    const auto daily_returns = fp::numbers(returns),
+               traded = fp::numbers(turnover), book_pnl = fp::numbers(book);
+    return fp::performance(daily_returns, traded, 1, annual_days, &book_pnl);
+  } catch (const std::exception &e) {
+    if (!PyErr_Occurred())
+      PyErr_SetString(PyExc_ValueError, e.what());
+    return nullptr;
+  }
+}

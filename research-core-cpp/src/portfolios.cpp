@@ -63,7 +63,16 @@ PyObject *portfolio_report(PyObject *, PyObject *args) {
         std::vector<double> weights(count, 0);
         bool usable = true;
         if (s.name == "alpha") {
-          if (norm > 0)
+          if (!input.alpha_weights.empty()) {
+            usable = false;
+            for (std::size_t n = 0; n < count; ++n) {
+              const auto value = input.alpha_weights[t][n];
+              if (std::isfinite(value)) {
+                weights[n] = value;
+                usable = usable || value != 0;
+              }
+            }
+          } else if (norm > 0)
             for (auto n : order)
               weights[n] = double((static_cast<long double>(f[t][n]) - mean) / norm);
           else
@@ -92,11 +101,18 @@ PyObject *portfolio_report(PyObject *, PyObject *args) {
         }
         std::vector<Holding> held;
         double concentration = 0;
-        for (auto n : order)
+        auto hold = [&](std::size_t n) {
           if (weights[n] != 0) {
             held.push_back({n, weights[n]});
             concentration = std::max(concentration, std::abs(weights[n]));
           }
+        };
+        if (s.name == "alpha" && !input.alpha_weights.empty()) {
+          for (std::size_t n = 0; n < count; ++n)
+            hold(n);
+        } else
+          for (auto n : order)
+            hold(n);
         // Both books are expressed as fractions of the same unit gross book.
         // The prior weights drift with returns; no shares, lots or cash engine.
         bool trade_valid = usable && (!s.seen || s.previous_valid);

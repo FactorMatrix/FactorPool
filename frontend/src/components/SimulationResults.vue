@@ -18,16 +18,32 @@ const props = defineProps({
 const emit = defineEmits(["load-snapshot", "page"]);
 const view = ref("chart"),
   period = ref("1"),
-  chartMode = ref("pnl");
+  chartMode = ref("pnl"),
+  partition = ref("all");
 const periods = computed(() =>
   Object.keys(props.result?.diagnostics?.horizons || {}),
 );
 const selected = computed(
   () => props.result?.diagnostics?.horizons[period.value],
 );
-const alpha = computed(() => selected.value?.portfolios.alpha);
+const hasTest = computed(() => Boolean(props.result?.diagnostics?.test_period?.start));
+function displayHorizon(horizon) {
+  const part = horizon?.partitions?.[partition.value];
+  if (!hasTest.value || partition.value === "all" || !part) return horizon;
+  return { ...horizon, portfolio_dates: part.dates,
+    portfolios: { ...part.portfolios, alpha: part.alpha } };
+}
+const displayed = computed(() => displayHorizon(selected.value));
+const displayedReport = computed(() => {
+  if (!props.result?.diagnostics) return null;
+  return { ...props.result.diagnostics, horizons: Object.fromEntries(
+    Object.entries(props.result.diagnostics.horizons).map(([key, horizon]) => [key, displayHorizon(horizon)])) };
+});
+const alpha = computed(() => displayed.value?.portfolios.alpha);
 const dailyPortfolio = computed(() => (props.result?.diagnostics?.version || 0) >= 3);
-const portfolioDates = computed(() => selected.value?.portfolio_dates || selected.value?.portfolio_signal_dates || []);
+const visualization = computed(() => props.result?.metadata?.brain_settings?.visualization
+  ?? props.task?.snapshot?.brain_settings?.visualization ?? true);
+const portfolioDates = computed(() => displayed.value?.portfolio_dates || displayed.value?.portfolio_signal_dates || []);
 const summary = computed(() => props.result?.summary || {});
 const num = (x) => (x == null ? "--" : Number(x).toFixed(4));
 const pct = (x) => (x == null ? "--" : (Number(x) * 100).toFixed(2) + "%");
@@ -38,6 +54,9 @@ watch(
   },
   { immediate: true },
 );
+watch(() => props.result, () => {
+  partition.value = hasTest.value ? "train" : "all";
+}, { immediate: true });
 watch(
   () => props.task?.id,
   () => {
@@ -110,6 +129,15 @@ const sections = [
             </button>
           </div>
         </div>
+        <label v-if="hasTest" class="validation-period">
+          验证区间
+          <select v-model="partition" aria-label="验证区间">
+            <option value="train">Train · 训练期</option>
+            <option value="test">Test · 测试期</option>
+            <option value="all">All · 完整期间</option>
+          </select>
+          <span>Train/Test 仅统计配置日期内的组合收益；All 保留未来持有收益尾部。原始因子 IC 保留完整研究期间。</span>
+        </label>
         <h1 class="result-factor-name">{{ task.name }}</h1>
         <BrainSummary v-if="alpha" :summary="alpha.brain_style" />
         <div class="metrics legacy-metrics" aria-label="一期因子统计">
@@ -129,7 +157,7 @@ const sections = [
         <div v-if="view === 'chart'" class="simulation-chart-panel">
           <div class="section-title">
             <span><UiIcon name="chart" />Chart</span
-            ><select v-model="chartMode" aria-label="结果曲线">
+            ><select v-if="visualization" v-model="chartMode" aria-label="结果曲线">
               <option value="pnl">PnL · 固定 book</option>
               <option value="nav">Net value · 复利净值</option>
               <option value="returns">{{ dailyPortfolio ? 'Daily returns · 日收益' : 'Period returns · 期收益' }}</option>
@@ -138,11 +166,12 @@ const sections = [
             </select>
           </div>
           <ReportChart
-            v-if="selected"
-            :data="selected"
+            v-if="selected && visualization"
+            :data="displayed"
             :portfolio="alpha"
             :mode="chartMode"
-          /><ResearchChart v-else :daily="result.daily" mode="ic" />
+          /><ResearchChart v-else-if="visualization" :daily="result.daily" mode="ic" />
+          <p v-else class="report-note" role="status">可视化已由 settings.visualization 关闭。可在 Summary、IC Analysis 和 Groups 查看数值，或导出完整结果。</p>
           <div class="chart-footnote">
             {{ portfolioDates[0] || result.daily[0]?.date }} —
             {{
@@ -156,7 +185,7 @@ const sections = [
             ['summary', 'ic', 'groups'].includes(view) && result.diagnostics
           "
           :key="view"
-          :report="result.diagnostics"
+          :report="displayedReport"
           :initial-period="period"
           @period-change="period = $event"
           :initial-section="
@@ -173,6 +202,7 @@ const sections = [
         >
           <p class="report-note">历史任务 · 一期研究结果</p>
           <ResearchChart
+            v-if="visualization"
             :daily="result.daily"
             :mode="view === 'groups' ? 'group' : 'ic'"
           />
@@ -308,3 +338,7 @@ const sections = [
     </div>
   </div>
 </template>
+<style scoped>
+.validation-period { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 0 20px 12px; font-size: 12px; }
+.validation-period span { color: #687789; }
+</style>

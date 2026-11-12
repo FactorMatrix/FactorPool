@@ -39,6 +39,7 @@ const port = computed(
 );
 const alpha = computed(() => selected.value?.portfolios.alpha);
 const dailyPortfolio = computed(() => (props.report.version || 0) >= 3);
+const visualization = computed(() => props.report.conventions?.brain_settings?.visualization ?? true);
 const num = (x) => (x == null ? "--" : Number(x).toFixed(4));
 const pct = (x) => (x == null ? "--" : (Number(x) * 100).toFixed(2) + "%");
 const pval = (x) => (x == null ? "--" : Number(x).toExponential(3));
@@ -98,12 +99,13 @@ const brainCards = computed(() => {
         BRAIN 风格
       </button>
     </div>
+    <p v-if="!visualization" class="report-note" role="status">可视化已由 settings.visualization 关闭，以下展示数值结果。</p>
     <template v-if="section === 'ic'">
       <div class="report-controls">
         <select v-model="metric" aria-label="相关指标">
           <option value="rank_ic">Rank IC · Spearman</option>
           <option value="ic">IC · Pearson</option></select
-        ><select v-model="view" aria-label="诊断图表">
+        ><select v-if="visualization" v-model="view" aria-label="诊断图表">
           <option value="series">时间序列 / 30期均值</option>
           <option value="monthly">月度热力图</option>
           <option value="yearly">年度均值</option>
@@ -111,7 +113,7 @@ const brainCards = computed(() => {
           <option value="decay">预测力衰减</option>
         </select>
       </div>
-      <ReportChart :data="selected" :mode="view" :metric="metric" />
+      <ReportChart v-if="visualization" :data="selected" :mode="view" :metric="metric" />
       <div class="table-scroll">
         <table class="ic-statistics">
           <thead>
@@ -164,7 +166,7 @@ const brainCards = computed(() => {
           >
             {{ title(key) }}
           </option></select
-        ><select v-model="view" aria-label="组合图表">
+        ><select v-if="visualization" v-model="view" aria-label="组合图表">
           <option value="nav">净值 / 回撤</option>
           <option value="returns">{{ dailyPortfolio ? '日收益' : '持有期收益' }}</option>
           <option value="monthly">月度收益热力图</option>
@@ -172,7 +174,7 @@ const brainCards = computed(() => {
           <option value="turnover">调仓换手</option>
         </select>
       </div>
-      <ReportChart :data="selected" :portfolio="port" :mode="view" />
+      <ReportChart v-if="visualization" :data="selected" :portfolio="port" :mode="view" />
       <div class="table-scroll portfolio-statistics">
         <table>
           <thead>
@@ -232,7 +234,7 @@ const brainCards = computed(() => {
         {{ selected.horizon }} 期调仓。采用页面下方披露的研究公式，BRAIN
         官方数值一致性尚未核验。
       </p>
-      <ReportChart :data="selected" :portfolio="alpha" mode="pnl" />
+      <ReportChart v-if="visualization" :data="selected" :portfolio="alpha" mode="pnl" />
       <div class="brain-missing">
         <span>Self-correlation <b>--</b></span
         ><span>Production correlation <b>--</b></span

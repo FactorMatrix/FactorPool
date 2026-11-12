@@ -1,10 +1,10 @@
 {
   "environment_image_id": "sha256:6730005dac82d62159abd5461db7852b507f92c90b2561f1b6d24731adcfb8e9",
-  "factortrader_commit": "a847a662aa8f7b2ee7dd4beaaa734d79537ba2d3",
+  "factortrader_commit": "6bb147e6f68db1e969a6b3b0dfce15061a131c11",
   "lean_reference": "f49bb9623a3e8782bf22bbd2cb51f691058cfdc3",
   "environment_image": "factortrader/platform:20261105-factortrader-48804c66-r1",
   "python": "3.11.16",
   "operator_contract": "ft-pool-1",
   "research_kernel": "return-matrix-v3",
-  "factorpool_source_sha256": "25d858a2497a671ed6939ef91b3cfbe0a44f122e78f1e4376dbfbdbec0304403"
+  "factorpool_source_sha256": "3b0bf63fcbb999f2b0692c62df2bddb9193148b08ff0cfa38b5f299f231506f9"
 }

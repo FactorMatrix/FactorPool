@@ -3,7 +3,7 @@
 #include <algorithm>
 
 namespace {
-constexpr const char *capsule_name = "factorpool.research_input.v2";
+constexpr const char *capsule_name = "factorpool.research_input.v3";
 void destroy_input(PyObject *capsule) {
   delete static_cast<fp::ResearchInput *>(
       PyCapsule_GetPointer(capsule, capsule_name));
@@ -11,15 +11,41 @@ void destroy_input(PyObject *capsule) {
 } // namespace
 namespace fp {
 ResearchInput::ResearchInput(PyObject *factor, PyObject *daily_returns,
-                             PyObject *membership)
+                             PyObject *membership, PyObject *weights)
     : factors(matrix(factor)), returns(matrix(daily_returns)),
-      members(membership && membership != Py_None ? matrix(membership) : Matrix{}) {
+      members(membership && membership != Py_None ? matrix(membership) : Matrix{}),
+      alpha_weights(weights && weights != Py_None ? matrix(weights) : Matrix{}) {
   if (factors.size() > returns.size() ||
       factors.columns() != returns.columns() ||
       (membership && membership != Py_None &&
        (members.size() != factors.size() ||
         members.columns() != factors.columns())))
     throw std::invalid_argument("Research matrix axes differ");
+  if (weights && weights != Py_None) {
+    if (alpha_weights.size() != factors.size() ||
+        alpha_weights.columns() != factors.columns())
+      throw std::invalid_argument("Alpha weight matrix axes differ");
+    for (std::size_t t = 0; t < alpha_weights.size(); ++t) {
+      std::size_t nan_count = 0;
+      long double gross = 0;
+      for (std::size_t n = 0; n < alpha_weights.columns(); ++n) {
+        const auto value = alpha_weights[t][n];
+        if (std::isnan(value)) {
+          ++nan_count;
+          continue;
+        }
+        if (!std::isfinite(value))
+          throw std::invalid_argument("Alpha weights must be finite or an entirely NaN row");
+        if (value != 0 && !eligible(t, n))
+          throw std::invalid_argument("Alpha weights must be zero outside the research universe");
+        gross += std::abs(static_cast<long double>(value));
+      }
+      if (nan_count && nan_count != alpha_weights.columns())
+        throw std::invalid_argument("Partial NaN alpha weight rows are not supported");
+      if (gross > 1.L + 1e-12L)
+        throw std::invalid_argument("Alpha weights exceed unit gross exposure");
+    }
+  }
   for (std::size_t t = 0; t < returns.size(); ++t)
     for (auto &r : returns[t])
       if (!std::isfinite(r) || r < -1)
@@ -134,10 +160,10 @@ std::vector<double> paired_factor_ranks(const ResearchInput &input, std::size_t 
 } // namespace fp
 PyObject *prepare_research(PyObject *, PyObject *args) {
   try {
-    PyObject *factor, *daily_returns, *members;
-    if (!PyArg_ParseTuple(args, "OOO", &factor, &daily_returns, &members))
+    PyObject *factor, *daily_returns, *members, *weights = nullptr;
+    if (!PyArg_ParseTuple(args, "OOO|O", &factor, &daily_returns, &members, &weights))
       return nullptr;
-    auto input = std::make_unique<fp::ResearchInput>(factor, daily_returns, members);
+    auto input = std::make_unique<fp::ResearchInput>(factor, daily_returns, members, weights);
     auto *capsule = PyCapsule_New(input.get(), capsule_name, destroy_input);
     if (capsule)
       input.release();

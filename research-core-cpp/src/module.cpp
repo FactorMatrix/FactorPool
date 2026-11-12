@@ -2,7 +2,7 @@
 #include "research_input.hpp"
 static PyMethodDef methods[] = {
     {"prepare_research", prepare_research, METH_VARARGS,
-     "Own factor, daily-return and membership matrices; share sorted factors and compounded horizons."},
+     "Own factor, daily-return, membership and optional target-alpha matrices; share sorted factors and compounded horizons."},
     {"ic_series", ic_series, METH_VARARGS,
      "Requested IC/Rank IC series without materializing unused value/group arrays."},
     {"analyze", analyze, METH_VARARGS,
@@ -11,6 +11,8 @@ static PyMethodDef methods[] = {
      "Moments, ICIR and IID/HAC mean inference."},
     {"portfolio_report", portfolio_report, METH_VARARGS,
      "Non-overlapping matrix portfolios with daily holding returns."},
+    {"performance_stats", performance_stats, METH_VARARGS,
+     "Daily return and fixed-book performance using the same portfolio statistics."},
     {"compound_return", compound_return, METH_VARARGS,
      "Compound complete non-overlapping interval returns."},
     {"ic_decay", ic_decay, METH_VARARGS,
