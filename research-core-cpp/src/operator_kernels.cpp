@@ -5,7 +5,7 @@
 
 namespace factorpool::operators {
 bool is_extension(const std::string& op) {
-    static const std::set<std::string> names{"sqrt", "log", "power", "signed_power", "sign", "is_nan", "if_else", "mod"};
+    static const std::set<std::string> names{"sqrt", "log", "power", "signed_power", "sign", "is_nan", "if_else"};
     return names.contains(op);
 }
 namespace {
@@ -21,12 +21,6 @@ double calculate(const std::string& op, double a, double b) {
     if (op == "signed_power") {
         if (a == 0) return b < 0 ? shared::missing : 0;
         return std::copysign(real_power(std::abs(a), b), a);
-    }
-    if (op == "mod") {
-        if (b == 0) return shared::missing;
-        double result = std::fmod(a, b);
-        if (result != 0 && std::signbit(result) != std::signbit(b)) result += b;
-        return result == 0 ? std::copysign(0.0, b) : result;
     }
     throw std::invalid_argument("Unknown Pool numeric operator: " + op);
 }

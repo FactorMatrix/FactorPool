@@ -54,7 +54,7 @@ def _declares_extension(syntax, function):
                 aliases[name] = next(iter(origins))
                 changed = True
     for node in ast.walk(syntax):
-        if isinstance(node, ast.BinOp) and isinstance(node.op, (ast.Pow, ast.Mod)):
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Pow):
             return True
         if not isinstance(node, ast.Call):
             continue
@@ -86,11 +86,11 @@ class PoolCompiler(_UpdateCompiler):
         return self.node(method, tuple(arg.node for arg in args), kind=kind)
 
     def expression(self, syntax, variables):
-        if isinstance(syntax, ast.BinOp) and isinstance(syntax.op, (ast.Pow, ast.Mod)):
+        if isinstance(syntax, ast.BinOp) and isinstance(syntax.op, ast.Pow):
             # Convert syntax only. Operands remain subject to the shared typed
             # compiler and are never evaluated as Python during preparation.
             call = ast.copy_location(ast.Call(func=ast.Name(id="unused"), args=[syntax.left, syntax.right], keywords=[]), syntax)
-            return self.extension("power" if isinstance(syntax.op, ast.Pow) else "mod", call, variables)
+            return self.extension("power", call, variables)
         return super().expression(syntax, variables)
 
     def call(self, syntax, variables):

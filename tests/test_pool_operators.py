@@ -162,18 +162,28 @@ class PoolOperatorTests(unittest.TestCase):
                 self.assertEqual(adapter.binding.backend_name, "pool_native")
                 self.assert_values(values, expected)
 
-    def test_power_signed_power_and_modulo_are_real_finite_and_keep_zero(self):
+    def test_power_and_signed_power_are_real_finite_and_keep_zero(self):
         cases = (
             ("input.close ** input.volume", [-2, -2, 0, 0, 2, 1e300], [3, .5, 0, -1, -2, 2], [-8, None, 1, None, .25, None]),
             ("pow(input.close, input.volume)", [-2, 0, 3], [2, 0, 2], [4, 1, 9]),
             ("math.pow(input.close, input.volume)", [-2, 0], [.5, 2], [None, 0]),
             ("self.cs.signed_power(input.close, input.volume)", [-4, 0, 0, 4], [.5, 0, -1, .5], [-2, 0, None, 2]),
-            ("input.close % input.volume", [-5, 5, 5, 0], [3, -3, 0, -2], [1, -1, None, 0]),
         )
         for expression, close, volume, expected in cases:
             with self.subTest(expression=expression):
                 _, values = self.evaluate(expression, close, volume, imports="import math\n")
                 self.assert_values(values, expected)
+
+    def test_removed_modulo_is_not_native_but_python_percent_keeps_its_callback(self):
+        for expression in ("self.cs.mod(input.close, 3)", "self.cs.sqrt(input.close) % 3"):
+            with self.subTest(expression=expression):
+                indicator, _ = self.factor(expression)
+                with self.assertRaises(ValueError):
+                    IndicatorAdapter(indicator)
+        adapter, values = self.evaluate("input.close % input.volume", [-5, 5, 0], [3, -3, -2])
+        self.assertEqual(adapter.mode, "python")
+        self.assertFalse(hasattr(adapter.indicator, "_pool_ir"))
+        self.assert_values(values, [1, -1, 0])
 
     def test_is_nan_does_not_turn_infinity_unready_or_absent_bars_into_zero(self):
         _, values = self.evaluate("self.cs.is_nan(input.close)", [0, np.nan, np.inf, -np.inf, np.nan], missing=("4",))

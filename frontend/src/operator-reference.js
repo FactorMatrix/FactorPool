@@ -51,7 +51,6 @@ export const operatorReference = {
     ["按 sign(x) × abs(x)**y 计算；零的非负次幂为 0，因此 signed_power(0, 0) 与普通 0**0 不同。", "零的负次幂或非有限结果不可用。"]),
   sign: unary("符号", "self.cs.sign(x)", "self.cs.sign(x)", "x = [-5, 0, 2]", "[-1, 0, 1]"),
   reverse: unary("取相反数", "-x", "-x", "x = [-2, 0, 3]", "[2, 0, -3]", ["与 negate 是同一取负操作的台账别名。"]),
-  negate: unary("取相反数", "-x", "-x", "x = [-2, 0, 3]", "[2, 0, -3]", ["与 reverse 是同一取负操作的台账别名。"]),
   inverse: unary("倒数", "1 / x", "1 / x", "x = [2, -4, 0]", "[0.5, -0.25, null]", ["零输入不可用。"]),
   min: arithmetic("逐元素较小值", "min(x, y, ...)", "min(x, 2)", "x = [1, 3]；y = 2", "[1, 2]", ["至少两个参数；这是同一位置不同表达式的比较，不是时序窗口最小值。"]),
   max: arithmetic("逐元素较大值", "max(x, y, ...)", "max(x, 2)", "x = [1, 3]；y = 2", "[2, 3]", ["至少两个参数；时序最大值请使用 self.ts.max。"]),
@@ -75,12 +74,8 @@ export const operatorReference = {
     "已观测 NaN 返回 1，有限值返回 0；Inf 仍不可用。缺 Bar 或上游尚未 ready 不会被伪装成可检测的 NaN 观测。",
     "也支持 math.isnan(x)；检测缺失不等于把缺失自动填零。",
   ]),
-  modulo: arithmetic("Python 余数", "x % y / self.cs.mod(x, y)", "x % 3", "x = [-5, 5]；y = 3", "[1, 2]", ["非零余数的符号跟随除数，例如 5 % -3 = -1。除数为零不可用，不先把浮点值转整数。"]),
-
   ts_mean: window("窗口均值", "mean", "当前输出 2", [clock]),
   ts_sum: window("窗口求和", "sum", "当前输出 6", [clock]),
-  ts_min: window("窗口最小值", "min", "当前输出 1", [clock]),
-  ts_max: window("窗口最大值", "max", "当前输出 3", [clock]),
   ts_std_dev: window("窗口标准差", "std", "当前输出 √(2/3) ≈ 0.816497", [
     "ddof=0 时除以窗口样本数；ddof=1 使用样本标准差。常量完整窗口的标准差为 0。",
     "支持 clock=\"trading_days\"；日历模式 ddof 只接受 0 或 1，分母不足时结果不可用。",
@@ -89,23 +84,13 @@ export const operatorReference = {
     "有效观测 x = [10, 11, 12, 13]，当前值为 13", "当前输出 11", [temporal, clock, "取 period 个观测以前的值，因此通常需要当前点及此前 period 个观测。"]),
   ts_delta: entry("滞后差值", "ts", "self.ts.delta(x, period)", [input, period], "self.ts.delta(x, 2)",
     "有效观测 x = [10, 11, 12, 13]，当前值为 13", "当前输出 13 - 11 = 2", [temporal, clock]),
-  ts_returns: entry("表达式区间变化率", "ts", "self.ts.returns(x, period)", [input, period], "self.ts.returns(x, 2)",
-    "有效观测 x = [10, 11, 12, 13]，当前值为 13", "当前输出 (13 - 11) / 11 ≈ 0.181818", [
-      temporal, "分母是 period 期前的表达式值，为零时不可用。这里不自动使用 prev_close 或处理价格基准。",
-      "这与研究回测的日收益矩阵是两个概念；回测日收益使用 close/prev_close-1。此派生算子不支持 trading_days 选项。",
-    ]),
   ts_av_diff: window("偏离窗口均值", "av_diff", "当前输出 3 - 2 = 1", ["等于当前值减窗口均值；此派生算子不支持 trading_days 选项。"]),
-  ts_min_diff: window("偏离窗口最小值", "min_diff", "当前输出 3 - 1 = 2", ["等于当前值减窗口最小值；此派生算子不支持 trading_days 选项。"]),
-  ts_max_diff: window("偏离窗口最大值", "max_diff", "当前输出 3 - 3 = 0", ["方向是当前值减窗口最大值，不是反过来。此派生算子不支持 trading_days 选项。"]),
   ts_zscore: window("时序标准分", "zscore", "当前输出 (3 - 2) / √(2/3) ≈ 1.224745", [
     "以当前值减窗口均值，再除窗口标准差；零标准差时不可用。此派生算子不支持 trading_days 选项。",
   ], [degrees]),
   ts_scale: window("窗口极差缩放", "scale", "当前输出 (3 - 1) / (3 - 1) = 1", [
     "以窗口最小值和最大值映射当前值；最大值等于最小值时不可用。此派生算子不支持 trading_days 选项。",
   ]),
-  ts_ir: window("窗口均值标准差比", "ir", "当前输出 2 / √(2/3) ≈ 2.449490", [
-    "窗口均值除以窗口标准差；零标准差时不可用，不做年化。此派生算子不支持 trading_days 选项。",
-  ], [degrees]),
   ts_decay_linear: window("线性加权窗口", "decay_linear", "当前输出 (1×1 + 2×2 + 3×3) / (1+2+3) = 7/3", [
     "完整 period 窗口中，最旧到最新的权重为 1..period，除以权重和。", clock,
     "这是因子表达式窗口；settings.decay 是生成 Alpha 目标前的设置级变换，位置不同。",
@@ -128,15 +113,7 @@ export const operatorReference = {
   scale: cross("截面 L1 缩放", "scale", "同日 x = [-1, 1, 2]", "[-0.25, 0.25, 0.5]", [
     "每个值除以有效截面的绝对值之和。绝对值和为零时不可用。这里只做表达式缩放，不生成交易账户仓位。",
   ]),
-  scale_down: cross("截面极差缩放", "scale_down", "同日 x = [2, 4, 6]", "[0, 0.5, 1]", [
-    "按 (x - 最小值)/(最大值 - 最小值) 计算；常量或单样本截面不可用。",
-  ]),
   group_rank: group("组内排名", "group_rank", "[0, 1, 0, 1]", ["各组独立做 0..1 端点排名，并列取平均名次；单样本组为 0.5。"]),
   group_neutralize: group("组内减均值", "group_neutralize", "[-1, 1, -2, 2]", ["每个值减去所属组内的有效均值，不自动缩放。"]),
-  group_sum: group("组内求和", "group_sum", "[4, 4, 24, 24]"),
-  group_count: group("组内样本数", "group_count", "[2, 2, 2, 2]", ["统计该组 x 和 g 都有效的证券数，不是整个股票池的证券数。"]),
-  group_std_dev: group("组内标准差", "group_std", "[1, 1, 2, 2]", ["使用总体标准差，不接受 ddof 参数；单样本组或常量组的标准差是有效零。"]),
-  group_min: group("组内最小值", "group_min", "[1, 1, 10, 10]"),
-  group_max: group("组内最大值", "group_max", "[3, 3, 14, 14]"),
-  group_median: group("组内中位数", "group_median", "[2, 2, 12, 12]", ["有效样本为偶数时，取中间两个值的平均。"]),
+
 };
