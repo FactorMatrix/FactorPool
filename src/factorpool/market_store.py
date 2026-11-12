@@ -132,7 +132,7 @@ def load(data, warmup, future, *, connection=None):
         matrices = np.full((len(FIELDS), stop - initial, len(columns)), np.nan)
         covered = initial
         seen = False
-        with conn.cursor(name="factorpool_market_blocks") as blocks:
+        with conn.cursor(name="factorpool_market_blocks", binary=True) as blocks:
             blocks.itersize = 1
             blocks.execute(
                 "SELECT start_index,row_count,payload,sha256 FROM market_matrix_blocks "
