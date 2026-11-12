@@ -9,6 +9,11 @@ const props = defineProps({
 });
 const host = ref(null);
 let chart, observer;
+const compactAmount = value => {
+  const scale = Math.abs(value) >= 1e6 ? 1e6 : Math.abs(value) >= 1e3 ? 1e3 : 1;
+  return `${(value / scale).toLocaleString("en-US", { maximumFractionDigits: 2 })}${scale === 1e6 ? 'M' : scale === 1e3 ? 'K' : ''}`;
+};
+const escapeHtml = value => String(value).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 function draw() {
   if (!chart || !props.data) return;
   const d = props.data,
@@ -109,8 +114,13 @@ function draw() {
         },
       ];
     } else if (props.mode === "pnl") {
+      const unit = p.pnl?.unit || d.pnl_book?.unit || "BOOK";
+      option.tooltip = { trigger: "axis", formatter: rows => {
+        const values = Array.isArray(rows) ? rows : [rows];
+        return [escapeHtml(values[0]?.axisValueLabel || ""), ...values.map(row => `${row.marker}${escapeHtml(row.seriesName)}: ${row.value == null ? '--' : row.seriesIndex === 0 ? `${Number(row.value).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})} ${escapeHtml(unit)}` : `${(Number(row.value) * 100).toFixed(2)}%`}`)].join("<br/>");
+      }};
       option.yAxis = [
-        base.yAxis,
+        { ...base.yAxis, name: unit, axisLabel: { ...base.yAxis.axisLabel, formatter: compactAmount } },
         {
           type: "value",
           axisLabel: {
@@ -122,11 +132,11 @@ function draw() {
       ];
       option.series = [
         {
-          name: "累计固定 book PnL",
+          name: `累计固定 book PnL (${unit})`,
           type: "line",
           showSymbol: portfolioDates?.length < 20,
           connectNulls: false,
-          data: p.constant_book_pnl,
+          data: p.pnl?.cumulative || p.constant_book_pnl,
         },
         {
           name: "半 book 回撤",

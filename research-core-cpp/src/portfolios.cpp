@@ -2,6 +2,7 @@
 #include "statistics.hpp"
 #include "research_input.hpp"
 #include <algorithm>
+#include <memory>
 #include <string>
 namespace {
 using namespace fp;
@@ -17,13 +18,130 @@ struct Strategy {
   bool seen = false, previous_valid = false;
   explicit Strategy(std::string value) : name(std::move(value)) {}
 };
+
+std::vector<std::size_t> trace_signals(PyObject *requested,
+                                     std::size_t factor_rows,
+                                     std::size_t return_rows,
+                                     std::size_t symbols, int horizon) {
+  std::vector<std::size_t> indices;
+  if (!requested || requested == Py_None)
+    return indices;
+  if (!PyList_Check(requested) || PyList_GET_SIZE(requested) > 5)
+    throw std::invalid_argument(
+        "trace_signal_indices must be a list of at most 5 integers");
+  const auto length = PyList_GET_SIZE(requested);
+  if (length)
+    indices.reserve(static_cast<std::size_t>(length));
+  for (Py_ssize_t i = 0; i < length; ++i) {
+    auto *item = PyList_GET_ITEM(requested, i);
+    if (!PyLong_Check(item) || PyBool_Check(item))
+      throw std::invalid_argument("trace signal indices must be integers");
+    const auto index = PyLong_AsUnsignedLongLong(item);
+    if (PyErr_Occurred()) {
+      PyErr_Clear();
+      throw std::invalid_argument("trace signal index is outside the factor axis");
+    }
+    if (index >= factor_rows)
+      throw std::invalid_argument("trace signal index is outside the factor axis");
+    indices.push_back(static_cast<std::size_t>(index));
+  }
+  std::sort(indices.begin(), indices.end());
+  indices.erase(std::unique(indices.begin(), indices.end()), indices.end());
+  constexpr std::size_t limit = 50000;
+  std::size_t rows = 0;
+  for (auto signal : indices) {
+    if (signal % static_cast<std::size_t>(horizon) != 0)
+      continue;
+    const auto days = std::min(static_cast<std::size_t>(horizon),
+                               return_rows - signal - 1);
+    if (days && symbols > (limit - rows) / days)
+      throw std::invalid_argument(
+          "Requested PnL trace exceeds 50,000 symbol-day rows; narrow the signals, horizon or universe");
+    rows += days * symbols;
+  }
+  return indices;
+}
+
+// Allocated only for a selected Alpha rebalance. Growth and contribution values
+// are captured in the existing holding loop; this is not another valuation pass.
+struct TraceState {
+  std::vector<double> target, before, contribution;
+  std::vector<const char *> errors;
+  double gross = 0, net = 0;
+  explicit TraceState(const std::vector<double> &weights)
+      : target(weights), before(weights.size(), missing),
+        contribution(weights.size(), missing), errors(weights.size(), nullptr) {
+    long double absolute = 0, signed_sum = 0;
+    for (auto weight : target) {
+      absolute += std::abs(static_cast<long double>(weight));
+      signed_sum += weight;
+    }
+    gross = static_cast<double>(absolute);
+    net = static_cast<double>(signed_sum);
+  }
+};
+
+PyObject *trace_day(const ResearchInput &input, std::size_t signal,
+                    std::size_t valuation, long double mean, bool usable,
+                    const TraceState &state, double book_pnl) {
+  Owned day{PyDict_New()}, rows{PyList_New(state.target.size())};
+  if (!day.p || !rows.p)
+    throw std::bad_alloc();
+  const char *day_status = usable ? "ok" : "no_valid_weights";
+  if (usable && !std::isfinite(book_pnl)) {
+    day_status = "nonfinite_pnl";
+    for (std::size_t n = 0; n < state.target.size(); ++n)
+      if (state.target[n] != 0 && state.errors[n]) {
+        day_status = state.errors[n];
+        break;
+      }
+  }
+  for (std::size_t n = 0; n < state.target.size(); ++n) {
+    const auto raw = input.factors[signal][n], weight = state.target[n];
+    const bool member = input.eligible(signal, n);
+    double effective = missing, contribution = missing;
+    const char *status = "no_valid_weights";
+    if (usable && weight == 0) {
+      effective = contribution = 0;
+      status = !member ? "outside_universe"
+               : input.alpha_weights.empty() && !std::isfinite(raw)
+                   ? "nonfinite_alpha" : "zero_weight";
+    } else if (usable) {
+      effective = static_cast<double>(static_cast<long double>(weight) * state.before[n]);
+      contribution = state.contribution[n];
+      status = state.errors[n] ? state.errors[n] : "ok";
+    }
+    Owned row{PyDict_New()};
+    put(row.p, "symbol_index", PyLong_FromSize_t(n));
+    put(row.p, "raw_alpha", number(raw));
+    put(row.p, "member", PyBool_FromLong(member));
+    put(row.p, "neutralized",
+        number(input.alpha_weights.empty() && member && std::isfinite(raw)
+                   ? static_cast<double>(static_cast<long double>(raw) - mean)
+                   : missing));
+    put(row.p, "target_weight", number(usable ? weight : missing));
+    put(row.p, "effective_weight_before_return", number(effective));
+    put(row.p, "return", number(input.returns[valuation][n]));
+    put(row.p, "pnl_fraction", number(contribution));
+    put(row.p, "status", PyUnicode_FromString(status));
+    PyList_SET_ITEM(rows.p, n, Py_NewRef(row.p));
+  }
+  put(day.p, "signal_index", PyLong_FromSize_t(signal));
+  put(day.p, "valuation_index", PyLong_FromSize_t(valuation));
+  put(day.p, "pnl_fraction", number(book_pnl));
+  put(day.p, "target_gross", number(usable ? state.gross : missing));
+  put(day.p, "target_net", number(usable ? state.net : missing));
+  put(day.p, "status", PyUnicode_FromString(day_status));
+  put(day.p, "rows", Py_NewRef(rows.p));
+  return Py_NewRef(day.p);
+}
 } // namespace
 PyObject *portfolio_report(PyObject *, PyObject *args) {
   try {
-    PyObject *factor, *returns, *members;
+    PyObject *factor, *returns, *members, *requested_trace = Py_None;
     int groups, h, annual_days;
-    if (!PyArg_ParseTuple(args, "OOOiii", &factor, &returns, &members, &groups,
-                          &h, &annual_days))
+    if (!PyArg_ParseTuple(args, "OOOiii|O", &factor, &returns, &members, &groups,
+                          &h, &annual_days, &requested_trace))
       return nullptr;
     if (groups < 1 || groups > 100 || h < 1 || h > 252 || annual_days < 1 ||
         annual_days > 366)
@@ -32,6 +150,10 @@ PyObject *portfolio_report(PyObject *, PyObject *args) {
     const auto &input = *holder.value;
     const auto &f = input.factors, &r = input.returns;
     const std::size_t count = f.empty() ? 0 : f[0].size();
+    const auto selected_trace = trace_signals(requested_trace, f.size(), r.size(), count, h);
+    Owned traces{selected_trace.empty() ? nullptr : PyList_New(0)};
+    if (!selected_trace.empty() && !traces.p)
+      throw std::bad_alloc();
     std::vector<Strategy> strategies;
     for (int g = 0; g < groups; ++g)
       strategies.emplace_back("long_G" + std::to_string(g + 1));
@@ -113,6 +235,10 @@ PyObject *portfolio_report(PyObject *, PyObject *args) {
         } else
           for (auto n : order)
             hold(n);
+        std::unique_ptr<TraceState> tracing;
+        if (traces.p && end > t + 1 && s.name == "alpha" &&
+            std::binary_search(selected_trace.begin(), selected_trace.end(), t))
+          tracing = std::make_unique<TraceState>(weights);
         // Both books are expressed as fractions of the same unit gross book.
         // The prior weights drift with returns; no shares, lots or cash engine.
         bool trade_valid = usable && (!s.seen || s.previous_valid);
@@ -129,6 +255,7 @@ PyObject *portfolio_report(PyObject *, PyObject *args) {
         for (auto d = t + 1; d < end; ++d) {
           long double delta = 0;
           for (auto &position : held) {
+            const auto previous_growth = position.growth;
             const auto value = r[d][position.symbol];
             if (!std::isfinite(value) || value < -1)
               position.growth = missing;
@@ -137,6 +264,26 @@ PyObject *portfolio_report(PyObject *, PyObject *args) {
             if (!std::isfinite(position.growth))
               valid = false;
             delta += position.weight * (static_cast<long double>(position.growth) - 1);
+            if (tracing) {
+              const auto n = position.symbol;
+              tracing->before[n] = previous_growth;
+              const char *error = nullptr;
+              double contribution = missing;
+              if (!std::isfinite(value) || value < -1)
+                error = "missing_return";
+              else if (!std::isfinite(previous_growth))
+                error = "prior_missing_return";
+              else if (!std::isfinite(position.growth))
+                error = "nonfinite_growth";
+              else {
+                contribution = static_cast<double>(
+                    static_cast<long double>(position.weight) * previous_growth * value);
+                if (!std::isfinite(contribution))
+                  error = "nonfinite_pnl";
+              }
+              tracing->contribution[n] = contribution;
+              tracing->errors[n] = error;
+            }
           }
           wealth = valid ? double(1 + delta) : missing;
           if (!std::isfinite(wealth))
@@ -145,6 +292,11 @@ PyObject *portfolio_report(PyObject *, PyObject *args) {
                               ? wealth / previous_wealth - 1 : missing);
           s.book_pnl.push_back(valid && std::isfinite(previous_wealth)
                                   ? wealth - previous_wealth : missing);
+          if (tracing) {
+            Owned traced{trace_day(input, t, d, mean, usable, *tracing, s.book_pnl.back())};
+            if (PyList_Append(traces.p, traced.p) < 0)
+              throw std::runtime_error("Trace allocation failure");
+          }
           s.turnover.push_back(d == t + 1 ? turnover : 0);
           s.positions.push_back(usable ? double(held.size()) : missing);
           s.concentration.push_back(usable ? concentration : missing);
@@ -171,6 +323,8 @@ PyObject *portfolio_report(PyObject *, PyObject *args) {
     put(result.p, "signal_indices", list(indices));
     put(result.p, "daily_indices", list(daily_indices));
     put(result.p, "strategies", Py_NewRef(out.p));
+    if (traces.p)
+      put(result.p, "trace", Py_NewRef(traces.p));
     return Py_NewRef(result.p);
   } catch (const std::exception &e) {
     if (!PyErr_Occurred())

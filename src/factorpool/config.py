@@ -109,7 +109,7 @@ def normalize_config(config):
     analysis = dict(entry="signal_close", exit="next_close", groups=3,
                     group_weight="equal", min_ic_pairs=3, icir_ddof=1,
                     annualize_icir=False, horizons=[1, 5, 20], annual_days=252,
-                    decay_steps=10)
+                    decay_steps=10, book_size=1, pnl_unit="BOOK", trace_dates=[])
     supplied = _object(config.get("analysis", {}), "config.analysis")
     _keys(supplied, analysis, "analysis")
     analysis.update(deepcopy(supplied))
@@ -127,6 +127,9 @@ def normalize_config(config):
     if (analysis["entry"] != "signal_close" or analysis["exit"] != "next_close"
             or analysis["group_weight"] != "equal" or analysis["annualize_icir"] is not False):
         raise ValueError("Only signal-close returns, equal groups and unannualized ICIR are supported")
+    from .reporting_options import monetary_options, trace_dates
+    monetary_options(analysis)
+    analysis["trace_dates"] = trace_dates(analysis, normalized_dates["start_date"], normalized_dates["end_date"])
     settings = normalize_settings(config.get("settings", {}), data)
     test_period_start(data["factor_end"], settings["testPeriod"])
     return dict(simulation_type=simulation_type, factor_params=params, data=data, analysis=analysis,

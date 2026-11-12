@@ -42,6 +42,9 @@ def validate(request):
         raise ValueError("Supported analysis: equal weights, unannualized ICIR")
     if data["factor_start"] > data["factor_end"]:
         raise ValueError("End precedes start")
+    from .reporting_options import monetary_options, trace_dates
+    monetary_options(analysis)
+    trace_dates(analysis, data["factor_start"], data["factor_end"])
 
 
 def returns_matrix(frames, symbols):
@@ -180,17 +183,35 @@ def run(directory, *, factory=None):
     timings["calculate"] = time.perf_counter() - checkpoint
     checkpoint = time.perf_counter()
     options = request["analysis"]
+    from .reporting_options import trace_dates
+    requested_trace = trace_dates(options, data["factor_start"], data["factor_end"])
+    if any(day not in dates for day in requested_trace):
+        raise ValueError("analysis.trace_dates must be actual signal dates in the loaded data")
+    trace_indices = [dates.index(day) for day in requested_trace]
+    detail_rows = sum(len(symbols)*min(h, max(0, len(tail)-t-1))
+                      for h in horizons for t in trace_indices if t % h == 0)
+    if detail_rows > 50000:
+        raise ValueError("Requested Alpha trace exceeds 50,000 rows; reduce signal dates, horizons or universe")
+    transforms = {}
     alpha_weights = None
+    settings_details = {}
     if settings is not None:
         from .simulation import alpha_targets
+        offset = len(warm_factors)-len(dates)
         all_targets = alpha_targets(np.asarray(warm_factors, dtype=np.float64),
-                                    np.asarray(warm_membership, dtype=np.float64), settings)
+                                    np.asarray(warm_membership, dtype=np.float64), settings,
+                                    details=settings_details if trace_indices or settings["truncation"] > 0 else None,
+                                    trace_indices=[i+offset for i in trace_indices
+                                                   if i+1 < len(tail) and any(i % h == 0 for h in horizons)])
         if all_targets is not None:
             alpha_weights = np.ascontiguousarray(all_targets[-len(dates):])
+        transforms = {i-offset: values for i, values in settings_details.get("trace", {}).items()}
     prepared = (native.prepare_research(factors, returns, members) if alpha_weights is None
                 else native.prepare_research(factors, returns, members, alpha_weights))
     result = native.analyze(prepared, None, options.get("groups", 3), options.get("min_ic_pairs", 3), options.get("icir_ddof", 1))
-    result["diagnostics"] = build_diagnostics(prepared, None, None, dates, [f["date"] for f in tail], options, primary=result)
+    trace_info = dict(indices=trace_indices, symbols=symbols, transforms=transforms,
+                      factor_rows=rows) if trace_indices else None
+    result["diagnostics"] = build_diagnostics(prepared, None, None, dates, [f["date"] for f in tail], options, primary=result, trace_info=trace_info)
     conventions = result["diagnostics"]["conventions"]
     conventions.update(return_policy=deepcopy(return_policy), daily_return=daily_return,
                        return_price=return_price,
@@ -199,9 +220,24 @@ def run(directory, *, factory=None):
     if settings is not None:
         from .simulation import ALPHA_POLICY, SETTINGS_SCOPE
         conventions.update(brain_settings=deepcopy(settings), alpha_weights=ALPHA_POLICY,
-                           settings_scope=SETTINGS_SCOPE)
+                           settings_scope=SETTINGS_SCOPE,
+                           long_short="Group spread targets use long 0.5/short 0.5; Alpha gross/net depend on effective settings and need not remain 1/0 after truncation")
         from .reporting.partition import add_test_period
         add_test_period(result["diagnostics"], settings["testPeriod"], data["factor_end"], annual_days, data["factor_start"])
+        constraints = []
+        for item in settings_details.get("constraints", []):
+            index = item["index"]-offset
+            if index >= 0:
+                constraints.append(dict(item, date=dates[index], index=index))
+        if settings["truncation"] > 0:
+            result["diagnostics"]["alpha_constraints"] = dict(
+                truncation=settings["truncation"], target_gross_reference=1,
+                policy="rebalance target cap without redistribution; infeasible full gross is reported, residual remains unallocated; no forced full investment",
+                feasibility_scope="total capacity N*cap only; not a side/net/redistribution solver; actual target gross and net are reported separately",
+                daily=constraints,
+                infeasible_dates=[item["date"] for item in constraints if not item["full_gross_feasible"]])
+    from .reporting.pnl import add_amounts
+    add_amounts(result["diagnostics"], options)
     for date, day in zip(dates, result["daily"]):
         day["date"] = date
     returns, groups = result.pop("forward_returns"), result.pop("groups")

@@ -80,7 +80,7 @@ def portfolio_calendar(dates, returns, width=7):
     return output
 
 
-def build(factors, returns, membership, dates, price_dates, analysis, *, primary=None):
+def build(factors, returns, membership, dates, price_dates, analysis, *, primary=None, trace_info=None):
     periods, annual_days, steps = options(analysis)
     ddof, groups, minimum = analysis.get("icir_ddof", 1), analysis.get("groups", 3), analysis.get("min_ic_pairs", 3)
     prepared = factors if returns is None else native.prepare_research(factors, returns, membership)
@@ -94,7 +94,10 @@ def build(factors, returns, membership, dates, price_dates, analysis, *, primary
             ics, rics = series["ic"], series["rank_ic"]
         ic = inference(ics, ddof, h-1)
         rank_ic = inference(rics, ddof, h-1)
-        portfolios = native.portfolio_report(prepared, None, None, groups, h, annual_days)
+        trace_indices = trace_info.get("indices", []) if trace_info else []
+        args = (prepared, None, None, groups, h, annual_days)
+        portfolios = native.portfolio_report(*args, trace_indices) if trace_indices else native.portfolio_report(*args)
+        traces = portfolios.pop("trace", [])
         indices = [int(v) for v in portfolios.pop("signal_indices")]
         daily_indices = [int(v) for v in portfolios.pop("daily_indices")]
         signals = [dates[i] for i in indices]
@@ -110,6 +113,14 @@ def build(factors, returns, membership, dates, price_dates, analysis, *, primary
             yearly=dict(ic=grouped_moments(dates, ics, 4, ddof),rank_ic=grouped_moments(dates, rics, 4, ddof)),
             decay=native.ic_decay(prepared, None, None, h, steps, minimum),
             portfolio_dates=portfolio_dates, portfolio_signal_dates=signals, portfolio_exit_dates=exits, portfolios=portfolios["strategies"])
+        if trace_info and trace_indices:
+            from .pnl import format_trace
+            out[str(h)]["alpha_trace"] = format_trace(traces, trace_info, dates, price_dates, analysis)
+            out[str(h)]["trace_status"] = dict(
+                requested_signal_dates=[dates[i] for i in trace_indices],
+                not_rebalance_dates=[dates[i] for i in trace_indices if i % h],
+                no_future_dates=[dates[i] for i in trace_indices if i % h == 0 and i+1 >= len(price_dates)],
+                policy="only requested rebalance signals; full holding intervals; no default per-symbol export")
     return dict(version=3, horizons=out, conventions=dict(
         annual_days=annual_days, ic_ddof=ddof, return_price="close / prev_close - 1", signal_delay=1,
         return_matrix="signal t uses daily returns R[t+1]..R[t+h]; no additional corporate-action adjustment",

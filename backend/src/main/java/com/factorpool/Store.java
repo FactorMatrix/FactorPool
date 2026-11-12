@@ -281,9 +281,29 @@ public class Store {
     for (var it = a.fieldNames(); it.hasNext();)
       if (!Set.of("entry", "exit", "groups", "group_weight", "min_ic_pairs",
                   "icir_ddof", "annualize_icir", "horizons", "annual_days",
-                  "decay_steps")
+                  "decay_steps", "book_size", "pnl_unit", "trace_dates")
                .contains(it.next()))
         throw new IllegalArgumentException("Unknown analysis option");
+    if (a.has("book_size") && (!a.get("book_size").isNumber() ||
+        !Double.isFinite(a.get("book_size").asDouble()) || a.get("book_size").asDouble() <= 0 ||
+        a.get("book_size").asDouble() > 1e15))
+      throw new IllegalArgumentException("book_size must be finite and in (0, 1e15]");
+    if (a.has("pnl_unit") && (!a.get("pnl_unit").isTextual() ||
+        !a.get("pnl_unit").asText().matches("[A-Z][A-Z0-9_]{0,11}")))
+      throw new IllegalArgumentException("pnl_unit must be a 1..12 character uppercase unit label");
+    if (a.has("trace_dates")) {
+      var values = a.get("trace_dates");
+      if (!values.isArray() || values.size() > 5)
+        throw new IllegalArgumentException("trace_dates must contain at most five signal dates");
+      Set<String> unique = new HashSet<>();
+      for (JsonNode value : values) {
+        if (!value.isTextual())
+          throw new IllegalArgumentException("trace_dates must contain ISO signal dates");
+        var day = java.time.LocalDate.parse(value.asText());
+        if (day.isBefore(start) || day.isAfter(end) || !unique.add(day.toString()))
+          throw new IllegalArgumentException("trace_dates must be unique and within the research dates");
+      }
+    }
     if (a.has("horizons")) {
       if (!a.get("horizons").isArray() || a.get("horizons").isEmpty() ||
           a.get("horizons").size() > 6)
@@ -307,8 +327,8 @@ public class Store {
       throw new IllegalArgumentException(
           "decay_steps must be an integer in 1..10");
     for (String key : List.of("groups", "min_ic_pairs", "icir_ddof"))
-      if (a.has(key) && !a.get(key).isIntegralNumber())
-        throw new IllegalArgumentException(key + " must be an integer");
+      if (a.has(key) && (!a.get(key).isIntegralNumber() || !a.get(key).canConvertToInt()))
+        throw new IllegalArgumentException(key + " must be a signed 32-bit integer");
     int groups = a.path("groups").asInt(3),
         pairs = a.path("min_ic_pairs").asInt(3),
         ddof = a.path("icir_ddof").asInt(1);

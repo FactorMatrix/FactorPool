@@ -1,9 +1,9 @@
-export function fixtureConfig({period=20, start='2024-01-29', end=start, horizons=[1,5,20], settings}={}) {
+export function fixtureConfig({period=20, start='2024-01-29', end=start, horizons=[1,5,20], settings, analysis={}}={}) {
   const config = {
     base: {start_date:start, end_date:end, frequency:'1d'},
     data: {provider:'fixture', universe:'fixture'},
     factor: {period},
-    analysis: {groups:3, horizons, decay_steps:2},
+    analysis: {groups:3, horizons, decay_steps:2, ...structuredClone(analysis)},
   }
   if (settings !== undefined) config.settings = structuredClone(settings)
   return config
@@ -52,4 +52,20 @@ export async function setSource(page, source) {
   await editor.click()
   await page.keyboard.press('Control+a')
   await page.keyboard.insertText(source)
+}
+
+// The editor virtualizes its DOM. Read the complete source through the existing
+// read-only AST preview request instead of rendered lines or private view state.
+export async function readSource(page) {
+  const settings = page.getByRole('region', {name:'模拟设置'})
+  const alreadyOpen = await settings.isVisible()
+  if (!alreadyOpen) await page.getByRole('button', {name:'Settings', exact:true}).click()
+  const request = page.waitForRequest(value => value.method() === 'POST' && value.url().endsWith('/api/script/resolve'))
+  const response = page.waitForResponse(value => value.request().method() === 'POST' && value.url().endsWith('/api/script/resolve'))
+  await settings.getByRole('button', {name:'校验源码配置', exact:true}).click()
+  const [submitted, preview] = await Promise.all([request, response])
+  if (!preview.ok()) throw new Error(`Source preview failed (${preview.status()}): ${await preview.text()}`)
+  await settings.getByLabel('源码配置', {exact:true}).waitFor()
+  if (!alreadyOpen) await settings.getByRole('button', {name:'关闭设置', exact:true}).click()
+  return submitted.postDataJSON().source_code
 }

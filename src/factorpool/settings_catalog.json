@@ -43,6 +43,8 @@
         "src/factorpool/market_store.py",
         "src/factorpool/runner.py",
         "src/factorpool/reporting/partition.py",
+        "src/factorpool/reporting/pnl.py",
+        "src/factorpool/reporting_options.py",
         "research-core-cpp/src/portfolios.cpp",
         "frontend/src/components/SimulationResults.vue"
       ],
@@ -51,7 +53,7 @@
     "local_tests": {
       "evidence_class": "project_tests",
       "source_url": null,
-      "paths": ["tests/test_script.py","tests/test_settings.py","tests/test_simulation.py","tests/test_diagnostics.py","tests/test_return_matrix.py","tests/test_market_database.py"],
+      "paths": ["tests/test_script.py","tests/test_settings.py","tests/test_simulation.py","tests/test_pnl_reporting.py","tests/test_pnl_trace.py","tests/test_synchronization.py","tests/test_diagnostics.py","tests/test_return_matrix.py","tests/test_market_database.py"],
       "scope": "所列测试覆盖的本地小矩阵、共享Indicator对照、轴隔离和失败路径；不是所有参数边界的全覆盖，也未对账官方BRAIN账户oracle"
     }
   },
@@ -447,7 +449,7 @@
       "data_dependencies": ["实际Alpha目标权重"],
       "evidence": ["official_client","implementation","local_tests"],
       "status": "implemented_pending_parity",
-      "validation": {"scope": "独立目标、实际持有收益、最大权重及保留现金验证；未对账官方再分配算法","official_numerical_parity": false},
+      "validation": {"scope": "独立目标、实际持有收益、最大权重及保留现金验证；未对账官方再分配算法；报告单日容量、实际gross/net和未分配gross，满额不可行明确标记；约束仅调仓目标，持有期敞口随价格漂移","official_numerical_parity": false},
       "options": [
         {"value": 0,"meaning": "关闭本地权重上限","status": "implemented_verified"},
         {
@@ -1046,7 +1048,10 @@
         "annualize_icir": [false],
         "horizons": {"length_min": 1,"length_max": 6,"unique": true,"item_min": 1,"item_max": 252},
         "annual_days": {"min": 1,"max": 366},
-        "decay_steps": {"min": 1,"max": 10}
+        "decay_steps": {"min": 1,"max": 10},
+        "book_size": {"min_exclusive": 0,"max": 1e15},
+        "pnl_unit": {"pattern": "[A-Z][A-Z0-9_]{0,11}","scope": "display label; no FX conversion"},
+        "trace_dates": {"max_length": 5,"type": "unique ISO signal dates within research window","max_total_detail_rows": 50000,"default_export": false}
       },
       "official_default": null,
       "project_default": {
@@ -1059,13 +1064,16 @@
         "annualize_icir": false,
         "horizons": [1,5,20],
         "annual_days": 252,
-        "decay_steps": 10
+        "decay_steps": 10,
+        "book_size": 1,
+        "pnl_unit": "BOOK",
+        "trace_dates": []
       },
       "stage": "原始IC/IR、分组和多期研究",
       "data_dependencies": ["原始因子、收益矩阵和历史研究成员"],
       "evidence": ["implementation","local_tests"],
       "status": "implemented_verified",
-      "validation": {"scope": "设置级Alpha目标变换不覆盖原始因子IC、分组和项目研究口径；不加入费用/整手/交易引擎","official_numerical_parity": false},
+      "validation": {"scope": "设置级Alpha目标变换不覆盖原始因子IC、分组和项目研究口径；不加入费用/整手/交易引擎；book仅缩放名义PnL金额，trace按需有界导出同一原生持仓循环的逐股明细","official_numerical_parity": false},
       "options": []
     }
   ]

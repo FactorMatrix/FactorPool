@@ -42,6 +42,9 @@ config = {
         'group_weight': 'equal',
         'decay_steps': 10,
         'annual_days': 252,
+        'book_size': 1,
+        'pnl_unit': 'BOOK',
+        'trace_dates': [],
     },
 }
 

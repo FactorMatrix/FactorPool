@@ -10,7 +10,7 @@ static PyMethodDef methods[] = {
     {"series_stats", series_stats, METH_VARARGS,
      "Moments, ICIR and IID/HAC mean inference."},
     {"portfolio_report", portfolio_report, METH_VARARGS,
-     "Non-overlapping matrix portfolios with daily holding returns."},
+     "Non-overlapping matrix portfolios with daily holding returns; optional seventh trace_signal_indices list selects bounded Alpha PnL traces."},
     {"performance_stats", performance_stats, METH_VARARGS,
      "Daily return and fixed-book performance using the same portfolio statistics."},
     {"compound_return", compound_return, METH_VARARGS,

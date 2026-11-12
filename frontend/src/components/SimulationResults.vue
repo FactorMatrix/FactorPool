@@ -5,6 +5,7 @@ import BrainSummary from "./BrainSummary.vue";
 import FactorDiagnostics from "./FactorDiagnostics.vue";
 import ReportChart from "./ReportChart.vue";
 import ResearchChart from "./ResearchChart.vue";
+import AlphaTrace from "./AlphaTrace.vue";
 const props = defineProps({
   task: Object,
   result: Object,
@@ -40,6 +41,9 @@ const displayedReport = computed(() => {
     Object.entries(props.result.diagnostics.horizons).map(([key, horizon]) => [key, displayHorizon(horizon)])) };
 });
 const alpha = computed(() => displayed.value?.portfolios.alpha);
+const pnlBook = computed(() => ({ size: alpha.value?.pnl?.book_size ?? displayed.value?.pnl_book?.size ?? 1,
+  unit: alpha.value?.pnl?.unit || displayed.value?.pnl_book?.unit || "BOOK" }));
+const bookLabel = computed(() => `${Number(pnlBook.value.size).toLocaleString("en-US", { maximumFractionDigits: 2 })} ${pnlBook.value.unit}`);
 const dailyPortfolio = computed(() => (props.result?.diagnostics?.version || 0) >= 3);
 const visualization = computed(() => props.result?.metadata?.brain_settings?.visualization
   ?? props.task?.snapshot?.brain_settings?.visualization ?? true);
@@ -80,6 +84,7 @@ const sections = [
   ["summary", "bars", "Summary"],
   ["ic", "scatter", "IC Analysis"],
   ["groups", "table", "Groups"],
+  ["trace", "table", "Weights / PnL"],
   ["values", "table", "Factor Values"],
   ["logs", "logs", "Logs"],
   ["source", "code", "Source"],
@@ -129,7 +134,7 @@ const sections = [
             </button>
           </div>
         </div>
-        <label v-if="hasTest" class="validation-period">
+        <label v-if="hasTest && view !== 'trace'" class="validation-period">
           验证区间
           <select v-model="partition" aria-label="验证区间">
             <option value="train">Train · 训练期</option>
@@ -139,7 +144,7 @@ const sections = [
           <span>Train/Test 仅统计配置日期内的组合收益；All 保留未来持有收益尾部。原始因子 IC 保留完整研究期间。</span>
         </label>
         <h1 class="result-factor-name">{{ task.name }}</h1>
-        <BrainSummary v-if="alpha" :summary="alpha.brain_style" />
+        <BrainSummary v-if="alpha && view !== 'trace'" :summary="alpha.brain_style" />
         <div class="metrics legacy-metrics" aria-label="一期因子统计">
           <div
             v-for="[label, value] in [
@@ -177,9 +182,11 @@ const sections = [
             {{
               portfolioDates.at(-1) ||
               result.daily.at(-1)?.date
-            }}<span>{{ dailyPortfolio ? '收盘价 / 前收盘价 − 1 · 逐日盯市' : '历史报告 · 原任务收益口径' }} · 无费用 · 缺失值 --</span>
+            }}<span>{{ dailyPortfolio ? '快照日收益 · 逐日盯市' : '历史报告 · 原任务收益口径' }} · 无费用 · 缺失值 --</span>
           </div>
+          <p class="pnl-book-note">固定名义 book：{{ bookLabel }}。PnL 逐日累加，净值另按收益复利；仅名义缩放，无汇兑或实际成交。</p>
         </div>
+        <AlphaTrace v-else-if="view === 'trace'" :data="selected" :constraints="result.diagnostics?.alpha_constraints" />
         <FactorDiagnostics
           v-else-if="
             ['summary', 'ic', 'groups'].includes(view) && result.diagnostics
@@ -341,4 +348,5 @@ const sections = [
 <style scoped>
 .validation-period { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 0 20px 12px; font-size: 12px; }
 .validation-period span { color: #687789; }
+.pnl-book-note { color: #718095; font-size: 11px; line-height: 1.8; margin: 12px 0; overflow-wrap: anywhere; }
 </style>

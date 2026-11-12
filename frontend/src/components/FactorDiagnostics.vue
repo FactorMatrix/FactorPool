@@ -40,13 +40,17 @@ const port = computed(
 const alpha = computed(() => selected.value?.portfolios.alpha);
 const dailyPortfolio = computed(() => (props.report.version || 0) >= 3);
 const visualization = computed(() => props.report.conventions?.brain_settings?.visualization ?? true);
+const settings = computed(() => props.report.conventions?.brain_settings);
+const pnlBook = computed(() => ({ size: alpha.value?.pnl?.book_size ?? selected.value?.pnl_book?.size ?? 1,
+  unit: alpha.value?.pnl?.unit || selected.value?.pnl_book?.unit || "BOOK" }));
+const bookLabel = computed(() => `${Number(pnlBook.value.size).toLocaleString("en-US", { maximumFractionDigits: 2 })} ${pnlBook.value.unit}`);
 const num = (x) => (x == null ? "--" : Number(x).toFixed(4));
 const pct = (x) => (x == null ? "--" : (Number(x) * 100).toFixed(2) + "%");
 const pval = (x) => (x == null ? "--" : Number(x).toExponential(3));
 const bp = (x) => (x == null ? "--" : (Number(x) * 10000).toFixed(2) + " bp");
 const title = (name) =>
   name === "alpha"
-    ? "Alpha（去均值 / L1）"
+    ? "Alpha（连续因子权重）"
     : name === "high_low"
       ? "最高组 − 最低组（各半仓）"
       : name === "inner_high_low"
@@ -211,8 +215,8 @@ const brainCards = computed(() => {
         </table>
       </div>
       <p v-if="dailyPortfolio" class="report-note">
-        每 {{ selected.horizon }} 期调仓，持有期内权重自然漂移；收盘价 / 前收盘价 − 1，逐日计算净值与回撤。
-        多空两侧各 0.5、总敞口 1；按 {{ report.conventions.annual_days }} 个交易日年化，月/年收益按实际交易日归属。
+        每 {{ selected.horizon }} 期调仓，持有期内权重自然漂移，按快照日收益计算净值与回撤。
+        高低组多空两侧各 0.5；Alpha 按实际设置生成连续权重，可有净敞口与未分配 gross。按 {{ report.conventions.annual_days }} 个交易日年化，月/年收益按实际交易日归属。
         缺失收益留空，不补零或重分配权重。所有组合均无费用。
       </p>
       <p v-else class="report-note">
@@ -230,11 +234,12 @@ const brainCards = computed(() => {
         </div>
       </div>
       <p class="report-note">
-        研究 Alpha：因子截面去均值、L1 归一化、Delay 1、每
-        {{ selected.horizon }} 期调仓。采用页面下方披露的研究公式，BRAIN
+        研究 Alpha：连续因子权重，{{ settings?.neutralization || 'MARKET' }} 中性化；Decay {{ settings?.decay ?? 0 }}，Truncation {{ settings?.truncation ?? 0 }}，Delay 1，每
+        {{ selected.horizon }} 期调仓。截断限制调仓目标，期内漂移敞口可变化。采用页面下方披露的研究公式，BRAIN
         官方数值一致性尚未核验。
       </p>
       <ReportChart v-if="visualization" :data="selected" :portfolio="alpha" mode="pnl" />
+      <p class="report-note">固定名义 book：{{ bookLabel }}。金额 PnL 逐日累加，复利净值单独计算；无费用、无汇兑或实际账户。</p>
       <div class="brain-missing">
         <span>Self-correlation <b>--</b></span
         ><span>Production correlation <b>--</b></span
@@ -247,13 +252,13 @@ const brainCards = computed(() => {
           <dt>Sharpe</dt>
           <dd>{{ dailyPortfolio ? '每日固定 book PnL 增量均值 / 样本标准差 × √年交易日' : '持有期 PnL 均值 / 样本标准差 × √(年交易日/持有期)' }}</dd>
           <dt>Returns</dt>
-          <dd>{{ dailyPortfolio ? '每日固定 book PnL 增量均值年化 / 0.5；与 CAGR 分开' : '按固定 book size 的 PnL 均值年化 / 0.5；与 CAGR 分开' }}</dd>
+          <dd>{{ dailyPortfolio ? '每日金额 PnL 均值 × 年交易日 / (book size × 0.5)；与 CAGR 分开' : '按固定 book size 的 PnL 均值年化 / 0.5；与 CAGR 分开' }}</dd>
           <dt>Turnover</dt>
           <dd>
             目标权重与价格漂移后的原权重之差的绝对值和；含首次建仓，折算日均
           </dd>
           <dt>Drawdown</dt>
-          <dd>累计固定 book PnL 的峰谷差 / 0.5</dd>
+          <dd>累计金额 PnL 的峰谷差 / (book size × 0.5)；半 book 分母为本地研究预设</dd>
           <dt>Fitness</dt>
           <dd>Sharpe × √(|Returns| / max(Turnover, 0.125))</dd>
           <dt>Margin</dt>

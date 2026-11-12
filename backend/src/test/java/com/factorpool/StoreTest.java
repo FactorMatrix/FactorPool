@@ -15,6 +15,33 @@ class StoreTest {
   final ObjectMapper json = new ObjectMapper();
   final Store store = new Store(db, json, mock(PlatformTransactionManager.class), mock(ScriptResolver.class));
 
+  ObjectNode reportingRequest() {
+    ObjectNode out = json.createObjectNode();
+    out.putObject("data").put("provider", "fixture").put("factor_start", "2024-01-02").put("factor_end", "2024-01-04");
+    out.putObject("analysis").put("book_size", 20000000).put("pnl_unit", "USD")
+        .putArray("trace_dates").add("2024-01-02");
+    return out;
+  }
+
+  @Test
+  void reportingScaleAndBoundedSignalTraceAreAcceptedWithoutAnyDatabaseAccess() {
+    assertDoesNotThrow(() -> Store.validate(reportingRequest()));
+    verifyNoInteractions(db);
+  }
+
+  @Test
+  void reportingOptionsRejectInvalidAmountsUnitsAndOutOfWindowOrDuplicateSignals() {
+    for (String bad : List.of("{\"book_size\":0}", "{\"book_size\":true}",
+        "{\"pnl_unit\":\"usd\"}", "{\"min_ic_pairs\":4294967299}", "{\"trace_dates\":[\"2024-01-05\"]}",
+        "{\"trace_dates\":[\"2024-01-02\",\"2024-01-02\"]}")) {
+      ObjectNode request = reportingRequest();
+      try { request.set("analysis", json.readTree(bad)); }
+      catch (Exception e) { throw new AssertionError(e); }
+      assertThrows(IllegalArgumentException.class, () -> Store.validate(request));
+    }
+    verifyNoInteractions(db);
+  }
+
   @Test
   void latestSnapshotIsPinnedWithoutMutatingCaller() {
     when(db.queryForList("SELECT id FROM market_snapshots ORDER BY created_at DESC,id DESC LIMIT 1"))
