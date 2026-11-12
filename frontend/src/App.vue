@@ -26,9 +26,16 @@ const start = ref("2024-01-29"),
   groups = ref(3);
 const horizons = ref("1,5,20"),
   decaySteps = ref(10);
-const tab = ref("research"),
+const tab = ref(window.location.hash.startsWith("#learn/") ? "learn" : "research"),
   error = ref(""),
   busy = ref(false);
+watch(tab, next => {
+  if (next !== "learn" && window.location.hash.startsWith("#learn/"))
+    window.history.replaceState(null, "", window.location.pathname + window.location.search);
+});
+function followLearnLink() {
+  if (window.location.hash.startsWith("#learn/")) tab.value = "learn";
+}
 const factors = ref([]),
   history = ref([]),
   examples = ref([]),
@@ -385,6 +392,7 @@ function loadSnapshot() {
   notice.value = "已从任务快照新建模拟；原任务源码与结果保持在原模拟中";
 }
 onMounted(async () => {
+  window.addEventListener("hashchange", followLearnLink);
   await action(async () => {
     [examples.value, sources.value, operators.value] = await Promise.all([
       api("/examples"),
@@ -422,6 +430,7 @@ onMounted(async () => {
   }, 1200);
 });
 onBeforeUnmount(() => {
+  window.removeEventListener("hashchange", followLearnLink);
   active = false;
   clearInterval(timer);
 });
@@ -716,10 +725,7 @@ onBeforeUnmount(() => {
         运行后，源码与结果会保存在这里。
       </p>
     </section>
-    <section v-else-if="tab === 'learn'" class="page learn-page">
-      <span class="eyebrow">LEARN / PYTHON INDICATOR</span>
-      <h1>因子教程与使用指南</h1>
-      <p>从完整脚本开始，查阅当前可用算子和模拟设置。先阅读用法，再回到 Simulate 编写和运行因子。</p>
+    <section v-else-if="tab === 'learn'" class="documentation-page">
       <TutorialPanel :operators="operators" />
     </section>
     <section v-else class="page">
@@ -757,7 +763,7 @@ onBeforeUnmount(() => {
         </table>
       </div>
     </section>
-    <footer v-if="tab !== 'research'">
+    <footer v-if="!['research', 'learn'].includes(tab)">
       <span>FactorPool / Research workspace</span
       ><span>PythonIndicator · FT C++ Core · PostgreSQL</span>
     </footer>
