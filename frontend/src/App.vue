@@ -5,6 +5,7 @@ import SplitPane from "./components/SplitPane.vue";
 import UiIcon from "./components/UiIcon.vue";
 import WorkspaceSettings from "./components/WorkspaceSettings.vue";
 import SimulationResults from "./components/SimulationResults.vue";
+import TutorialPanel from "./components/TutorialPanel.vue";
 import { api } from "./api";
 const source = ref(""),
   sourceMode = ref("script"),
@@ -717,44 +718,9 @@ onBeforeUnmount(() => {
     </section>
     <section v-else-if="tab === 'learn'" class="page learn-page">
       <span class="eyebrow">LEARN / PYTHON INDICATOR</span>
-      <h1>同一份因子定义，直接做矩阵研究</h1>
-      <p>
-        通过 PythonIndicator 定义输入、预热窗口和计算方法。TS / CS 算子复用
-        FactorTrader 共享实现，点击 Data 查看每个算子的兼容状态。
-      </p>
-      <div class="learn-columns">
-        <article>
-          <h2>1. 编写因子</h2>
-          <p>
-            从 Examples 载入完整脚本：先写 config，再定义 PythonIndicator 类，最后调用 MyFactor.run(config)。
-            日期、股票池、构造参数与研究设置都在代码中；Settings 可校验并查看源码配置。
-          </p>
-          <pre>{{ examples[0]?.source_code || "正在载入示例" }}</pre>
-        </article>
-        <article>
-          <h2>2. 设置与模拟</h2>
-          <p>
-            在 config 中选择数据源、股票池和信号日期。默认读取 PostgreSQL 中已导入的行情矩阵，提交时固定快照；任务不会导入或刷新行情。也可显式配置合成样例。
-          </p>
-          <p>
-            日收益为收盘价 / 前收盘价 − 1，信号使用下一交易日起的收益矩阵。持有期内权重自然漂移，逐日计算净值与回撤；无费用。
-          </p>
-          <h2>3. 查看与复现</h2>
-          <p>
-            右侧导航查看 IC、分组、Alpha
-            统计、因子值、日志和提交时的源码。保存版本写入因子库，每次任务保留不可变快照。
-          </p>
-          <p>
-            模拟草稿切换保存在本页内存中；刷新后从最近任务快照恢复。未运行、未保存的编辑请先保存版本。
-          </p>
-          <h2>数据源</h2>
-          <ul>
-            <li v-for="s in sources" :key="s.id">
-              {{ s.name }} · {{ s.available ? "可用" : "不可用" }}
-            </li>
-          </ul>
-        </article>
-      </div>
+      <h1>因子教程与使用指南</h1>
+      <p>从完整脚本开始，查阅当前可用算子和模拟设置。先阅读用法，再回到 Simulate 编写和运行因子。</p>
+      <TutorialPanel :operators="operators" />
     </section>
     <section v-else class="page">
       <span class="eyebrow">SHARED INDICATOR / COMPATIBILITY</span>
