@@ -1,7 +1,7 @@
 name: factorpool-benchmark
 services:
   benchmark:
-    image: ${FACTORPOOL_BENCH_IMAGE:-factorpool/backend:20261109-r2}
+    image: ${FACTORPOOL_BENCH_IMAGE:?}
     entrypoint: [python3, /bench/scripts/benchmark_core.py]
     network_mode: none
     read_only: true

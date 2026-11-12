@@ -36,6 +36,7 @@ assert.equal(
   await settings.getByLabel("构造参数 JSON").inputValue(),
   '{"period":20}',
 );
+await settings.getByLabel('数据源', {exact: true}).selectOption('fixture');
 await settings.getByLabel("构造参数 JSON").fill('{"period":3}');
 await settings.getByLabel("分析周期").fill("1,5");
 await settings.getByLabel("开始日期").fill("2024-01-15");
@@ -55,6 +56,8 @@ assert.equal(submission.factor_class, "LowVolumeFactor");
 assert.deepEqual(submission.factor_params, { period: 3 });
 assert.deepEqual(submission.analysis.horizons, [1, 5]);
 assert.equal(submission.data.provider, "fixture");
+assert.equal(submission.analysis.entry, 'signal_close');
+assert.equal(submission.analysis.exit, 'next_close');
 const metrics = await page.locator(".metrics strong").allTextContents();
 const taskId = await page.evaluate(() =>
   sessionStorage.getItem("factorpool.task"),
@@ -151,11 +154,12 @@ await settings.getByRole("button", { name: "Cancel", exact: true }).click();
 assert.equal(posts.length, 1);
 // Use an existing report for the visual review, without submitting market-data work.
 const tasks = await (await page.request.get(`${base}/api/tasks`)).json();
-let real;
+let real, realSnapshot;
 for (const t of tasks.filter((t) => t.status === "SUCCEEDED").slice(0, 12)) {
   const d = await (await page.request.get(`${base}/api/tasks/${t.id}`)).json();
-  if (d.snapshot.data.provider === "ft_daily_mmap") {
+  if (["market_matrix", "ft_daily_mmap"].includes(d.snapshot.data.provider)) {
     real = t;
+    realSnapshot = d.snapshot;
     break;
   }
 }
@@ -182,6 +186,11 @@ await page.screenshot({
   fullPage: true,
 });
 await page.getByRole("button", { name: "Settings", exact: true }).click();
+if (real) {
+  assert.equal(await settings.getByLabel('数据源', {exact: true}).inputValue(), 'market_matrix');
+  const unchanged = await (await page.request.get(`${base}/api/tasks/${real.id}`)).json();
+  assert.deepEqual(unchanged.snapshot, realSnapshot, 'Viewing a legacy report must preserve its original task snapshot');
+}
 await page.screenshot({
   path: `${output}/workbench-settings-mobile.png`,
   fullPage: true,

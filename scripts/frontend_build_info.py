@@ -14,7 +14,7 @@ paths += [root / p for p in ('frontend/index.html', 'frontend/package.json',
 digest = hashlib.sha256()
 for path in sorted(paths):
     digest.update(str(path.relative_to(root)).encode() + b'\0' + path.read_bytes() + b'\0')
-info = {'ui_contract': 'brain-workbench-1', 'api_report_version': 2,
+info = {'ui_contract': 'brain-workbench-1', 'api_report_version': 3,
         'frontend_source_sha256': digest.hexdigest(),
         'backend_build': json.loads((root / 'docker/build-info.json').read_text())['factorpool_source_sha256']}
 target = root / 'docker/frontend-build-info.json'

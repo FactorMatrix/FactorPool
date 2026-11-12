@@ -91,11 +91,66 @@ public class Store {
   }
   UUID enqueue(JsonNode request, UUID batch) {
     validate(request);
+    ObjectNode pinned = request.deepCopy();
+    pinned.set("data", pinMarketData(request.path("data")));
     UUID id = UUID.randomUUID();
     db.update("INSERT INTO research_tasks(id,batch_id,name,snapshot,status) "
                   + "VALUES (?,?,?,?::jsonb,'QUEUED')",
-              id, batch, request.path("name").asText(), request.toString());
+              id, batch, pinned.path("name").asText(), pinned.toString());
     return id;
+  }
+  ObjectNode pinMarketData(JsonNode data) {
+    if (!data.isObject())
+      throw new IllegalArgumentException("data is required");
+    ObjectNode pinned = data.deepCopy();
+    if (!data.path("provider").asText().equals("market_matrix"))
+      return pinned;
+    String requested = data.path("snapshot_id").asText("");
+    if (data.has("snapshot_id") &&
+        (!data.get("snapshot_id").isTextual() || requested.isBlank()))
+      throw new IllegalArgumentException("snapshot_id must be a nonempty string");
+    var snapshots = requested.isBlank()
+        ? db.queryForList("SELECT id FROM market_snapshots ORDER BY created_at DESC,id DESC LIMIT 1")
+        : db.queryForList("SELECT id FROM market_snapshots WHERE id=?", requested);
+    if (snapshots.isEmpty())
+      throw new IllegalArgumentException(requested.isBlank()
+          ? "No market matrix snapshot is available. Import a snapshot explicitly first; tasks never import or refresh market data."
+          : "Market matrix snapshot does not exist: " + requested);
+    pinned.put("snapshot_id", snapshots.get(0).get("id").toString());
+    return pinned;
+  }
+  ObjectNode marketSource() {
+    ObjectNode source = json.createObjectNode();
+    source.put("id", "market_matrix");
+    source.put("name", "PostgreSQL 行情矩阵 · 只读快照");
+    source.put("default", true);
+    source.put("synthetic", false);
+    source.set("frequency", json.valueToTree(List.of("1d")));
+    source.set("adjustment", json.valueToTree(List.of("raw")));
+    var snapshots = db.queryForList(
+        "SELECT id,manifest::text,dates::text,symbols::text,fields::text,created_at FROM market_snapshots ORDER BY created_at DESC,id DESC LIMIT 1");
+    source.put("available", !snapshots.isEmpty());
+    if (snapshots.isEmpty()) {
+      source.put("message", "暂无行情矩阵快照，请先显式导入；任务不会自动导入或刷新行情");
+      return source;
+    }
+    var row = snapshots.get(0);
+    var dates = parse((String)row.get("dates"));
+    var symbols = parse((String)row.get("symbols"));
+    ObjectNode snapshot = json.createObjectNode();
+    snapshot.put("id", row.get("id").toString());
+    snapshot.put("date_count", dates.size());
+    snapshot.put("symbol_count", symbols.size());
+    if (!dates.isEmpty()) {
+      snapshot.set("date_start", dates.get(0));
+      snapshot.set("date_end", dates.get(dates.size()-1));
+    }
+    snapshot.set("symbols", symbols);
+    snapshot.set("fields", parse((String)row.get("fields")));
+    snapshot.set("manifest", parse((String)row.get("manifest")));
+    snapshot.put("created_at", row.get("created_at").toString());
+    source.set("snapshot", snapshot);
+    return source;
   }
   static void validateDefinition(JsonNode r) {
     if (!r.isObject() || r.path("name").asText().isBlank() ||
@@ -116,12 +171,19 @@ public class Store {
     var end = java.time.LocalDate.parse(d.path("factor_end").asText());
     if (end.isBefore(start))
       throw new IllegalArgumentException("End precedes start");
-    if (!Set.of("fixture", "ft_daily_mmap")
+    if (d.path("provider").asText().equals("ft_daily_mmap"))
+      throw new IllegalArgumentException(
+          "ft_daily_mmap has migrated to market_matrix; new tasks must read a PostgreSQL market snapshot");
+    if (!Set.of("fixture", "market_matrix")
              .contains(d.path("provider").asText()))
       throw new IllegalArgumentException("Unknown provider");
     if (!d.path("frequency").asText("1d").equals("1d") ||
         !d.path("adjustment").asText("raw").equals("raw"))
       throw new IllegalArgumentException("Only daily/raw input is supported");
+    if (!a.path("entry").asText("signal_close").equals("signal_close") ||
+        !a.path("exit").asText("next_close").equals("next_close"))
+      throw new IllegalArgumentException(
+          "Only signal_close / next_close is supported, using close / prev_close - 1; legacy open-based requests are unsupported");
     for (var it = a.fieldNames(); it.hasNext();)
       if (!Set.of("entry", "exit", "groups", "group_weight", "min_ic_pairs",
                   "icir_ddof", "annualize_icir", "horizons", "annual_days",

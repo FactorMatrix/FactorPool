@@ -1,0 +1,34 @@
+name: factorpool-matrix-test
+services:
+  test-db:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: factorpool
+      POSTGRES_DB: factorpool
+      POSTGRES_HOST_AUTH_METHOD: trust
+    tmpfs:
+      - /var/lib/postgresql/data:size=256m
+    healthcheck:
+      test: [CMD, pg_isready, -U, factorpool, -d, factorpool]
+      interval: 1s
+      timeout: 2s
+      retries: 30
+    networks: [isolated]
+  market-tests:
+    image: ${FACTORPOOL_TEST_IMAGE:?}
+    entrypoint: [python3, -m, unittest, discover, -s, /opt/factorpool/tests, -p, test_market_database.py, -v]
+    environment:
+      FACTORPOOL_TEST_DB: "1"
+      FACTORPOOL_DB_HOST: test-db
+      FACTORPOOL_DB_NAME: factorpool
+      FACTORPOOL_DB_USER: factorpool
+      FACTORPOOL_DB_PASSWORD: ""
+    depends_on:
+      test-db:
+        condition: service_healthy
+    networks: [isolated]
+    mem_limit: 1g
+    cpus: 1
+networks:
+  isolated:
+    internal: true

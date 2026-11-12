@@ -1,10 +1,11 @@
 <script setup>
-import { reactive, ref } from "vue";
+import { computed, reactive, ref } from "vue";
 import UiIcon from "./UiIcon.vue";
 const props = defineProps({ values: Object, sources: Array });
 const emit = defineEmits(["apply", "close"]);
 const draft = reactive({ ...props.values }),
   error = ref("");
+const selectedSource = computed(() => props.sources?.find((source) => source.id === draft.provider));
 function apply() {
   try {
     const params = JSON.parse(draft.params);
@@ -81,7 +82,7 @@ function apply() {
             readonly
         /></label>
         <label
-          >DELAY <span>信号延迟</span><input value="1 · 次日开盘" readonly
+          >DELAY <span>信号延迟</span><input value="1 · 下一交易日收益" readonly
         /></label>
         <label v-if="draft.provider !== 'fixture'" class="wide"
           >UNIVERSE <span>股票池</span
@@ -149,9 +150,21 @@ function apply() {
         /></label>
         <label
           >PRICE / FREQUENCY <span>价格与频率</span
-          ><input value="Raw / Daily" readonly
+          ><input value="收盘价 / 前收盘价 − 1 · 日线" readonly
         /></label>
       </div>
+      <p v-if="draft.provider === 'market_matrix'" class="report-note">
+        <template v-if="draft.snapshotId && draft.snapshotId !== selectedSource?.snapshot?.id">
+          已固定快照：{{ draft.snapshotId }}。提交时沿用此快照，任务只读数据库，不自动导入或刷新。
+        </template>
+        <template v-else-if="selectedSource?.snapshot">
+          快照：{{ draft.snapshotId || selectedSource.snapshot.id }}；
+          {{ selectedSource.snapshot.date_start }} — {{ selectedSource.snapshot.date_end }}，
+          {{ selectedSource.snapshot.symbol_count }} 个证券。
+          {{ draft.snapshotId ? '沿用已选快照。' : '提交时固定最新快照。' }}任务只读数据库，不自动导入或刷新。
+        </template>
+        <template v-else>{{ selectedSource?.message || '暂无行情矩阵快照，请先显式导入。' }}</template>
+      </p>
       <p v-if="error" class="settings-error" role="alert">{{ error }}</p>
       <div class="settings-actions">
         <button type="button" class="settings-cancel" @click="emit('close')">

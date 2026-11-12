@@ -65,9 +65,9 @@ def cumulative_sum(values):
     return out
 
 
-def portfolio_calendar(exit_dates, returns, width=7):
+def portfolio_calendar(dates, returns, width=7):
     grouped = defaultdict(list)
-    for date, value in zip(exit_dates, returns):
+    for date, value in zip(dates, returns):
         if date is not None:
             grouped[date[:width]].append(value)
     output = []
@@ -80,10 +80,10 @@ def portfolio_calendar(exit_dates, returns, width=7):
     return output
 
 
-def build(factors, prices, membership, dates, price_dates, analysis, *, primary=None):
+def build(factors, returns, membership, dates, price_dates, analysis, *, primary=None):
     periods, annual_days, steps = options(analysis)
     ddof, groups, minimum = analysis.get("icir_ddof", 1), analysis.get("groups", 3), analysis.get("min_ic_pairs", 3)
-    prepared = factors if prices is None else native.prepare_research(factors, prices, membership)
+    prepared = factors if returns is None else native.prepare_research(factors, returns, membership)
     out = {}
     for h in periods:
         if h == 1 and primary is not None:
@@ -96,30 +96,35 @@ def build(factors, prices, membership, dates, price_dates, analysis, *, primary=
         rank_ic = inference(rics, ddof, h-1)
         portfolios = native.portfolio_report(prepared, None, None, groups, h, annual_days)
         indices = [int(v) for v in portfolios.pop("signal_indices")]
+        daily_indices = [int(v) for v in portfolios.pop("daily_indices")]
         signals = [dates[i] for i in indices]
-        exits = [price_dates[i+1+h] if i+1+h < len(price_dates) else None for i in indices]
+        exits = [price_dates[i+h] if i+h < len(price_dates) else None for i in indices]
+        portfolio_dates = [price_dates[i] for i in daily_indices]
         for strategy in portfolios["strategies"].values():
-            strategy["monthly"] = portfolio_calendar(exits, strategy["returns"])
-            strategy["yearly"] = portfolio_calendar(exits, strategy["returns"], 4)
+            strategy["monthly"] = portfolio_calendar(portfolio_dates, strategy["returns"])
+            strategy["yearly"] = portfolio_calendar(portfolio_dates, strategy["returns"], 4)
         out[str(h)] = dict(horizon=h, dates=dates, ic=ic, rank_ic=rank_ic,
             series=dict(ic=ics, rank_ic=rics, ic_rolling30=rolling_mean(ics), rank_ic_rolling30=rolling_mean(rics),
                         ic_cumulative=cumulative_sum(ics), rank_ic_cumulative=cumulative_sum(rics)),
             monthly=dict(ic=grouped_moments(dates, ics, 7, ddof),rank_ic=grouped_moments(dates, rics, 7, ddof)),
             yearly=dict(ic=grouped_moments(dates, ics, 4, ddof),rank_ic=grouped_moments(dates, rics, 4, ddof)),
             decay=native.ic_decay(prepared, None, None, h, steps, minimum),
-            portfolio_signal_dates=signals, portfolio_exit_dates=exits, portfolios=portfolios["strategies"])
-    return dict(version=2, horizons=out, conventions=dict(
-        annual_days=annual_days, ic_ddof=ddof, return_price="raw open", signal_delay=1,
-        portfolio_rebalance="nonoverlapping; first factor date anchors each horizon",
-        long_short="gross exposure 1; long 0.5 and short 0.5", turnover="L1 target minus price-drifted prior weights; initial entry included; daily average divides by holding days",
-        brain_returns="annualized mean fixed-gross-book PnL / 0.5; not CAGR",
+            portfolio_dates=portfolio_dates, portfolio_signal_dates=signals, portfolio_exit_dates=exits, portfolios=portfolios["strategies"])
+    return dict(version=3, horizons=out, conventions=dict(
+        annual_days=annual_days, ic_ddof=ddof, return_price="close / prev_close - 1", signal_delay=1,
+        return_matrix="signal t uses daily returns R[t+1]..R[t+h]; no additional corporate-action adjustment",
+        portfolio_rebalance="nonoverlapping; first factor date anchors each horizon; positions drift naturally within each holding segment",
+        portfolio_valuation="daily mark-to-market; compound each security then sum initial weighted gains; daily return is consecutive portfolio NAV ratio",
+        long_short="gross exposure 1; long 0.5 and short 0.5", turnover="L1 target minus price-drifted prior weights; initial entry included; daily axis, zero on days without rebalance",
+        brain_returns="annualized mean daily fixed-gross-book PnL change / 0.5; not CAGR",
         brain_drawdown="peak-to-trough cumulative arithmetic PnL / 0.5",
         brain_fitness="Sharpe * sqrt(abs(returns) / max(daily_turnover,0.125))",
         brain_margin="total normalized PnL / total normalized value traded; display in bp",
         brain_status="research preset; official BRAIN numerical parity unverified",
         alpha_weights="visible finite factor, cross-sectional arithmetic demean, L1 normalize; no industry, decay or truncation",
-        missing_returns="any missing nonzero position price invalidates portfolio interval; no hindsight reweighting",
-        monthly_returns="compound nonoverlapping periods assigned to exit month; not daily mark-to-market month attribution",
+        missing_returns="missing nonzero position daily returns remain invalid; no zero filling or hindsight reweighting",
+        monthly_returns="compound daily mark-to-market returns assigned to their actual trading dates",
+        costs="no commissions, slippage or taxes",
         decay="fixed signal, hold horizon h; entry lag 0,h,...,(steps-1)*h",
         missing_datasets={"market_cap":"no qualified provider", "industry":"no qualified provider", "self_correlation":"no selected alpha pool", "production_correlation":"no BRAIN production pool access"}),
         unavailable=dict(market_cap=None,industry=None,self_correlation=None,production_correlation=None))

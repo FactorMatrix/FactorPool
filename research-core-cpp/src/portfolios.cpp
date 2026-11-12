@@ -2,47 +2,51 @@
 #include "statistics.hpp"
 #include "research_input.hpp"
 #include <algorithm>
-#include <numeric>
 #include <string>
 namespace {
 using namespace fp;
+struct Holding {
+  std::size_t symbol;
+  double weight, growth = 1;
+};
 struct Strategy {
   std::string name;
-  std::vector<double> previous, entry, pnl, turnover, positions, concentration;
-  bool seen = false;
-  Strategy(std::string value) : name(std::move(value)) {}
+  std::vector<Holding> previous;
+  std::vector<double> pnl, book_pnl, turnover, positions, concentration;
+  std::vector<double> period_returns, period_turnover;
+  bool seen = false, previous_valid = false;
+  explicit Strategy(std::string value) : name(std::move(value)) {}
 };
 } // namespace
 PyObject *portfolio_report(PyObject *, PyObject *args) {
   try {
-    PyObject *factor, *opens, *members;
+    PyObject *factor, *returns, *members;
     int groups, h, annual_days;
-    if (!PyArg_ParseTuple(args, "OOOiii", &factor, &opens, &members, &groups,
+    if (!PyArg_ParseTuple(args, "OOOiii", &factor, &returns, &members, &groups,
                           &h, &annual_days))
       return nullptr;
     if (groups < 1 || groups > 100 || h < 1 || h > 252 || annual_days < 1 ||
         annual_days > 366)
       throw std::invalid_argument("Invalid portfolio options");
-    InputRef holder(factor, opens, members);
+    InputRef holder(factor, returns, members);
     const auto &input = *holder.value;
-    const auto &f = input.factors, &p = input.prices;
+    const auto &f = input.factors, &r = input.returns;
     const std::size_t count = f.empty() ? 0 : f[0].size();
     std::vector<Strategy> strategies;
     for (int g = 0; g < groups; ++g)
-      strategies.push_back({"long_G" + std::to_string(g + 1)});
+      strategies.emplace_back("long_G" + std::to_string(g + 1));
     for (int g = 0; g < groups; ++g)
-      strategies.push_back({"short_G" + std::to_string(g + 1)});
-    strategies.push_back({"high_low"});
+      strategies.emplace_back("short_G" + std::to_string(g + 1));
+    strategies.emplace_back("high_low");
     if (groups >= 4)
-      strategies.push_back({"inner_high_low"});
-    strategies.push_back({"alpha"});
-    for (auto &s : strategies) {
-      s.previous.assign(count, 0);
-      s.entry.assign(count, missing);
-    }
-    std::vector<double> indices;
+      strategies.emplace_back("inner_high_low");
+    strategies.emplace_back("alpha");
+    std::vector<double> indices, daily_indices;
     for (std::size_t t = 0; t < f.size(); t += h) {
       indices.push_back(double(t));
+      const auto end = std::min(t + h + 1, r.size());
+      for (auto d = t + 1; d < end; ++d)
+        daily_indices.push_back(double(d));
       const auto &order = input.order[t];
       std::vector<std::size_t> labels(count, groups), sizes(groups, 0);
       long double mean = 0;
@@ -50,19 +54,18 @@ PyObject *portfolio_report(PyObject *, PyObject *args) {
         auto n = order[k], g = k * groups / order.size();
         labels[n] = g;
         ++sizes[g];
-        mean += (f[t][n] - mean) / (k + 1);
+        mean += (static_cast<long double>(f[t][n]) - mean) / (k + 1);
       }
-      std::vector<double> alpha(count, 0);
       long double norm = 0;
       for (auto n : order)
         norm += std::abs(static_cast<long double>(f[t][n]) - mean);
       for (auto &s : strategies) {
-        std::vector<double> w(count, 0);
+        std::vector<double> weights(count, 0);
         bool usable = true;
         if (s.name == "alpha") {
           if (norm > 0)
             for (auto n : order)
-              w[n] = double((static_cast<long double>(f[t][n]) - mean) / norm);
+              weights[n] = double((static_cast<long double>(f[t][n]) - mean) / norm);
           else
             usable = false;
         } else if (s.name == "high_low" || s.name == "inner_high_low") {
@@ -73,9 +76,9 @@ PyObject *portfolio_report(PyObject *, PyObject *args) {
           else
             for (auto n : order) {
               if (labels[n] == std::size_t(lo))
-                w[n] = -.5 / sizes[lo];
+                weights[n] = -.5 / sizes[lo];
               if (labels[n] == std::size_t(hi))
-                w[n] = .5 / sizes[hi];
+                weights[n] = .5 / sizes[hi];
             }
         } else {
           const bool short_side = s.name.starts_with("short_");
@@ -85,61 +88,72 @@ PyObject *portfolio_report(PyObject *, PyObject *args) {
           else
             for (auto n : order)
               if (labels[n] == std::size_t(g))
-                w[n] = (short_side ? -1. : 1.) / sizes[g];
+                weights[n] = (short_side ? -1. : 1.) / sizes[g];
         }
-        long double pnl = 0, traded = 0;
-        std::size_t positions = 0;
+        std::vector<Holding> held;
         double concentration = 0;
-        bool return_valid = usable && t + 1 + h < p.size(),
-             trade_valid = usable && t + 1 < p.size();
-        for (std::size_t n = 0; n < count; ++n) {
-          if (w[n] != 0) {
-            ++positions;
-            concentration = std::max(concentration, std::abs(w[n]));
-            if (return_valid) {
-              const double entry = p[t + 1][n], exit = p[t + 1 + h][n];
-              if (!std::isfinite(entry) || !std::isfinite(exit) || entry <= 0 ||
-                  exit <= 0)
-                return_valid = false;
-              else
-                pnl += w[n] * (exit / entry - 1);
-            }
+        for (auto n : order)
+          if (weights[n] != 0) {
+            held.push_back({n, weights[n]});
+            concentration = std::max(concentration, std::abs(weights[n]));
           }
-          if (trade_valid) {
-            double old = 0;
-            if (s.seen && s.previous[n] != 0) {
-              const auto current = p[t + 1][n], old_entry = s.entry[n];
-              if (!std::isfinite(current) || !std::isfinite(old_entry) ||
-                  current <= 0 || old_entry <= 0)
-                trade_valid = false;
-              else
-                old = s.previous[n] * current / old_entry;
-            }
-            if (w[n] != 0 && (!std::isfinite(p[t + 1][n]) || p[t + 1][n] <= 0))
-              trade_valid = false;
-            traded += std::abs(static_cast<long double>(w[n]) - old);
+        // Both books are expressed as fractions of the same unit gross book.
+        // The prior weights drift with returns; no shares, lots or cash engine.
+        bool trade_valid = usable && (!s.seen || s.previous_valid);
+        for (const auto &old : s.previous)
+          weights[old.symbol] -= old.weight * old.growth;
+        long double traded = 0;
+        if (trade_valid)
+          for (auto w : weights)
+            traded += std::abs(static_cast<long double>(w));
+        const double turnover = trade_valid ? double(traded) : missing;
+        s.period_turnover.push_back(turnover);
+        double previous_wealth = 1, wealth = missing;
+        bool valid = usable;
+        for (auto d = t + 1; d < end; ++d) {
+          long double delta = 0;
+          for (auto &position : held) {
+            const auto value = r[d][position.symbol];
+            if (!std::isfinite(value) || value < -1)
+              position.growth = missing;
+            else
+              position.growth *= 1 + value;
+            if (!std::isfinite(position.growth))
+              valid = false;
+            delta += position.weight * (static_cast<long double>(position.growth) - 1);
           }
+          wealth = valid ? double(1 + delta) : missing;
+          if (!std::isfinite(wealth))
+            valid = false;
+          s.pnl.push_back(valid && previous_wealth > 0 && wealth >= 0
+                              ? wealth / previous_wealth - 1 : missing);
+          s.book_pnl.push_back(valid && std::isfinite(previous_wealth)
+                                  ? wealth - previous_wealth : missing);
+          s.turnover.push_back(d == t + 1 ? turnover : 0);
+          s.positions.push_back(usable ? double(held.size()) : missing);
+          s.concentration.push_back(usable ? concentration : missing);
+          previous_wealth = wealth;
         }
-        s.pnl.push_back(return_valid ? double(pnl) : missing);
-        s.turnover.push_back(trade_valid ? double(traded) : missing);
-        s.positions.push_back(usable ? double(positions) : missing);
-        s.concentration.push_back(usable ? concentration : missing);
-        s.previous = std::move(w);
-        s.entry =
-            t + 1 < p.size() ? p[t + 1] : std::vector<double>(count, missing);
+        s.period_returns.push_back(valid && t + h < r.size() ? wealth - 1 : missing);
+        s.previous = std::move(held);
+        s.previous_valid = valid && t + h < r.size();
         s.seen = true;
       }
     }
     Owned result{PyDict_New()}, out{PyDict_New()};
     for (auto &s : strategies) {
-      Owned v{performance(s.pnl, s.turnover, h, annual_days)};
+      Owned v{performance(s.pnl, s.turnover, 1, annual_days, &s.book_pnl)};
       put(v.p, "returns", list(s.pnl));
+      put(v.p, "book_pnl_series", list(s.book_pnl));
       put(v.p, "turnover_series", list(s.turnover));
       put(v.p, "positions", list(s.positions));
       put(v.p, "max_weight_series", list(s.concentration));
+      put(v.p, "period_returns", list(s.period_returns));
+      put(v.p, "period_turnover_series", list(s.period_turnover));
       put(out.p, s.name.c_str(), Py_NewRef(v.p));
     }
     put(result.p, "signal_indices", list(indices));
+    put(result.p, "daily_indices", list(daily_indices));
     put(result.p, "strategies", Py_NewRef(out.p));
     return Py_NewRef(result.p);
   } catch (const std::exception &e) {

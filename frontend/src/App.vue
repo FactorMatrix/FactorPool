@@ -10,7 +10,8 @@ const source = ref(""),
   name = ref("20日低成交量因子"),
   factorClass = ref("LowVolumeFactor"),
   params = ref('{"period":20}');
-const provider = ref("fixture"),
+const provider = ref("market_matrix"),
+  snapshotId = ref(null),
   universe = ref("000001.XSHE,000002.XSHE,600000.XSHG"),
   dynamic = ref(false);
 const start = ref("2024-01-29"),
@@ -60,6 +61,7 @@ const workspaceId = ref(1);
 let workspaceSequence = 1;
 const settings = computed(() => ({
   provider: provider.value,
+  snapshotId: snapshotId.value,
   universe: universe.value,
   dynamic: dynamic.value,
   start: start.value,
@@ -71,6 +73,7 @@ const settings = computed(() => ({
   params: params.value,
 }));
 function applySettings(d) {
+  snapshotId.value = d.provider === provider.value ? d.snapshotId || null : null;
   provider.value = d.provider;
   universe.value = d.universe;
   dynamic.value = d.dynamic;
@@ -165,10 +168,13 @@ function request() {
       adjustment: "raw",
       factor_start: start.value,
       factor_end: end.value,
+      ...(provider.value === "market_matrix" && snapshotId.value
+        ? { snapshot_id: snapshotId.value }
+        : {}),
     },
     analysis: {
-      entry: "next_open",
-      exit: "following_open",
+      entry: "signal_close",
+      exit: "next_close",
       groups: Number(groups.value),
       horizons: horizons.value.split(",").map((x) => Number(x.trim())),
       decay_steps: Number(decaySteps.value),
@@ -227,6 +233,7 @@ async function loadFactor(id) {
     const f = await api(`/factors/${id}`);
     const d = f.latest;
     newWorkspace();
+    restoreSnapshot(d);
     factorId.value = id;
     source.value = d.source_code;
     factorClass.value = d.factor_class;
@@ -238,6 +245,8 @@ async function loadFactor(id) {
 }
 function clearDraft() {
   factorId.value = null;
+  provider.value = "market_matrix";
+  snapshotId.value = null;
   name.value = "新因子";
   notice.value = "";
   if (examples.value.length)
@@ -324,7 +333,9 @@ function restoreSnapshot(r) {
   params.value = JSON.stringify(r.factor_params || {});
   factorId.value = null;
   if (r.data) {
-    provider.value = r.data.provider;
+    const migrated = r.data.provider === "ft_daily_mmap";
+    provider.value = migrated ? "market_matrix" : r.data.provider;
+    snapshotId.value = migrated ? null : r.data.snapshot_id || null;
     dynamic.value = r.data.universe === "all_a_dynamic";
     if (Array.isArray(r.data.universe))
       universe.value = r.data.universe.join(",");
@@ -686,10 +697,10 @@ onBeforeUnmount(() => {
         <article>
           <h2>2. 设置与模拟</h2>
           <p>
-            选择数据源、股票池和信号日期。默认使用合成数据。行情源读取已有文件，不会下载或更新数据。
+            选择数据源、股票池和信号日期。默认读取 PostgreSQL 中已导入的行情矩阵，提交时固定快照；任务不会导入或刷新行情。也可显式选择合成样例。
           </p>
           <p>
-            信号后下一期开盘入场，按所选持有期退出。当前研究组合等权、无费用，不包含订单与撮合。
+            日收益为收盘价 / 前收盘价 − 1，信号使用下一交易日起的收益矩阵。持有期内权重自然漂移，逐日计算净值与回撤；无费用。
           </p>
           <h2>3. 查看与复现</h2>
           <p>

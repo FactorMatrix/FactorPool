@@ -81,17 +81,19 @@ public class Api {
         body.get("factors").size() > 100)
       throw new IllegalArgumentException("Select 1..100 factors");
     return store.tx.execute(status -> {
+      ObjectNode pinned = body.deepCopy();
+      pinned.set("data", store.pinMarketData(body.path("data")));
       UUID id = UUID.randomUUID();
       store.db.update(
           "INSERT INTO research_batches(id,config) VALUES (?,?::jsonb)", id,
-          body.toString());
+          pinned.toString());
       List<UUID> ids = new ArrayList<>();
       for (JsonNode fid : body.get("factors")) {
         var r = ((ObjectNode)store.factor(UUID.fromString(fid.asText()))
                      .get("latest"))
                     .deepCopy();
-        r.set("data", body.path("data"));
-        r.set("analysis", body.path("analysis"));
+        r.set("data", pinned.path("data"));
+        r.set("analysis", pinned.path("analysis"));
         ids.add(store.enqueue(r, id));
       }
       return Map.of("id", id, "tasks", ids);
@@ -123,17 +125,9 @@ public class Api {
   }
   @GetMapping("/data-sources")
   Object sources() {
-    return List.of(Map.of("id", "fixture", "name", "手算样例 · 合成数据 A/B/C",
+    return List.of(store.marketSource(), Map.of("id", "fixture", "name", "手算样例 · 合成数据 A/B/C",
                           "available", true, "frequency", List.of("1d"),
-                          "adjustment", List.of("raw"), "synthetic", true),
-                   Map.of("id", "ft_daily_mmap", "name",
-                          "FactorTrader 日线 · 只读真实行情", "available",
-                          Files.isReadable(Path.of(
-                              System.getenv().getOrDefault(
-                                  "FACTORPOOL_MMAP_ROOT", "/data/market"),
-                              "stocks.mmap")),
-                          "frequency", List.of("1d"), "adjustment",
-                          List.of("raw"), "synthetic", false));
+                          "adjustment", List.of("raw"), "synthetic", true));
   }
   @ExceptionHandler({IllegalArgumentException.class,
                      java.time.DateTimeException.class})

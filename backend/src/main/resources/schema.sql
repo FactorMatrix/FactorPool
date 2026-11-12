@@ -23,3 +23,20 @@ CREATE TABLE IF NOT EXISTS factor_values (
 );
 CREATE INDEX IF NOT EXISTS research_tasks_status_idx ON research_tasks(status,created_at);
 CREATE INDEX IF NOT EXISTS factor_values_date_idx ON factor_values(task_id,trading_date,symbol);
+CREATE TABLE IF NOT EXISTS market_snapshots (
+  id text PRIMARY KEY,
+  manifest jsonb NOT NULL CHECK (jsonb_typeof(manifest) = 'object'),
+  symbols jsonb NOT NULL CHECK (jsonb_typeof(symbols) = 'array'),
+  dates jsonb NOT NULL CHECK (jsonb_typeof(dates) = 'array'),
+  fields jsonb NOT NULL CHECK (jsonb_typeof(fields) = 'array'),
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS market_matrix_blocks (
+  snapshot_id text NOT NULL REFERENCES market_snapshots(id),
+  start_index integer NOT NULL CHECK (start_index >= 0),
+  row_count integer NOT NULL CHECK (row_count > 0),
+  payload bytea NOT NULL,
+  sha256 text NOT NULL CHECK (length(sha256) = 64),
+  PRIMARY KEY(snapshot_id,start_index)
+);
+CREATE INDEX IF NOT EXISTS market_snapshots_created_idx ON market_snapshots(created_at DESC,id);

@@ -8,8 +8,9 @@ from pathlib import Path
 import signal
 import sys
 import time
+import numpy as np
 from .adapter import IndicatorAdapter
-from .datasource import fingerprint, fixture
+from .datasource import fixture
 from .reporting.diagnostics import build as build_diagnostics, options as report_options
 
 
@@ -28,14 +29,33 @@ def load_factor(path, class_name, params):
 
 def validate(request):
     data, analysis = request["data"], request["analysis"]
+    if data.get("provider") == "ft_daily_mmap":
+        raise ValueError("ft_daily_mmap has migrated to market_matrix; new tasks must read a PostgreSQL market snapshot")
+    if data.get("provider") not in ("fixture", "market_matrix"):
+        raise ValueError("Supported providers: market_matrix or fixture")
     if data.get("frequency", "1d") != "1d" or data.get("adjustment", "raw") != "raw":
         raise ValueError("This release supports daily, raw prices only")
-    if analysis.get("entry", "next_open") != "next_open" or analysis.get("exit", "following_open") != "following_open":
-        raise ValueError("Supported return interval: T+1 open to T+2 open")
+    if analysis.get("entry", "signal_close") != "signal_close" or analysis.get("exit", "next_close") != "next_close":
+        raise ValueError("Supported return interval: signal_close to next_close, using close / prev_close - 1; legacy open-based requests are unsupported")
     if analysis.get("annualize_icir", False) or analysis.get("group_weight", "equal") != "equal":
         raise ValueError("Supported analysis: equal weights, unannualized ICIR")
     if data["factor_start"] > data["factor_end"]:
         raise ValueError("End precedes start")
+
+
+def returns_matrix(frames, symbols):
+    """Build daily returns from each bar's own close and previous close."""
+    closes = np.asarray([[frame["rows"].get(symbol, {}).get("close") for symbol in symbols]
+                         for frame in frames], dtype=np.float64)
+    previous = np.asarray([[frame["rows"].get(symbol, {}).get("prev_close") for symbol in symbols]
+                           for frame in frames], dtype=np.float64)
+    valid = np.isfinite(closes) & np.isfinite(previous) & (previous > 0) & (closes >= 0)
+    returns = np.full(closes.shape, np.nan, dtype=np.float64, order="C")
+    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+        np.divide(closes, previous, out=returns, where=valid)
+        np.subtract(returns, 1, out=returns, where=valid)
+    returns[~np.isfinite(returns)] = np.nan
+    return returns
 
 
 def run(directory):
@@ -56,21 +76,14 @@ def run(directory):
     log("prepared", mode=adapter.mode, warmup=warmup)
     checkpoint = time.perf_counter()
     data = request["data"]
-    root = os.environ.get("FACTORPOOL_MMAP_ROOT", "/data/market")
     provider = data["provider"]
-    before = None
     if provider == "fixture":
         payload = fixture()
         if data.get("universe") not in (None, "fixture"):
             raise ValueError("Fixture universe is A/B/C")
-    elif provider == "ft_daily_mmap":
-        before = fingerprint(root)
-        universe = data.get("universe")
-        dynamic = universe == "all_a_dynamic"
-        if not dynamic and (not isinstance(universe, list) or not universe or len(universe) != len(set(universe))):
-            raise ValueError("Specify unique symbol list or all_a_dynamic")
-        payload = native.read_mmap([] if dynamic else universe, root, data["factor_start"], data["factor_end"], max(1, warmup), int(dynamic), max(horizons)*decay_steps+1)
-        payload.update(snapshot_id=before, synthetic=False)
+    elif provider == "market_matrix":
+        from .market_store import load
+        payload = load(data, max(1, warmup), max(horizons)*decay_steps)
     else:
         raise ValueError(f"Unknown/unconfigured provider: {provider}")
     timings["read"] = time.perf_counter() - checkpoint
@@ -79,8 +92,11 @@ def run(directory):
     frames = payload["frames"]
     if any(a["date"] >= b["date"] for a, b in zip(frames, frames[1:])):
         raise ValueError("Input dates must be unique and strictly increasing")
-    symbols = sorted(payload["symbols"])
-    matrices, prices, rows, dates, membership = [], [], [], [], []
+    source_symbols = payload["symbols"]
+    if len(source_symbols) != len(set(source_symbols)):
+        raise ValueError("Input symbols must be unique")
+    symbols = sorted(source_symbols)
+    matrices, rows, dates, membership = [], [], [], []
     for index, frame in enumerate(frames):
         if frame["date"] > data["factor_end"]:
             continue  # Future prices never enter Indicator state.
@@ -88,9 +104,10 @@ def run(directory):
         if frame["date"] < data["factor_start"]:
             continue
         lookup = {r["symbol"]: r for r in values}
+        current_members = set(frame["symbols"])
         matrices.append([lookup[s]["value"] if s in lookup else None for s in symbols])
         dates.append(frame["date"])
-        membership.append([s in frame["symbols"] for s in symbols])
+        membership.append([s in current_members for s in symbols])
         for symbol in symbols:
             cell = lookup.get(symbol, dict(symbol=symbol, value=None, valid=False, ready=False, reason="outside_universe"))
             rows.append(dict(date=frame["date"], **cell))
@@ -100,13 +117,27 @@ def run(directory):
         raise ValueError("No factor observations in requested date range")
     # Include every calendar day from first factor date and its future tail.
     tail = [f for f in frames if f["date"] >= dates[0]]
-    prices = [[f["rows"].get(s, {}).get("open") for s in symbols] for f in tail]
     if [f["date"] for f in tail[:len(dates)]] != dates:
         raise ValueError("Factor and price date axes differ")
+    factors = np.ascontiguousarray(matrices, dtype=np.float64)
+    if "returns" in payload:
+        stored = np.asarray(payload["returns"], dtype=np.float64)
+        if stored.shape != (len(frames), len(source_symbols)):
+            raise ValueError("Stored return matrix does not match its date and symbol axes")
+        first = next(i for i, frame in enumerate(frames) if frame["date"] == dates[0])
+        if source_symbols == symbols:
+            returns = np.ascontiguousarray(stored[first:], dtype=np.float64)
+        else:
+            source_columns = {symbol: index for index, symbol in enumerate(source_symbols)}
+            columns = [source_columns[symbol] for symbol in symbols]
+            returns = np.ascontiguousarray(stored[first:, columns], dtype=np.float64)
+    else:
+        returns = returns_matrix(tail, symbols)
+    members = np.ascontiguousarray(membership, dtype=np.float64)
     timings["calculate"] = time.perf_counter() - checkpoint
     checkpoint = time.perf_counter()
     options = request["analysis"]
-    prepared = native.prepare_research(matrices, prices, membership)
+    prepared = native.prepare_research(factors, returns, members)
     result = native.analyze(prepared, None, options.get("groups", 3), options.get("min_ic_pairs", 3), options.get("icir_ddof", 1))
     result["diagnostics"] = build_diagnostics(prepared, None, None, dates, [f["date"] for f in tail], options, primary=result)
     for date, day in zip(dates, result["daily"]):
@@ -118,17 +149,15 @@ def run(directory):
             row.update(forward_return=returns[t][n], group=groups[t][n])
             output.write(json.dumps(row, allow_nan=False) + "\n")
     timings["analysis_export"] = time.perf_counter() - checkpoint
-    if before is not None and fingerprint(root) != before:
-        raise ValueError("Market snapshot changed during task; result rejected")
     build_info = json.loads(Path(os.environ.get("FACTORPOOL_BUILD_INFO", "/opt/factorpool/build-info.json")).read_text())
     result["metadata"] = dict(build=build_info, execution_mode=adapter.mode, warm_up_period=warmup,
         source_sha256=hashlib.sha256(request["source_code"].encode()).hexdigest(), snapshot_id=payload["snapshot_id"],
         provider=provider, synthetic=payload["synthetic"], frequency="1d", adjustment="raw", timezone="Asia/Shanghai",
-        return_interval="T+1 open to T+2 open", group_ties="value then symbol; split ties", group_insufficient="empty groups allowed",
+        return_interval="signal close to next close; R[t+1] = close[t+1] / prev_close[t+1] - 1", daily_return="close / prev_close - 1; no additional corporate-action adjustment", group_ties="value then symbol; split ties", group_insufficient="empty groups allowed",
         group_weight="equal among available returns", cumulative="nonoverlapping one-day; invalid after a missing interval",
         ic_rank_ties="average", icir_ddof=options.get("icir_ddof", 1), annualized=False,
         annualized_scope="legacy ICIR only; portfolio annualization is defined in diagnostics.conventions",
-        operator_contract="ft-pool-1", forward_return_horizon=1, report_version=2, report_horizons=horizons, coverage_axis="historical universe membership", stage_seconds=timings, value_count=len(rows))
+        operator_contract="ft-pool-1", forward_return_horizon=1, report_version=3, report_horizons=horizons, coverage_axis="historical universe membership", stage_seconds=timings, value_count=len(rows))
     temporary = directory / "result.tmp.json"
     temporary.write_text(json.dumps(result, ensure_ascii=False, allow_nan=False))
     temporary.rename(directory / "result.json")

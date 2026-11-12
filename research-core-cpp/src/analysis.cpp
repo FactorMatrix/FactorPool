@@ -13,17 +13,17 @@ using namespace fp;
 } // namespace
 PyObject *analyze(PyObject *, PyObject *args) {
   try {
-    PyObject *factor, *opens, *eligible = nullptr;
+    PyObject *factor, *daily_returns, *eligible = nullptr;
     int groups, minimum, ddof, horizon = 1;
-    if (!PyArg_ParseTuple(args, "OOiii|Oi", &factor, &opens, &groups, &minimum,
+    if (!PyArg_ParseTuple(args, "OOiii|Oi", &factor, &daily_returns, &groups, &minimum,
                           &ddof, &eligible, &horizon))
       return nullptr;
     if (horizon < 1 || horizon > 252 || groups < 1 || groups > 100 ||
         minimum < 2 || ddof < 0 || ddof > 1)
       throw std::invalid_argument("Invalid analysis options");
-    InputRef holder(factor, opens, eligible);
+    InputRef holder(factor, daily_returns, eligible);
     const auto &input = *holder.value;
-    const auto &f = input.factors, &p = input.prices;
+    const auto &f = input.factors, &forward = input.forward(horizon);
     Owned result{PyDict_New()}, days{PyList_New(0)}, returns{PyList_New(0)},
         assignments{PyList_New(0)};
     std::vector<double> ics, rankics, cumulative(groups, 1.0);
@@ -37,10 +37,7 @@ PyObject *analyze(PyObject *, PyObject *args) {
       for (std::size_t n = 0; n < f[t].size(); ++n) {
         if (input.eligible(t, n))
           ++total;
-        if (t + 1 + horizon < p.size() && std::isfinite(p[t + 1][n]) &&
-            std::isfinite(p[t + 1 + horizon][n]) && p[t + 1][n] > 0 &&
-            p[t + 1 + horizon][n] > 0)
-          r[n] = p[t + 1 + horizon][n] / p[t + 1][n] - 1;
+        r[n] = forward[t][n];
         if (std::isfinite(f[t][n]) && input.eligible(t, n)) {
           ++covered;
           if (std::isfinite(r[n])) {

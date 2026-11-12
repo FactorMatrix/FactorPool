@@ -38,6 +38,7 @@ const port = computed(
     selected.value?.portfolios.high_low,
 );
 const alpha = computed(() => selected.value?.portfolios.alpha);
+const dailyPortfolio = computed(() => (props.report.version || 0) >= 3);
 const num = (x) => (x == null ? "--" : Number(x).toFixed(4));
 const pct = (x) => (x == null ? "--" : (Number(x) * 100).toFixed(2) + "%");
 const pval = (x) => (x == null ? "--" : Number(x).toExponential(3));
@@ -165,7 +166,7 @@ const brainCards = computed(() => {
           </option></select
         ><select v-model="view" aria-label="组合图表">
           <option value="nav">净值 / 回撤</option>
-          <option value="returns">持有期收益</option>
+          <option value="returns">{{ dailyPortfolio ? '日收益' : '持有期收益' }}</option>
           <option value="monthly">月度收益热力图</option>
           <option value="yearly">年度收益</option>
           <option value="turnover">调仓换手</option>
@@ -184,7 +185,7 @@ const brainCards = computed(() => {
               <th>最大回撤</th>
               <th>胜率</th>
               <th>盈亏比</th>
-              <th>有效期数</th>
+              <th>{{ dailyPortfolio ? '有效日数' : '有效期数' }}</th>
             </tr>
           </thead>
           <tbody>
@@ -207,7 +208,12 @@ const brainCards = computed(() => {
           </tbody>
         </table>
       </div>
-      <p class="report-note">
+      <p v-if="dailyPortfolio" class="report-note">
+        每 {{ selected.horizon }} 期调仓，持有期内权重自然漂移；收盘价 / 前收盘价 − 1，逐日计算净值与回撤。
+        多空两侧各 0.5、总敞口 1；按 {{ report.conventions.annual_days }} 个交易日年化，月/年收益按实际交易日归属。
+        缺失收益留空，不补零或重分配权重。所有组合均无费用。
+      </p>
+      <p v-else class="report-note">
         每 {{ selected.horizon }} 期调仓，按非重叠持有期计算。多空两侧各
         0.5、总敞口 1；年化系数 {{ report.conventions.annual_days }}/{{
           selected.horizon
@@ -237,9 +243,9 @@ const brainCards = computed(() => {
         <summary>计算公式与数据缺口</summary>
         <dl>
           <dt>Sharpe</dt>
-          <dd>持有期 PnL 均值 / 样本标准差 × √(年交易日/持有期)</dd>
+          <dd>{{ dailyPortfolio ? '每日固定 book PnL 增量均值 / 样本标准差 × √年交易日' : '持有期 PnL 均值 / 样本标准差 × √(年交易日/持有期)' }}</dd>
           <dt>Returns</dt>
-          <dd>按固定 book size 的 PnL 均值年化 / 0.5；与 CAGR 分开</dd>
+          <dd>{{ dailyPortfolio ? '每日固定 book PnL 增量均值年化 / 0.5；与 CAGR 分开' : '按固定 book size 的 PnL 均值年化 / 0.5；与 CAGR 分开' }}</dd>
           <dt>Turnover</dt>
           <dd>
             目标权重与价格漂移后的原权重之差的绝对值和；含首次建仓，折算日均

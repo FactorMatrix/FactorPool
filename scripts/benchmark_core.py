@@ -20,20 +20,18 @@ from factorpool.reporting.diagnostics import build
 def inputs(t, n, seed, kind):
     rng = np.random.default_rng(seed)
     f = rng.normal(size=(t, n))
-    p = 100 * np.exp(np.cumsum(rng.normal(0, .01, size=(t + 202, n)), axis=0))
+    returns = np.expm1(rng.normal(0, .01, size=(t + 201, n)))
     m = np.ones((t, n))
     if kind == 'sparse':
         f = np.round(f * 3) / 3  # ties and valid zero
         f[rng.random(f.shape) < .06] = np.nan
-        p[rng.random(p.shape) < .015] = np.nan
+        returns[rng.random(returns.shape) < .015] = np.nan
         m[rng.random(m.shape) < .08] = 0
         f[::37] = 0  # constant sections
-    # List conversion is outside timing; the production runner supplies lists.
-    factors = [[None if not np.isfinite(x) else float(x) for x in r] for r in f]
-    prices = [[None if not np.isfinite(x) else float(x) for x in r] for r in p]
-    members = m.tolist()
-    dates = [(date(2015, 1, 1) + timedelta(days=i)).isoformat() for i in range(len(p))]
-    return factors, prices, members, dates[:t], dates
+    # Production and benchmark both pass C-contiguous float64 arrays. Native
+    # ownership/copying remains inside the measured prepare stage.
+    dates = [(date(2015, 1, 1) + timedelta(days=i)).isoformat() for i in range(len(returns))]
+    return f, returns, m, dates[:t], dates
 
 
 def result_hash(obj):
@@ -44,17 +42,14 @@ def result_hash(obj):
 
 
 def execute(data, analysis):
-    f, p, m, dates, pdates = data
+    factors, returns, members, dates, return_dates = data
     checkpoint = time.perf_counter()
-    # New implementations may batch preparation across primary/diagnostics.
-    if hasattr(native, 'prepare_research'):
-        prepared = native.prepare_research(f, p, m)
-        primary = native.analyze(prepared, None, analysis['groups'], 3, 1)
-        diagnostic = build(prepared, None, None, dates, pdates, analysis, primary=primary)
-    else:
-        primary = native.analyze(f, p, analysis['groups'], 3, 1, m)
-        diagnostic = build(f, p, m, dates, pdates, analysis)
+    prepared = native.prepare_research(factors, returns, members)
+    primary = native.analyze(prepared, None, analysis['groups'], 3, 1)
+    diagnostic = build(prepared, None, None, dates, return_dates, analysis, primary=primary)
     elapsed = time.perf_counter() - checkpoint
+    if diagnostic['version'] != 3:
+        raise ValueError('This benchmark requires the returns-matrix-v3 kernel; old open-price images have a different numerical contract')
     return dict(primary=primary, diagnostics=diagnostic), elapsed
 
 
@@ -84,13 +79,13 @@ def main():
         profiler.disable();del result
         profiler.dump_stats('/bench/output/' + args.label + '.prof')
     report = dict(label=args.label, case=args.case, kind=args.kind, dates=t, symbols=n,
-                  cells=t*n, analysis=analysis, seconds=timings, median_seconds=float(np.median(timings)),
+                  cells=t*n, contract="returns-matrix-v3", seed=20261109, analysis=analysis, seconds=timings, median_seconds=float(np.median(timings)),
                   full_result_sha256=hashes[0], python=platform.python_version(), numpy=np.__version__,
                   native_file=native.__file__, native_sha256=hashlib.sha256(Path(native.__file__).read_bytes()).hexdigest(),
                   shared_library_sha256=hashlib.sha256(Path('/opt/factorpool/shared-build/native/abi/libfactortrader_c.so').read_bytes()).hexdigest(),
                   cpu_max=Path('/sys/fs/cgroup/cpu.max').read_text().strip(), affinity=sorted(os.sched_getaffinity(0)),
                   max_rss_kib=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
-                  scope='matrix prepare + primary + complete diagnostics; synthetic input generation and canonical serialization outside timing; no disk cache comparison',
+                  scope='owned contiguous return-matrix prepare + primary + complete diagnostics including daily portfolios; synthetic input generation and canonical serialization outside timing; no I/O benchmark; not comparable to historical open-price-v2 timings',
                   build=json.loads(Path('/opt/factorpool/build-info.json').read_text()))
     Path('/bench/output/' + args.label + '.json').write_text(json.dumps(report, indent=2) + '\n')
     print(json.dumps(report), flush=True)

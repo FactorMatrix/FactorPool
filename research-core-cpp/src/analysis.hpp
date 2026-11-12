@@ -1,7 +1,6 @@
 #pragma once
 #include <Python.h>
 PyObject *analyze(PyObject *, PyObject *);
-PyObject *read_mmap(PyObject *, PyObject *);
 
 PyObject *series_stats(PyObject *, PyObject *);
 PyObject *portfolio_report(PyObject *, PyObject *);

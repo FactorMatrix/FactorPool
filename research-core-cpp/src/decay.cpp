@@ -6,31 +6,30 @@ using namespace fp;
 }
 PyObject *ic_decay(PyObject *, PyObject *args) {
   try {
-    PyObject *factor, *opens, *members;
+    PyObject *factor, *daily_returns, *members;
     int h, steps, minimum;
-    if (!PyArg_ParseTuple(args, "OOOiii", &factor, &opens, &members, &h, &steps,
+    if (!PyArg_ParseTuple(args, "OOOiii", &factor, &daily_returns, &members, &h, &steps,
                           &minimum))
       return nullptr;
     if (h < 1 || h > 252 || steps < 1 || steps > 10 || minimum < 2)
       throw std::invalid_argument("Invalid decay options");
-    InputRef holder(factor, opens, members);
+    InputRef holder(factor, daily_returns, members);
     const auto &input = *holder.value;
-    const auto &f = input.factors, &p = input.prices;
+    const auto &f = input.factors, &forward = input.forward(h);
     Owned out{PyList_New(0)};
     for (int k = 0; k < steps; ++k) {
       std::vector<double> ics, rankics;
       for (std::size_t t = 0; t < f.size(); ++t) {
-        auto entry = t + 1 + k * h, exit = entry + h;
+        const auto signal = t + k * h;
         std::vector<double> a, b;
         std::vector<std::size_t> symbols;
-        if (exit < p.size())
+        if (signal < forward.size())
           for (std::size_t n = 0; n < f[t].size(); ++n) {
             if (input.eligible(t, n) && std::isfinite(f[t][n]) &&
-                std::isfinite(p[entry][n]) && std::isfinite(p[exit][n]) &&
-                p[entry][n] > 0 && p[exit][n] > 0) {
+                std::isfinite(forward[signal][n])) {
               symbols.push_back(n);
               a.push_back(f[t][n]);
-              b.push_back(p[exit][n] / p[entry][n] - 1);
+              b.push_back(forward[signal][n]);
             }
           }
         ics.push_back(correlation(a, b, minimum));

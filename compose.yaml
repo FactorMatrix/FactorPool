@@ -32,7 +32,6 @@ services:
       FACTORPOOL_TIMEOUT_SECONDS: ${FACTORPOOL_TIMEOUT_SECONDS:-1800}
     volumes:
       - ${FACTORPOOL_STATE_DIR:?}/tasks:/data/tasks
-      - ${FACTORPOOL_MARKET_ROOT:-/home/quant/quant_data/mmap}:/data/market:ro
     mem_limit: 4g
     cpus: 4
     stop_grace_period: 30s
@@ -47,3 +46,17 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+  market-import:
+    profiles: [tools]
+    image: factorpool/backend:${FACTORPOOL_RELEASE:?}
+    entrypoint: [python3, -m, factorpool.bundle_import]
+    command: [--root, /data/bundle]
+    environment:
+      FACTORPOOL_DB_PASSWORD: ${FACTORPOOL_DB_PASSWORD}
+    volumes:
+      - ${FACTORPOOL_BUNDLE_ROOT:-/home/quant/colorful-data/quant_data/bundle}:/data/bundle:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    mem_limit: 4g
+    cpus: 4

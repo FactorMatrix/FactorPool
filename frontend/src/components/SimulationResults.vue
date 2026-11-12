@@ -26,6 +26,8 @@ const selected = computed(
   () => props.result?.diagnostics?.horizons[period.value],
 );
 const alpha = computed(() => selected.value?.portfolios.alpha);
+const dailyPortfolio = computed(() => (props.result?.diagnostics?.version || 0) >= 3);
+const portfolioDates = computed(() => selected.value?.portfolio_dates || selected.value?.portfolio_signal_dates || []);
 const summary = computed(() => props.result?.summary || {});
 const num = (x) => (x == null ? "--" : Number(x).toFixed(4));
 const pct = (x) => (x == null ? "--" : (Number(x) * 100).toFixed(2) + "%");
@@ -130,7 +132,7 @@ const sections = [
             ><select v-model="chartMode" aria-label="结果曲线">
               <option value="pnl">PnL · 固定 book</option>
               <option value="nav">Net value · 复利净值</option>
-              <option value="returns">Period returns · 期收益</option>
+              <option value="returns">{{ dailyPortfolio ? 'Daily returns · 日收益' : 'Period returns · 期收益' }}</option>
               <option value="monthly">Monthly returns · 月度收益</option>
               <option value="yearly">Yearly returns · 年度收益</option>
             </select>
@@ -142,11 +144,11 @@ const sections = [
             :mode="chartMode"
           /><ResearchChart v-else :daily="result.daily" mode="ic" />
           <div class="chart-footnote">
-            {{ selected?.portfolio_signal_dates[0] || result.daily[0]?.date }} —
+            {{ portfolioDates[0] || result.daily[0]?.date }} —
             {{
-              selected?.portfolio_signal_dates.at(-1) ||
+              portfolioDates.at(-1) ||
               result.daily.at(-1)?.date
-            }}<span>无费用研究组合 · 缺失值 --</span>
+            }}<span>{{ dailyPortfolio ? '收盘价 / 前收盘价 − 1 · 逐日盯市' : '历史报告 · 原任务收益口径' }} · 无费用 · 缺失值 --</span>
           </div>
         </div>
         <FactorDiagnostics

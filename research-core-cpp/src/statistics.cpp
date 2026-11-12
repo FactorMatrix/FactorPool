@@ -116,8 +116,9 @@ PyObject *moments(const std::vector<double> &values, int ddof, int lag) {
 }
 PyObject *performance(const std::vector<double> &pnl,
                       const std::vector<double> &turnover, int h,
-                      int annual_days) {
-  if (pnl.size() != turnover.size() || h < 1 || annual_days < 1)
+                      int annual_days, const std::vector<double> *book_source) {
+  const auto &book = book_source ? *book_source : pnl;
+  if (pnl.size() != turnover.size() || pnl.size() != book.size() || h < 1 || annual_days < 1)
     throw std::invalid_argument("Performance axes/options differ");
   Owned result{moments(pnl, 1, 0)};
   const auto n = PyLong_AsSize_t(PyDict_GetItemString(result.p, "n"));
@@ -128,6 +129,13 @@ PyObject *performance(const std::vector<double> &pnl,
   const double annual = double(annual_days) / h;
   double ann = mu * annual, vol = sigma * std::sqrt(annual),
          sharpe = vol > 0 ? ann / vol : missing;
+  Owned book_stats{moments(book, 1, 0)};
+  const auto book_n = PyLong_AsSize_t(PyDict_GetItemString(book_stats.p, "n"));
+  const auto book_mean = PyDict_GetItemString(book_stats.p, "mean"),
+             book_sd = PyDict_GetItemString(book_stats.p, "std");
+  const double book_mu = book_mean == Py_None ? missing : PyFloat_AsDouble(book_mean),
+               book_sigma = book_sd == Py_None ? missing : PyFloat_AsDouble(book_sd),
+               book_sharpe = book_sigma > 0 ? book_mu / book_sigma * std::sqrt(annual) : missing;
   std::vector<double> nav, dd, book_pnl, book_drawdown;
   long double wealth = 1, peak = 1, cumulative = 0, pnl_peak = 0;
   bool broken = false, book_broken = false;
@@ -146,16 +154,17 @@ PyObject *performance(const std::vector<double> &pnl,
         losses -= r;
         ++nl;
       }
-      total_pnl += r;
     }
     if (!std::isfinite(turnover[i]))
       all_trades = false;
     else
       traded += turnover[i];
-    if (!std::isfinite(r))
+    if (!std::isfinite(book[i]))
       book_broken = true;
+    else
+      total_pnl += book[i];
     if (!book_broken) {
-      cumulative += r;
+      cumulative += book[i];
       pnl_peak = std::max(pnl_peak, cumulative);
       brain_dd = std::max(brain_dd, double((pnl_peak - cumulative) / .5L));
       book_pnl.push_back(double(cumulative));
@@ -164,7 +173,7 @@ PyObject *performance(const std::vector<double> &pnl,
       book_pnl.push_back(missing);
       book_drawdown.push_back(missing);
     }
-    if (!std::isfinite(r) || 1 + r <= 0)
+    if (!std::isfinite(r) || 1 + r < 0)
       broken = true;
     if (!broken) {
       wealth *= 1 + r;
@@ -181,7 +190,7 @@ PyObject *performance(const std::vector<double> &pnl,
   const double daily_turnover = all_trades && !turnover.empty()
                                     ? double(traded) / (pnl.size() * h)
                                     : missing;
-  const double returns = 2 * ann; // Defined half-book convention, not CAGR.
+  const double returns = 2 * book_mu * annual;
   put(result.p, "annual_return", number(ann));
   put(result.p, "annual_volatility", number(vol));
   put(result.p, "sharpe", number(sharpe));
@@ -194,17 +203,17 @@ PyObject *performance(const std::vector<double> &pnl,
       number(nw && nl && losses > 0 ? double((wins / nw) / (losses / nl))
                                     : missing));
   Owned brain{PyDict_New()};
-  put(brain.p, "sharpe", number(sharpe));
+  put(brain.p, "sharpe", number(book_sharpe));
   put(brain.p, "returns", number(returns));
   put(brain.p, "turnover", number(daily_turnover));
-  put(brain.p, "drawdown", number(!book_broken && n ? brain_dd : missing));
+  put(brain.p, "drawdown", number(!book_broken && book_n ? brain_dd : missing));
   put(brain.p, "fitness",
-      number(std::isfinite(sharpe) && std::isfinite(daily_turnover)
-                 ? sharpe * std::sqrt(std::abs(returns) /
+      number(std::isfinite(book_sharpe) && std::isfinite(daily_turnover)
+                 ? book_sharpe * std::sqrt(std::abs(returns) /
                                       std::max(daily_turnover, .125))
                  : missing));
   put(brain.p, "margin",
-      number(all_trades && n == pnl.size() && traded > 0
+      number(all_trades && book_n == book.size() && traded > 0
                  ? double(total_pnl / traded)
                  : missing));
   put(result.p, "brain_style", Py_NewRef(brain.p));

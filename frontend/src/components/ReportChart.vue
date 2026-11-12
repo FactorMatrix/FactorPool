@@ -13,7 +13,9 @@ function draw() {
   if (!chart || !props.data) return;
   const d = props.data,
     p = props.portfolio,
-    k = props.metric;
+    k = props.metric,
+    portfolioDates = d.portfolio_dates || d.portfolio_signal_dates,
+    dailyPortfolio = !!d.portfolio_dates;
   const base = {
     backgroundColor: "transparent",
     color: ["#18bed0", "#efb240", "#74b96a"],
@@ -76,7 +78,7 @@ function draw() {
       ],
     };
   } else if (p) {
-    option.xAxis.data = d.portfolio_signal_dates;
+    option.xAxis.data = portfolioDates;
     if (props.mode === "nav") {
       option.yAxis = [
         base.yAxis,
@@ -93,7 +95,7 @@ function draw() {
         {
           name: "复利净值",
           type: "line",
-          showSymbol: d.portfolio_signal_dates?.length < 20,
+          showSymbol: portfolioDates?.length < 20,
           connectNulls: false,
           data: p.nav,
         },
@@ -101,7 +103,7 @@ function draw() {
           name: "回撤",
           type: "line",
           yAxisIndex: 1,
-          showSymbol: d.portfolio_signal_dates?.length < 20,
+          showSymbol: portfolioDates?.length < 20,
           areaStyle: { opacity: 0.2 },
           data: p.drawdown_series,
         },
@@ -122,7 +124,7 @@ function draw() {
         {
           name: "累计固定 book PnL",
           type: "line",
-          showSymbol: d.portfolio_signal_dates?.length < 20,
+          showSymbol: portfolioDates?.length < 20,
           connectNulls: false,
           data: p.constant_book_pnl,
         },
@@ -130,7 +132,7 @@ function draw() {
           name: "半 book 回撤",
           type: "line",
           yAxisIndex: 1,
-          showSymbol: d.portfolio_signal_dates?.length < 20,
+          showSymbol: portfolioDates?.length < 20,
           data: p.constant_book_drawdown,
           areaStyle: { opacity: 0.2 },
         },
@@ -147,13 +149,13 @@ function draw() {
       option.xAxis.data = p.yearly.map((r) => r.period);
       option.series = [
         {
-          name: "退出年度归属收益",
+          name: dailyPortfolio ? "逐日归属年度收益" : "退出年度归属收益",
           type: "bar",
           data: p.yearly.map((r) => r.value),
         },
       ];
     } else
-      option.series = [{ name: "持有期收益", type: "bar", data: p.returns }];
+      option.series = [{ name: dailyPortfolio ? "日收益" : "持有期收益", type: "bar", data: p.returns }];
   } else if (props.mode === "yearly") {
     option.xAxis.data = d.yearly[k].map((r) => r.period);
     option.series = [
@@ -177,7 +179,7 @@ function draw() {
             {
               name: "累计IC（求和）",
               type: "line",
-              showSymbol: d.portfolio_signal_dates?.length < 20,
+              showSymbol: d.dates?.length < 20,
               connectNulls: false,
               data: d.series[`${k}_cumulative`],
             },
@@ -193,7 +195,7 @@ function draw() {
             {
               name: "30期滚动均值",
               type: "line",
-              showSymbol: d.portfolio_signal_dates?.length < 20,
+              showSymbol: d.dates?.length < 20,
               connectNulls: false,
               data: d.series[`${k}_rolling30`],
             },

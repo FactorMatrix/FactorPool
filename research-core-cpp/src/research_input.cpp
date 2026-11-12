@@ -3,23 +3,27 @@
 #include <algorithm>
 
 namespace {
-constexpr const char *capsule_name = "factorpool.research_input.v1";
+constexpr const char *capsule_name = "factorpool.research_input.v2";
 void destroy_input(PyObject *capsule) {
   delete static_cast<fp::ResearchInput *>(
       PyCapsule_GetPointer(capsule, capsule_name));
 }
 } // namespace
 namespace fp {
-ResearchInput::ResearchInput(PyObject *factor, PyObject *opens,
+ResearchInput::ResearchInput(PyObject *factor, PyObject *daily_returns,
                              PyObject *membership)
-    : factors(matrix(factor)), prices(matrix(opens)),
+    : factors(matrix(factor)), returns(matrix(daily_returns)),
       members(membership && membership != Py_None ? matrix(membership) : Matrix{}) {
-  if (factors.size() > prices.size() ||
-      (membership && membership != Py_None && members.size() != factors.size()) ||
-      (!factors.empty() &&
-       (factors[0].size() != prices[0].size() ||
-        (!members.empty() && factors[0].size() != members[0].size()))))
+  if (factors.size() > returns.size() ||
+      factors.columns() != returns.columns() ||
+      (membership && membership != Py_None &&
+       (members.size() != factors.size() ||
+        members.columns() != factors.columns())))
     throw std::invalid_argument("Research matrix axes differ");
+  for (std::size_t t = 0; t < returns.size(); ++t)
+    for (auto &r : returns[t])
+      if (!std::isfinite(r) || r < -1)
+        r = missing;
   order.resize(factors.size());
   for (std::size_t t = 0; t < factors.size(); ++t) {
     auto &sorted = order[t];
@@ -32,21 +36,81 @@ ResearchInput::ResearchInput(PyObject *factor, PyObject *opens,
     });
   }
 }
-InputRef::InputRef(PyObject *factor, PyObject *opens, PyObject *membership) {
+void ResearchInput::prepare_prefixes() const {
+  if (!log_prefix_.empty())
+    return;
+  const auto rows = returns.size(), columns = returns.columns();
+  if (rows == std::numeric_limits<std::size_t>::max() ||
+      (columns && rows + 1 > log_prefix_.max_size() / columns))
+    throw std::invalid_argument("Research matrix is too large");
+  const auto cells = (rows + 1) * columns;
+  std::vector<long double> logs(cells, 0);
+  std::vector<std::size_t> gaps(cells, 0), zeros(cells, 0);
+  for (std::size_t t = 0; t < rows; ++t)
+    for (std::size_t n = 0; n < columns; ++n) {
+      const auto before = t * columns + n, after = before + columns;
+      const auto r = returns[t][n];
+      logs[after] = logs[before];
+      gaps[after] = gaps[before];
+      zeros[after] = zeros[before];
+      if (!std::isfinite(r))
+        ++gaps[after];
+      else if (r == -1)
+        ++zeros[after];
+      else
+        logs[after] += std::log1p(static_cast<long double>(r));
+    }
+  log_prefix_ = std::move(logs);
+  missing_prefix_ = std::move(gaps);
+  zero_prefix_ = std::move(zeros);
+}
+const Matrix &ResearchInput::forward(int h) const {
+  if (h < 1 || h > 252)
+    throw std::invalid_argument("Horizon must be 1..252");
+  if (const auto it = forwards_.find(h); it != forwards_.end())
+    return it->second;
+  Matrix result(returns.size(), returns.columns());
+  const auto days = static_cast<std::size_t>(h), columns = returns.columns();
+  if (days < returns.size()) {
+    if (h == 1) {
+      for (std::size_t t = 0; t + 1 < returns.size(); ++t)
+        std::copy(returns[t + 1].begin(), returns[t + 1].end(), result[t].begin());
+    } else {
+      prepare_prefixes();
+      for (std::size_t t = 0; t + days < returns.size(); ++t)
+        for (std::size_t n = 0; n < columns; ++n) {
+          const auto begin = (t + 1) * columns + n,
+                     end = (t + 1 + days) * columns + n;
+          if (missing_prefix_[end] != missing_prefix_[begin])
+            continue;
+          if (zero_prefix_[end] != zero_prefix_[begin])
+            result[t][n] = -1;
+          else {
+            const auto r = static_cast<double>(
+                std::expm1(log_prefix_[end] - log_prefix_[begin]));
+            if (std::isfinite(r))
+              result[t][n] = r;
+          }
+        }
+    }
+  }
+  return forwards_.emplace(h, std::move(result)).first->second;
+}
+InputRef::InputRef(PyObject *factor, PyObject *daily_returns, PyObject *membership) {
   if (PyCapsule_IsValid(factor, capsule_name)) {
-    if (opens != Py_None || (membership && membership != Py_None))
+    if (daily_returns != Py_None || (membership && membership != Py_None))
       throw std::invalid_argument(
           "Prepared research input already owns all matrices");
     value = static_cast<ResearchInput *>(PyCapsule_GetPointer(factor, capsule_name));
   } else {
-    owned = std::make_unique<ResearchInput>(factor, opens, membership);
+    owned = std::make_unique<ResearchInput>(factor, daily_returns, membership);
     value = owned.get();
   }
 }
 std::vector<double> paired_factor_ranks(const ResearchInput &input, std::size_t t,
                                       const std::vector<std::size_t> &symbols) {
   // Filter the cached order, then rerank the actual paired sample. A missing
-  // future price changes tie sizes, so reusing full-universe ranks is incorrect.
+  // future return changes tie sizes, so reusing full-universe ranks is incorrect.
   const auto absent = std::numeric_limits<std::size_t>::max();
   std::vector<std::size_t> positions(input.factors[t].size(), absent), filtered;
   filtered.reserve(symbols.size());
@@ -70,10 +134,10 @@ std::vector<double> paired_factor_ranks(const ResearchInput &input, std::size_t 
 } // namespace fp
 PyObject *prepare_research(PyObject *, PyObject *args) {
   try {
-    PyObject *factor, *opens, *members;
-    if (!PyArg_ParseTuple(args, "OOO", &factor, &opens, &members))
+    PyObject *factor, *daily_returns, *members;
+    if (!PyArg_ParseTuple(args, "OOO", &factor, &daily_returns, &members))
       return nullptr;
-    auto input = std::make_unique<fp::ResearchInput>(factor, opens, members);
+    auto input = std::make_unique<fp::ResearchInput>(factor, daily_returns, members);
     auto *capsule = PyCapsule_New(input.get(), capsule_name, destroy_input);
     if (capsule)
       input.release();
@@ -95,24 +159,19 @@ PyObject *ic_series(PyObject *, PyObject *args) {
       throw std::invalid_argument("Invalid correlation options");
     InputRef holder(prepared, Py_None, nullptr);
     const auto &input = *holder.value;
-    const auto &f = input.factors, &p = input.prices;
+    const auto &f = input.factors, &forward = input.forward(h);
     std::vector<double> ics, rankics;
     for (std::size_t t = 0; t < f.size(); ++t) {
       std::vector<double> a, b;
       std::vector<std::size_t> symbols;
-      if (t + 1 + h < p.size())
-        for (std::size_t n = 0; n < f[t].size(); ++n) {
-          if (std::isfinite(f[t][n]) && input.eligible(t, n) &&
-              std::isfinite(p[t + 1][n]) && std::isfinite(p[t + 1 + h][n]) &&
-              p[t + 1][n] > 0 && p[t + 1 + h][n] > 0) {
-            const double r = p[t + 1 + h][n] / p[t + 1][n] - 1;
-            if (std::isfinite(r)) {
-              a.push_back(f[t][n]);
-              b.push_back(r);
-              symbols.push_back(n);
-            }
-          }
+      for (std::size_t n = 0; n < f[t].size(); ++n) {
+        const auto r = forward[t][n];
+        if (std::isfinite(f[t][n]) && input.eligible(t, n) && std::isfinite(r)) {
+          a.push_back(f[t][n]);
+          b.push_back(r);
+          symbols.push_back(n);
         }
+      }
       ics.push_back(correlation(a, b, minimum));
       rankics.push_back(a.size() >= static_cast<std::size_t>(minimum)
         ? correlation(paired_factor_ranks(input, t, symbols), rank_values(b), minimum)
