@@ -47,6 +47,35 @@ def synthetic_bundle(root):
             status['B'] = np.array([], dtype='<f8')  # Existing bundles may have empty float arrays.
 
 
+def no_trade_bundle(root):
+    """Existing bars with no-trade conflicts, plus a metadata-only security."""
+    synthetic_bundle(root)
+    with h5py.File(root/'stocks.h5', 'a') as stocks:
+        del stocks['A']
+        rows = stock_rows([(20240102, 10, 8), (20240103, 12, 10), (20240104, 6, np.nan)])
+        rows['volume'] = [5, 0, 0]
+        rows['total_turnover'] = [50, 0, 0]
+        stocks['A'] = rows
+        rows = stocks['B'][:]
+        rows['volume'] = [0, 0, 5]
+        rows['total_turnover'] = [0, 1, np.nan]
+        rows['prev_close'][-1] = 10
+        stocks['B'][:] = rows
+    with h5py.File(root/'suspended_days.h5', 'a') as status:
+        del status['B']
+        status['B'] = np.array([20240102, 20240103, 20240104], dtype='<i8')
+        status['C'] = np.array([20240103], dtype='<i8')
+
+
+def bundle_sha256(root):
+    return {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in root.iterdir() if path.is_file()}
+
+
+def decoded_bundle(plan, block_days):
+    return np.concatenate([decode_block(payload, checksum, count, len(plan.symbols))
+                           for _, count, payload, checksum in iter_blocks(plan, block_days)], axis=1)
+
+
 class MarketBlockTests(unittest.TestCase):
     def test_compressed_block_roundtrip_shape_and_integrity(self):
         matrix = np.arange(len(FIELDS)*3*4, dtype='<f8').reshape(len(FIELDS), 3, 4)
@@ -89,6 +118,73 @@ class MarketBlockTests(unittest.TestCase):
             self.assertEqual(field['is_st'][1, 0], 1)
             self.assertEqual(field['is_suspended'][1, 0], 1)
             np.testing.assert_array_equal(field['return'][:, 1], [0, 0, 0])
+
+    def test_no_trade_cleaning_changes_only_derived_returns_and_preserves_source(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            no_trade_bundle(root)
+            original_files = bundle_sha256(root)
+            plan = scan_bundle(root)
+            values = decoded_bundle(plan, 2)
+            fields = {name: values[i] for i, name in enumerate(FIELDS)}
+            np.testing.assert_allclose(fields['return'][:, 0], [.25, 0, 0], rtol=0, atol=1e-15)
+            self.assertTrue(np.isnan(fields['prev_close'][2, 0]))
+            # Positive volume remains a price return even with a suspension flag,
+            # unknown amount and an already-delisted membership boundary.
+            self.assertEqual(fields['is_suspended'][2, 1], 1)
+            self.assertEqual(fields['member'][2, 1], 0)
+            self.assertEqual(fields['return'][2, 1], 1)
+            # Pre-listing zero-volume quotes and conflicting amount stay unknown.
+            self.assertEqual(fields['member'][0, 1], 0)
+            self.assertTrue(np.isnan(fields['return'][:2, 1]).all())
+            # A suspension marker cannot invent a bar or a zero return for C.
+            self.assertEqual(fields['is_suspended'][1, 2], 1)
+            self.assertTrue(np.isnan(fields['return'][:, 2]).all())
+            with h5py.File(root/'stocks.h5', 'r') as stocks:
+                for n, symbol in enumerate(plan.symbols):
+                    if symbol not in stocks:
+                        continue
+                    rows = stocks[symbol][:]
+                    positions = np.searchsorted(plan.calendar, rows['datetime']//1_000_000)
+                    for k, field in enumerate(FIELDS[:7]):
+                        np.testing.assert_array_equal(values[k, positions, n], rows[field])
+            self.assertEqual(bundle_sha256(root), original_files)
+
+    def test_cleaning_is_identical_across_date_block_boundaries(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            no_trade_bundle(root)
+            with h5py.File(root/'stocks.h5', 'a') as stocks:
+                rows = stocks['B'][:]
+                rows['volume'] = 0
+                rows['total_turnover'] = 0
+                stocks['B'][:] = rows
+            expected = decoded_bundle(scan_bundle(root, 64), 64)
+            # B lists on Jan 3 and delists on Jan 4; even explicit suspension
+            # cannot produce no-trade zeros outside that half-open lifetime.
+            np.testing.assert_allclose(expected[FIELDS.index('return'), :, 1], [np.nan, 0, np.nan], equal_nan=True)
+            for block_days in (1, 2):
+                with self.subTest(block_days=block_days):
+                    actual = decoded_bundle(scan_bundle(root, block_days), block_days)
+                    np.testing.assert_array_equal(actual, expected)
+
+    def test_return_policy_is_part_of_the_snapshot_identity(self):
+        from factorpool.market_returns import return_policy
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            synthetic_bundle(root)
+            plan = scan_bundle(root)
+            self.assertEqual(plan.manifest['return_policy'], return_policy())
+            self.assertEqual(plan.manifest['return_policy']['version'], 'volume-zero-v1')
+            self.assertEqual(plan.manifest['return_formula'], 'close/prev_close-1')
+            import json
+            legacy = dict(plan.manifest)
+            del legacy['return_policy']
+            legacy_id = hashlib.sha256(json.dumps(legacy, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+            self.assertNotEqual(plan.snapshot_id, legacy_id)
+            changed = dict(plan.manifest, return_policy=dict(return_policy(), version='future-test-rule'))
+            changed_id = hashlib.sha256(json.dumps(changed, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+            self.assertNotEqual(plan.snapshot_id, changed_id)
 
     def test_source_change_rejects_the_planned_snapshot(self):
         with tempfile.TemporaryDirectory() as directory:

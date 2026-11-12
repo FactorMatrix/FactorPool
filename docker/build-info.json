@@ -6,5 +6,5 @@
   "python": "3.11.16",
   "operator_contract": "ft-pool-1",
   "research_kernel": "return-matrix-v3",
-  "factorpool_source_sha256": "12a96c8b1827efb47119a1ae71f35e831eb0db594ce5479ede2d26778944992b"
+  "factorpool_source_sha256": "25d858a2497a671ed6939ef91b3cfbe0a44f122e78f1e4376dbfbdbec0304403"
 }

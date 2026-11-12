@@ -14,6 +14,7 @@ import h5py
 import numpy as np
 
 from .market_store import FIELDS, FORMAT, pack_block, transaction
+from .market_returns import daily_returns, return_policy
 
 
 SOURCE_FILES = ("stocks.h5", "instruments.pk", "trading_dates.npy",
@@ -32,6 +33,7 @@ def source_manifest(root, block_days=64):
     return dict(format=FORMAT, source_files=files, fields=list(FIELDS),
                 dtype="<f8", layout="field,date,symbol", block_days=block_days,
                 return_formula="close/prev_close-1",
+                return_policy=return_policy(),
                 membership="CS: listed_date <= date < de_listed_date",
                 source_scope="daily stocks and metadata only")
 
@@ -194,11 +196,7 @@ def iter_blocks(plan, block_days=64):
                 positions = np.searchsorted(calendar, days[left:right])
                 for k, field in enumerate(PRICE_FIELDS):
                     block[k, positions, n] = rows[field]
-            close, prior = block[3], block[4]
-            valid = np.isfinite(close) & np.isfinite(prior) & (prior > 0) & (close >= 0)
-            with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
-                returns = close / prior - 1
-            block[7] = np.where(valid & np.isfinite(returns) & (returns >= -1), returns, np.nan)
+            block[7] = daily_returns(block[3], block[4], block[5], block[6], block[8])
             payload, checksum = pack_block(block)
             yield start, len(calendar), payload, checksum
     if not _source_unchanged(plan.root, plan.manifest):

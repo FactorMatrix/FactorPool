@@ -1,5 +1,6 @@
 """One task per process; native Indicator and native research statistics."""
 import argparse
+from copy import deepcopy
 import hashlib
 import importlib.util
 import json
@@ -58,6 +59,32 @@ def returns_matrix(frames, symbols):
     return returns
 
 
+def return_contract(payload):
+    """Describe the stored derivation without changing any return values."""
+    if "return_policy" not in payload:
+        policy = dict(version=("synthetic-price-ratio-v1" if payload["synthetic"]
+                               else "legacy-price-ratio-v1"), formula="close/prev_close-1")
+    else:
+        policy = payload["return_policy"]
+    if not isinstance(policy, dict):
+        raise ValueError("Input return_policy must be an object")
+    policy = deepcopy(policy)
+    version = policy.get("version")
+    if version == "volume-zero-v1":
+        description = ("Derived at import: finite volume=0 and finite total_turnover=0 with finite member>0 give R=0, even if a quote is missing; "
+                       "finite volume>0 with finite close>=0 and finite prev_close>0 uses close / prev_close - 1; "
+                       "missing, nonfinite or negative volume, invalid required prices, and zero volume with nonzero or unknown turnover remain null. "
+                       "Raw OHLCV/status are unchanged; no additional corporate-action adjustment")
+        price = "volume-aware derived return; positive-volume close / prev_close - 1"
+    elif version in ("legacy-price-ratio-v1", "synthetic-price-ratio-v1"):
+        description = "close / prev_close - 1; no volume-based zeroing or additional corporate-action adjustment"
+        price = "close / prev_close - 1"
+    else:
+        description = "Stored snapshot-derived daily returns; see return_policy; no reader-side recomputation"
+        price = "stored snapshot returns; see return_policy"
+    return policy, description, price
+
+
 def run(directory):
     import _factorpool_native as native
     directory = Path(directory)
@@ -87,6 +114,7 @@ def run(directory):
     else:
         raise ValueError(f"Unknown/unconfigured provider: {provider}")
     timings["read"] = time.perf_counter() - checkpoint
+    return_policy, daily_return, return_price = return_contract(payload)
     log("loaded", provider=provider, frames=len(payload["frames"]), snapshot_id=payload["snapshot_id"])
     checkpoint = time.perf_counter()
     frames = payload["frames"]
@@ -140,6 +168,11 @@ def run(directory):
     prepared = native.prepare_research(factors, returns, members)
     result = native.analyze(prepared, None, options.get("groups", 3), options.get("min_ic_pairs", 3), options.get("icir_ddof", 1))
     result["diagnostics"] = build_diagnostics(prepared, None, None, dates, [f["date"] for f in tail], options, primary=result)
+    conventions = result["diagnostics"]["conventions"]
+    conventions.update(return_policy=deepcopy(return_policy), daily_return=daily_return,
+                       return_price=return_price,
+                       return_matrix="signal t uses daily returns R[t+1]..R[t+h]; derivation follows return_policy",
+                       missing_returns="missing nonzero position daily returns remain invalid; no reader-side zero filling or hindsight reweighting; source derivation follows return_policy")
     for date, day in zip(dates, result["daily"]):
         day["date"] = date
     returns, groups = result.pop("forward_returns"), result.pop("groups")
@@ -153,7 +186,7 @@ def run(directory):
     result["metadata"] = dict(build=build_info, execution_mode=adapter.mode, warm_up_period=warmup,
         source_sha256=hashlib.sha256(request["source_code"].encode()).hexdigest(), snapshot_id=payload["snapshot_id"],
         provider=provider, synthetic=payload["synthetic"], frequency="1d", adjustment="raw", timezone="Asia/Shanghai",
-        return_interval="signal close to next close; R[t+1] = close[t+1] / prev_close[t+1] - 1", daily_return="close / prev_close - 1; no additional corporate-action adjustment", group_ties="value then symbol; split ties", group_insufficient="empty groups allowed",
+        return_interval="signal close to next close; daily R[t+1] follows return_policy", return_policy=deepcopy(return_policy), daily_return=daily_return, group_ties="value then symbol; split ties", group_insufficient="empty groups allowed",
         group_weight="equal among available returns", cumulative="nonoverlapping one-day; invalid after a missing interval",
         ic_rank_ties="average", icir_ddof=options.get("icir_ddof", 1), annualized=False,
         annualized_scope="legacy ICIR only; portfolio annualization is defined in diagnostics.conventions",

@@ -1,4 +1,7 @@
 """Real PostgreSQL transactions, opt-in only inside the isolated test Compose."""
+import copy
+import hashlib
+import json
 import os
 from pathlib import Path
 import tempfile
@@ -8,9 +11,9 @@ import uuid
 
 import h5py
 import numpy as np
-from factorpool.bundle_import import import_bundle, iter_blocks
-from factorpool.market_store import connect, load, transaction
-from test_market_store import synthetic_bundle
+from factorpool.bundle_import import import_bundle, iter_blocks, scan_bundle
+from factorpool.market_store import FIELDS, connect, decode_block, load, pack_block, transaction
+from test_market_store import bundle_sha256, no_trade_bundle, synthetic_bundle
 
 
 @unittest.skipUnless(os.environ.get('FACTORPOOL_TEST_DB') == '1', 'Requires the isolated test PostgreSQL service')
@@ -104,6 +107,84 @@ class MarketDatabaseTests(unittest.TestCase):
         new_data = load(self.request(new), 1, 0, connection=self.connection)
         self.assertAlmostEqual(old_data['returns'][2, 0], .5)
         self.assertAlmostEqual(new_data['returns'][2, 0], 1)
+
+    def test_same_source_new_return_policy_preserves_legacy_snapshot_and_history(self):
+        from psycopg.types.json import Jsonb
+        no_trade_bundle(self.root)
+        source_before = bundle_sha256(self.root)
+        plan = scan_bundle(self.root, block_days=2)
+        legacy_manifest = copy.deepcopy(plan.manifest)
+        del legacy_manifest['return_policy']
+        legacy_id = hashlib.sha256(json.dumps(legacy_manifest, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+        # Seed a genuine old derivation independently: only raw current/reference
+        # prices, including the false +20% return on a zero-transaction day.
+        with self.connection.transaction():
+            self.connection.execute(
+                'INSERT INTO market_snapshots(id,manifest,symbols,dates,fields) VALUES(%s,%s,%s,%s,%s)',
+                (legacy_id, Jsonb(legacy_manifest), Jsonb(plan.symbols), Jsonb(plan.dates), Jsonb(list(FIELDS))),
+            )
+            for start, count, payload, checksum in iter_blocks(plan, 2):
+                block = decode_block(payload, checksum, count, len(plan.symbols)).copy()
+                close, previous = block[FIELDS.index('close')], block[FIELDS.index('prev_close')]
+                valid = np.isfinite(close) & np.isfinite(previous) & (close >= 0) & (previous > 0)
+                with np.errstate(divide='ignore', invalid='ignore', over='ignore'):
+                    ratio = close/previous-1
+                block[FIELDS.index('return')] = np.where(valid & np.isfinite(ratio), ratio, np.nan)
+                old_payload, old_checksum = pack_block(block)
+                self.connection.execute(
+                    'INSERT INTO market_matrix_blocks(snapshot_id,start_index,row_count,payload,sha256) VALUES(%s,%s,%s,%s,%s)',
+                    (legacy_id, start, count, old_payload, old_checksum),
+                )
+            task = uuid.uuid4()
+            task_snapshot = dict(data=self.request(legacy_id), analysis=dict(groups=3))
+            legacy_result = dict(metadata=dict(snapshot_id=legacy_id, report_version=3), daily=[dict(value=.2)])
+            self.connection.execute(
+                'INSERT INTO research_tasks(id,name,snapshot,status) VALUES(%s,%s,%s,%s)',
+                (task, 'legacy no-trade history', Jsonb(task_snapshot), 'SUCCEEDED'),
+            )
+            self.connection.execute('INSERT INTO research_results(task_id,result) VALUES(%s,%s)', (task, Jsonb(legacy_result)))
+            self.connection.execute(
+                'INSERT INTO factor_values(task_id,ordinal,trading_date,symbol,value,valid,ready,reason,forward_return,factor_group) '
+                'VALUES(%s,0,%s,%s,1,true,true,%s,%s,1)', (task, '2024-01-02', 'A', 'ok', .2),
+            )
+        protected_queries = [
+            ('SELECT * FROM market_snapshots WHERE id=%s', (legacy_id,)),
+            ('SELECT * FROM market_matrix_blocks WHERE snapshot_id=%s ORDER BY start_index', (legacy_id,)),
+            ('SELECT * FROM research_tasks WHERE id=%s', (task,)),
+            ('SELECT * FROM research_results WHERE task_id=%s', (task,)),
+            ('SELECT * FROM factor_values WHERE task_id=%s ORDER BY ordinal', (task,)),
+        ]
+        protected_before = [self.connection.execute(query, parameters).fetchall() for query, parameters in protected_queries]
+        legacy = load(self.request(legacy_id), 1, 0, connection=self.connection)
+        self.assertAlmostEqual(legacy['returns'][1, 0], .2)
+        self.assertTrue(np.isnan(legacy['returns'][2, 0]))
+        self.assertEqual(legacy['return_policy']['version'], 'legacy-price-ratio-v1')
+        imported = import_bundle(self.root, connection=self.connection, block_days=2)
+        self.assertTrue(imported['created'])
+        self.assertNotEqual(imported['snapshot_id'], legacy_id)
+        self.assertEqual(self.counts(), (2, 4))
+        current = load(self.request(imported['snapshot_id']), 1, 0, connection=self.connection)
+        np.testing.assert_allclose(current['returns'][:, 0], [.25, 0, 0], rtol=0, atol=1e-15)
+        self.assertEqual(current['return_policy']['version'], 'volume-zero-v1')
+        self.assertEqual(current['frames'][1]['rows']['A']['close'], 12)
+        self.assertEqual(current['frames'][1]['rows']['A']['prev_close'], 10)
+        self.assertIsNone(current['frames'][2]['rows']['A']['prev_close'])
+        current['return_policy']['version'] = 'caller-local-edit'
+        reloaded = load(self.request(imported['snapshot_id']), 1, 0, connection=self.connection)
+        self.assertEqual(reloaded['return_policy']['version'], 'volume-zero-v1')
+        new_blocks = self.connection.execute(
+            'SELECT * FROM market_matrix_blocks WHERE snapshot_id=%s ORDER BY start_index', (imported['snapshot_id'],),
+        ).fetchall()
+        repeated = import_bundle(self.root, connection=self.connection, block_days=2)
+        self.assertFalse(repeated['created'])
+        self.assertEqual(repeated['snapshot_id'], imported['snapshot_id'])
+        self.assertEqual(self.counts(), (2, 4))
+        self.assertEqual(self.connection.execute(
+            'SELECT * FROM market_matrix_blocks WHERE snapshot_id=%s ORDER BY start_index', (imported['snapshot_id'],),
+        ).fetchall(), new_blocks)
+        self.assertEqual([self.connection.execute(query, parameters).fetchall()
+                          for query, parameters in protected_queries], protected_before)
+        self.assertEqual(bundle_sha256(self.root), source_before)
 
     def test_mid_import_failure_rolls_back_metadata_and_all_blocks(self):
         def interrupted(plan, block_days=64):

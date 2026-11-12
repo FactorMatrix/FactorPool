@@ -1,5 +1,6 @@
 """Immutable PostgreSQL daily matrices; research tasks only read this store."""
 from contextlib import contextmanager
+from copy import deepcopy
 from datetime import date
 import hashlib
 import os
@@ -89,6 +90,9 @@ def load(data, warmup, future, *, connection=None):
         manifest, all_symbols, dates, fields = row
         if (manifest.get("format") != FORMAT or tuple(fields) != FIELDS):
             raise ValueError("Unsupported market snapshot format")
+        return_policy = manifest.get("return_policy", dict(version="legacy-price-ratio-v1", formula="close/prev_close-1"))
+        if not isinstance(return_policy, dict):
+            raise ValueError("Market snapshot return_policy must be an object")
         all_symbols = _axis(all_symbols, "symbol")
         dates = _axis(dates, "date")
         date_axis = np.asarray(dates)
@@ -177,4 +181,5 @@ def load(data, warmup, future, *, connection=None):
         frames.append(dict(date=day, symbols=axis, rows=rows))
     return dict(provider="market_matrix", adjustment="raw", symbols=selected,
                 frames=frames, returns=np.ascontiguousarray(matrices[7]),
-                snapshot_id=snapshot_id, synthetic=False)
+                snapshot_id=snapshot_id, synthetic=False,
+                return_policy=deepcopy(return_policy))
