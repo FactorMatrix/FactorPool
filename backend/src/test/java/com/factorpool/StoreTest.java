@@ -30,6 +30,18 @@ class StoreTest {
   }
 
   @Test
+  void factorPriceBasisIsIndependentFromTheRawReturnMatrix() {
+    ObjectNode request = reportingRequest();
+    ((ObjectNode) request.get("data")).put("factor_price", "quote_adjusted");
+    assertDoesNotThrow(() -> Store.validate(request));
+    ((ObjectNode) request.get("data")).put("factor_price", "external_adjustments");
+    assertThrows(IllegalArgumentException.class, () -> Store.validate(request));
+    ((ObjectNode) request.get("data")).put("factor_price", "raw").put("adjustment", "pre");
+    assertThrows(IllegalArgumentException.class, () -> Store.validate(request));
+    verifyNoInteractions(db);
+  }
+
+  @Test
   void reportingOptionsRejectInvalidAmountsUnitsAndOutOfWindowOrDuplicateSignals() {
     for (String bad : List.of("{\"book_size\":0}", "{\"book_size\":true}",
         "{\"pnl_unit\":\"usd\"}", "{\"min_ic_pairs\":4294967299}", "{\"trace_dates\":[\"2024-01-05\"]}",

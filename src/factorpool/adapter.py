@@ -1,4 +1,4 @@
-"""Only binding, axis and result adaptation. No indicator arithmetic."""
+"""Pool input/axis adaptation; Indicator arithmetic stays in native programs."""
 import math
 import numpy as np
 from datetime import datetime, timedelta
@@ -23,6 +23,8 @@ class IndicatorAdapter:
         self.binding = _load_native_rows(os.environ["FACTORTRADER_NATIVE_LIBRARY"])
         if self.binding is None:
             raise RuntimeError("Matching native Indicator binding is unavailable")
+        from .operator_adapter import select_operator_binding
+        self.binding = select_operator_binding(indicator, self.binding)
         self.graph = None
 
     def update(self, frame, factory):
@@ -42,7 +44,7 @@ class IndicatorAdapter:
                     for port in indicator._batch_ir.temporals:
                         fields.extend(field for field in port.fields if field not in port.bindings)
                 self.fields = tuple(dict.fromkeys(fields))
-                supported = {"open", "high", "low", "close", "value", "volume", "is_st", "is_suspended"}
+                supported = {"open", "high", "low", "close", "prev_close", "value", "volume", "total_turnover", "is_st", "is_suspended"}
                 missing = set(self.fields) - supported
                 if missing:
                     raise ValueError(f"Provider has no point-in-time fields: {sorted(missing)}")
@@ -50,6 +52,13 @@ class IndicatorAdapter:
             columns = {field: [rows.get(s, {}).get(field, float("nan")) for s in ids] for field in self.fields}
             columns = {k: [float("nan") if x is None else x for x in v] for k, v in columns.items()}
             present = [s in rows for s in ids]
+            if indicator._batch_ir is None and getattr(indicator, "_pool_ir", None) is None:
+                # A scalar shared Graph requires visible inputs to be finite.
+                # Preserve the axis, but do not feed invalid observations into
+                # its valid-observation clock. Pool operators keep column masks
+                # separately so is_nan/if_else can inspect an observed NaN.
+                present = [exists and all(math.isfinite(columns[f][n]) for f in self.fields)
+                           for n, exists in enumerate(present)]
             binding = self.binding
             binding.graph_set_symbols(self.graph, ids)
             binding.graph_update(self.graph, int(stamp.strftime("%Y%m%d%H%M%S")), columns, present)
@@ -62,7 +71,7 @@ class IndicatorAdapter:
                 valid, ready = bool(arrays["valid"][i]), bool(arrays["ready"][i])
                 usable = valid and ready and math.isfinite(value) and symbol in rows
                 reason = ("ok" if usable else "missing_bar" if symbol not in rows else
-                          "source_missing" if any(rows[symbol].get(f) is None for f in self.fields) else
+                          "source_missing" if any(rows[symbol].get(f) is None or not math.isfinite(rows[symbol][f]) for f in self.fields) else
                           "not_ready" if valid and not ready else "native_unavailable")
                 out.append(dict(symbol=symbol, value=value if usable else None, valid=usable, ready=ready, reason=reason))
             return out
@@ -85,6 +94,9 @@ class IndicatorAdapter:
                 bar = TradeBar(stamp - timedelta(hours=5, minutes=30), symbol,
                                row["open"], row["high"], row["low"], row["close"], row["volume"],
                                timedelta(hours=5, minutes=30))
+                for field in ("prev_close", "total_turnover", "is_st", "is_suspended"):
+                    if field in row:
+                        setattr(bar, field, row[field])
                 slot.update(bar)
                 usable = slot._wrapped_is_ready() and math.isfinite(slot.current.value)
             out.append(dict(symbol=symbol, value=slot.current.value if usable else None,

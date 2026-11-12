@@ -13,7 +13,7 @@ def fixture():
             price = base * growth ** i
             rows[symbol] = dict(open=price, high=price, low=price, close=price,
                                 prev_close=base * growth ** (i-1), value=price, volume=volume)
-        frames.append(dict(date=day.isoformat(), symbols=["A", "B", "C"], rows=rows))
+        frames.append(dict(date=day.isoformat(), session_index=i, symbols=["A", "B", "C"], rows=rows))
         day += timedelta(days=1)
     return dict(provider="fixture", adjustment="raw", symbols=["A", "B", "C"], frames=frames,
                 snapshot_id="synthetic-ohlcv-prev-close-v3", synthetic=True)

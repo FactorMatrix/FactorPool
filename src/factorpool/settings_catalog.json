@@ -39,6 +39,10 @@
       "paths": [
         "src/factorpool/config.py",
         "src/factorpool/settings.py",
+        "src/factorpool/operator_compiler.py",
+        "src/factorpool/operators.py",
+        "src/factorpool/quote_adjustment.py",
+        "src/factorpool/quote_adjusted_indicator.py",
         "src/factorpool/simulation.py",
         "src/factorpool/market_store.py",
         "src/factorpool/runner.py",
@@ -53,7 +57,7 @@
     "local_tests": {
       "evidence_class": "project_tests",
       "source_url": null,
-      "paths": ["tests/test_script.py","tests/test_settings.py","tests/test_simulation.py","tests/test_pnl_reporting.py","tests/test_pnl_trace.py","tests/test_synchronization.py","tests/test_diagnostics.py","tests/test_return_matrix.py","tests/test_market_database.py"],
+      "paths": ["tests/test_script.py","tests/test_settings.py","tests/test_simulation.py","tests/test_pnl_reporting.py","tests/test_pnl_trace.py","tests/test_synchronization.py","tests/test_pool_operators.py","tests/test_calendar_clock.py","tests/test_quote_adjustment.py","tests/test_diagnostics.py","tests/test_return_matrix.py","tests/test_market_database.py"],
       "scope": "所列测试覆盖的本地小矩阵、共享Indicator对照、轴隔离和失败路径；不是所有参数边界的全覆盖，也未对账官方BRAIN账户oracle"
     }
   },
@@ -992,7 +996,8 @@
       "type": "object",
       "legal_values": {
         "providers": ["market_matrix","fixture"],
-        "adjustment": ["raw"]
+        "adjustment": ["raw"],
+        "factor_price": ["raw","quote_adjusted"]
       },
       "official_default": null,
       "project_default": null,
@@ -1000,7 +1005,7 @@
       "data_dependencies": ["PostgreSQL行情矩阵；合成fixture可离线验证"],
       "evidence": ["implementation","local_tests"],
       "status": "implemented_verified",
-      "validation": {"scope": "入队固定快照ID；批量未指定ID只选一次；不自动导入、刷新或补行情","official_numerical_parity": false},
+      "validation": {"scope": "入队固定快照ID；批量未指定ID只选一次；factor_price=quote_adjusted只用close/prev_close等基础行情换算历史价格，原R/量额不改；不自动导入、刷新或补行情","official_numerical_parity": false},
       "options": [],
       "properties": {
         "provider": {
@@ -1010,6 +1015,7 @@
           "required": true
         },
         "universe": {"type": "local_pool_or_symbol_array","project_default": null,"required": true},
+        "factor_price": {"type": "enum","values": ["raw","quote_adjusted"],"project_default": "raw","required": false},
         "adjustment": {
           "type": "enum",
           "values": ["raw"],
@@ -1027,10 +1033,10 @@
       "official_default": null,
       "project_default": {},
       "stage": "Indicator构造参数",
-      "data_dependencies": ["用户类的构造签名及共享Indicator"],
+      "data_dependencies": ["用户类的构造签名及Pool Indicator"],
       "evidence": ["implementation","local_tests"],
       "status": "implemented_verified",
-      "validation": {"scope": "字面量有限JSON参数交给因子类；不增加第二套指标算法","official_numerical_parity": false},
+      "validation": {"scope": "字面量有限JSON参数交给Pool因子类；Pool扩展复用已固定原生基元，不创建交易Engine","official_numerical_parity": false},
       "options": []
     },
     {

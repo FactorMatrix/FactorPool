@@ -87,11 +87,14 @@ def normalize_config(config):
     if base.get("frequency", "1d") != "1d":
         raise ValueError("Only daily frequency is supported")
     data = deepcopy(_object(config.get("data"), "config.data"))
-    _keys(data, ("provider", "universe", "adjustment", "snapshot_id"), "data")
+    _keys(data, ("provider", "universe", "adjustment", "factor_price", "snapshot_id"), "data")
     if data.get("provider") not in ("market_matrix", "fixture"):
         raise ValueError("config.data.provider must be market_matrix or fixture")
     if data.get("adjustment", "raw") != "raw":
         raise ValueError("Only raw source quotes are supported")
+    factor_price = data.get("factor_price", "raw")
+    if factor_price not in ("raw", "quote_adjusted") or type(factor_price) is not str:
+        raise ValueError("config.data.factor_price must be raw or quote_adjusted")
     universe = data.get("universe")
     if data["provider"] == "fixture":
         if universe != "fixture":
@@ -105,6 +108,10 @@ def normalize_config(config):
         raise ValueError("snapshot_id must be a nonempty string")
     data.update(factor_start=normalized_dates["start_date"], factor_end=normalized_dates["end_date"],
                 frequency="1d", adjustment="raw")
+    # Preserve old immutable script definitions: an omitted additive option
+    # keeps its old shape. The runner records its effective raw price contract.
+    if "factor_price" in data:
+        data["factor_price"] = factor_price
     params = deepcopy(_object(config.get("factor", {}), "config.factor"))
     analysis = dict(entry="signal_close", exit="next_close", groups=3,
                     group_weight="equal", min_ic_pairs=3, icir_ddof=1,
@@ -142,7 +149,7 @@ def effective_config(request):
     result.update(base=dict(start_date=data["factor_start"], end_date=data["factor_end"],
                             frequency=data["frequency"]),
                   data={key: deepcopy(data[key]) for key in
-                        ("provider", "universe", "adjustment", "snapshot_id") if key in data},
+                        ("provider", "universe", "adjustment", "factor_price", "snapshot_id") if key in data},
                   factor=deepcopy(request["factor_params"]), analysis=deepcopy(request["analysis"]))
     if "brain_settings" in request:
         result["settings"] = deepcopy(request["brain_settings"])

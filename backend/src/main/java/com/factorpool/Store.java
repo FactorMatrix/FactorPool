@@ -106,7 +106,7 @@ public class Store {
       base.set("frequency", data.path("frequency").deepCopy());
       effective.set("base", base);
       ObjectNode effectiveData = json.createObjectNode();
-      for (String key : List.of("provider", "universe", "adjustment", "snapshot_id"))
+      for (String key : List.of("provider", "universe", "adjustment", "factor_price", "snapshot_id"))
         if (data.has(key))
           effectiveData.set(key, data.get(key).deepCopy());
       effective.set("data", effectiveData);
@@ -274,6 +274,9 @@ public class Store {
     if (!d.path("frequency").asText("1d").equals("1d") ||
         !d.path("adjustment").asText("raw").equals("raw"))
       throw new IllegalArgumentException("Only daily/raw input is supported");
+    if (d.has("factor_price") && (!d.get("factor_price").isTextual() ||
+        !Set.of("raw", "quote_adjusted").contains(d.get("factor_price").asText())))
+      throw new IllegalArgumentException("factor_price must be raw or quote_adjusted");
     if (!a.path("entry").asText("signal_close").equals("signal_close") ||
         !a.path("exit").asText("next_close").equals("next_close"))
       throw new IllegalArgumentException(

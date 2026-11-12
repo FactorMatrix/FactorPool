@@ -5,7 +5,13 @@
     "native": true,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "Python"
+    "source": "Python",
+    "syntax_support": "supported",
+    "compiler_support": "shared-6bb147e6",
+    "native_implementation": "shared-6bb147e6",
+    "pool_wiring": "connected",
+    "contract_version": "shared-6bb147e6",
+    "official_parity": "not_verified"
   },
   {
     "name": "subtract",
@@ -13,7 +19,13 @@
     "native": true,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "Python"
+    "source": "Python",
+    "syntax_support": "supported",
+    "compiler_support": "shared-6bb147e6",
+    "native_implementation": "shared-6bb147e6",
+    "pool_wiring": "connected",
+    "contract_version": "shared-6bb147e6",
+    "official_parity": "not_verified"
   },
   {
     "name": "multiply",
@@ -21,7 +33,13 @@
     "native": true,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "Python"
+    "source": "Python",
+    "syntax_support": "supported",
+    "compiler_support": "shared-6bb147e6",
+    "native_implementation": "shared-6bb147e6",
+    "pool_wiring": "connected",
+    "contract_version": "shared-6bb147e6",
+    "official_parity": "not_verified"
   },
   {
     "name": "divide",
@@ -29,7 +47,13 @@
     "native": true,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "Python"
+    "source": "Python",
+    "syntax_support": "supported",
+    "compiler_support": "shared-6bb147e6",
+    "native_implementation": "shared-6bb147e6",
+    "pool_wiring": "connected",
+    "contract_version": "shared-6bb147e6",
+    "official_parity": "not_verified"
   },
   {
     "name": "abs",
@@ -37,47 +61,88 @@
     "native": true,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "Python"
+    "source": "Python",
+    "syntax_support": "supported",
+    "compiler_support": "shared-6bb147e6",
+    "native_implementation": "shared-6bb147e6",
+    "pool_wiring": "connected",
+    "contract_version": "shared-6bb147e6",
+    "official_parity": "not_verified"
   },
   {
     "name": "log",
-    "frontend": null,
-    "native": false,
+    "frontend": "self.cs.log(x) / math.log(x)",
+    "native": true,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FactorPool native extension",
+    "syntax_support": "supported",
+    "compiler_support": "pool-operators-v1",
+    "native_implementation": "Pool C++ vector kernel",
+    "pool_wiring": "connected",
+    "contract_version": "pool-operators-v1",
+    "official_parity": "not_verified",
+    "contract": "Natural log; finite x>0"
   },
   {
     "name": "sqrt",
-    "frontend": null,
-    "native": false,
+    "frontend": "self.cs.sqrt(x) / math.sqrt(x)",
+    "native": true,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FactorPool native extension",
+    "syntax_support": "supported",
+    "compiler_support": "pool-operators-v1",
+    "native_implementation": "Pool C++ vector kernel",
+    "pool_wiring": "connected",
+    "contract_version": "pool-operators-v1",
+    "official_parity": "not_verified",
+    "contract": "Finite x>=0; negative domain is invalid"
   },
   {
     "name": "power",
-    "frontend": null,
-    "native": false,
+    "frontend": "self.cs.power(x,y) / x**y / pow(x,y) / math.pow(x,y)",
+    "native": true,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FactorPool native extension",
+    "syntax_support": "supported",
+    "compiler_support": "pool-operators-v1",
+    "native_implementation": "Pool C++ vector kernel",
+    "pool_wiring": "connected",
+    "contract_version": "pool-operators-v1",
+    "official_parity": "not_verified",
+    "contract": "Real finite result; negative base requires integral exponent; 0**0=1"
   },
   {
     "name": "signed_power",
-    "frontend": null,
-    "native": false,
+    "frontend": "self.cs.signed_power(x,y)",
+    "native": true,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FactorPool native extension",
+    "syntax_support": "supported",
+    "compiler_support": "pool-operators-v1",
+    "native_implementation": "Pool C++ vector kernel",
+    "pool_wiring": "connected",
+    "contract_version": "pool-operators-v1",
+    "official_parity": "not_verified",
+    "contract": "sign(x)*abs(x)**y; zero to nonnegative power is zero"
   },
   {
     "name": "sign",
-    "frontend": null,
-    "native": false,
+    "frontend": "self.cs.sign(x)",
+    "native": true,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FactorPool native extension",
+    "syntax_support": "supported",
+    "compiler_support": "pool-operators-v1",
+    "native_implementation": "Pool C++ vector kernel",
+    "pool_wiring": "connected",
+    "contract_version": "pool-operators-v1",
+    "official_parity": "not_verified",
+    "contract": "-1/0/+1; finite zero is valid"
   },
   {
     "name": "reverse",
@@ -85,7 +150,13 @@
     "native": true,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "Python"
+    "source": "Python",
+    "syntax_support": "supported",
+    "compiler_support": "shared-6bb147e6",
+    "native_implementation": "shared-6bb147e6",
+    "pool_wiring": "connected",
+    "contract_version": "shared-6bb147e6",
+    "official_parity": "not_verified"
   },
   {
     "name": "inverse",
@@ -93,7 +164,13 @@
     "native": true,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "Python"
+    "source": "Python",
+    "syntax_support": "supported",
+    "compiler_support": "shared-6bb147e6",
+    "native_implementation": "shared-6bb147e6",
+    "pool_wiring": "connected",
+    "contract_version": "shared-6bb147e6",
+    "official_parity": "not_verified"
   },
   {
     "name": "min",
@@ -101,7 +178,13 @@
     "native": true,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "Python"
+    "source": "Python",
+    "syntax_support": "supported",
+    "compiler_support": "shared-6bb147e6",
+    "native_implementation": "shared-6bb147e6",
+    "pool_wiring": "connected",
+    "contract_version": "shared-6bb147e6",
+    "official_parity": "not_verified"
   },
   {
     "name": "max",
@@ -109,7 +192,13 @@
     "native": true,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "Python"
+    "source": "Python",
+    "syntax_support": "supported",
+    "compiler_support": "shared-6bb147e6",
+    "native_implementation": "shared-6bb147e6",
+    "pool_wiring": "connected",
+    "contract_version": "shared-6bb147e6",
+    "official_parity": "not_verified"
   },
   {
     "name": "and",
@@ -117,7 +206,13 @@
     "native": true,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "supported",
+    "compiler_support": "shared-6bb147e6",
+    "native_implementation": "shared-6bb147e6",
+    "pool_wiring": "connected",
+    "contract_version": "shared-6bb147e6",
+    "official_parity": "not_verified"
   },
   {
     "name": "or",
@@ -125,7 +220,13 @@
     "native": true,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "supported",
+    "compiler_support": "shared-6bb147e6",
+    "native_implementation": "shared-6bb147e6",
+    "pool_wiring": "connected",
+    "contract_version": "shared-6bb147e6",
+    "official_parity": "not_verified"
   },
   {
     "name": "not",
@@ -133,7 +234,13 @@
     "native": true,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "supported",
+    "compiler_support": "shared-6bb147e6",
+    "native_implementation": "shared-6bb147e6",
+    "pool_wiring": "connected",
+    "contract_version": "shared-6bb147e6",
+    "official_parity": "not_verified"
   },
   {
     "name": "equal",
@@ -141,7 +248,13 @@
     "native": true,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "supported",
+    "compiler_support": "shared-6bb147e6",
+    "native_implementation": "shared-6bb147e6",
+    "pool_wiring": "connected",
+    "contract_version": "shared-6bb147e6",
+    "official_parity": "not_verified"
   },
   {
     "name": "not_equal",
@@ -149,7 +262,13 @@
     "native": true,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "supported",
+    "compiler_support": "shared-6bb147e6",
+    "native_implementation": "shared-6bb147e6",
+    "pool_wiring": "connected",
+    "contract_version": "shared-6bb147e6",
+    "official_parity": "not_verified"
   },
   {
     "name": "greater",
@@ -157,7 +276,13 @@
     "native": true,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "supported",
+    "compiler_support": "shared-6bb147e6",
+    "native_implementation": "shared-6bb147e6",
+    "pool_wiring": "connected",
+    "contract_version": "shared-6bb147e6",
+    "official_parity": "not_verified"
   },
   {
     "name": "greater_than_equal",
@@ -165,7 +290,13 @@
     "native": true,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "supported",
+    "compiler_support": "shared-6bb147e6",
+    "native_implementation": "shared-6bb147e6",
+    "pool_wiring": "connected",
+    "contract_version": "shared-6bb147e6",
+    "official_parity": "not_verified"
   },
   {
     "name": "less",
@@ -173,7 +304,13 @@
     "native": true,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "supported",
+    "compiler_support": "shared-6bb147e6",
+    "native_implementation": "shared-6bb147e6",
+    "pool_wiring": "connected",
+    "contract_version": "shared-6bb147e6",
+    "official_parity": "not_verified"
   },
   {
     "name": "less_than_equal",
@@ -181,23 +318,43 @@
     "native": true,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "supported",
+    "compiler_support": "shared-6bb147e6",
+    "native_implementation": "shared-6bb147e6",
+    "pool_wiring": "connected",
+    "contract_version": "shared-6bb147e6",
+    "official_parity": "not_verified"
   },
   {
     "name": "if_else",
-    "frontend": null,
-    "native": false,
+    "frontend": "self.cs.if_else(condition,yes,no)",
+    "native": true,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FactorPool native extension",
+    "syntax_support": "supported",
+    "compiler_support": "pool-operators-v1",
+    "native_implementation": "Pool C++ vector kernel",
+    "pool_wiring": "connected",
+    "contract_version": "pool-operators-v1",
+    "official_parity": "not_verified",
+    "contract": "Scalar/vector finite nonzero selects yes; zero selects no; invalid condition invalid; only selected branch required"
   },
   {
     "name": "is_nan",
-    "frontend": null,
-    "native": false,
+    "frontend": "self.cs.is_nan(x) / math.isnan(x)",
+    "native": true,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FactorPool native extension",
+    "syntax_support": "supported",
+    "compiler_support": "pool-operators-v1",
+    "native_implementation": "Pool C++ vector kernel",
+    "pool_wiring": "connected",
+    "contract_version": "pool-operators-v1",
+    "official_parity": "not_verified",
+    "contract": "Observed NaN=1, finite=0, infinity invalid; unready and absent bars remain invalid"
   },
   {
     "name": "densify",
@@ -205,7 +362,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "pasteurize",
@@ -213,7 +376,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "arc_cos",
@@ -221,7 +390,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "arc_sin",
@@ -229,7 +404,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "arc_tan",
@@ -237,7 +418,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "exp",
@@ -245,7 +432,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "sigmoid",
@@ -253,7 +446,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "tanh",
@@ -261,7 +460,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "ceiling",
@@ -269,7 +474,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "floor",
@@ -277,7 +488,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "round",
@@ -285,7 +502,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "round_down",
@@ -293,7 +516,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "frac",
@@ -301,7 +530,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "clamp",
@@ -309,7 +544,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "negate",
@@ -317,7 +558,13 @@
     "native": true,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "Python"
+    "source": "Python",
+    "syntax_support": "supported",
+    "compiler_support": "shared-6bb147e6",
+    "native_implementation": "shared-6bb147e6",
+    "pool_wiring": "connected",
+    "contract_version": "shared-6bb147e6",
+    "official_parity": "not_verified"
   },
   {
     "name": "is_finite",
@@ -325,7 +572,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "is_not_finite",
@@ -333,7 +586,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "is_not_nan",
@@ -341,7 +600,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "nan_mask",
@@ -349,7 +614,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "nan_out",
@@ -357,7 +628,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "to_nan",
@@ -365,7 +642,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "replace",
@@ -373,7 +656,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "purify",
@@ -381,7 +670,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "filter",
@@ -389,7 +684,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "left_tail",
@@ -397,7 +698,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "right_tail",
@@ -405,7 +712,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "tail",
@@ -413,7 +726,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "one_side",
@@ -421,7 +740,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "truncate",
@@ -429,7 +754,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "unit",
@@ -437,7 +768,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "ts_mean",
@@ -445,7 +782,14 @@
     "native": true,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "LEAN 窗口 / FT 扩展"
+    "source": "LEAN 窗口 / FT 扩展",
+    "syntax_support": "supported",
+    "compiler_support": "shared-6bb147e6",
+    "native_implementation": "shared-6bb147e6",
+    "pool_wiring": "connected",
+    "contract_version": "shared-6bb147e6",
+    "official_parity": "not_verified",
+    "clock_contract": "Default valid observations; explicit clock='trading_days' uses full calendar window and propagates NaN; absent bars occupy calendar slots; no BRAIN dense=False claim"
   },
   {
     "name": "ts_sum",
@@ -453,7 +797,14 @@
     "native": true,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "LEAN 窗口 / FT 扩展"
+    "source": "LEAN 窗口 / FT 扩展",
+    "syntax_support": "supported",
+    "compiler_support": "shared-6bb147e6",
+    "native_implementation": "shared-6bb147e6",
+    "pool_wiring": "connected",
+    "contract_version": "shared-6bb147e6",
+    "official_parity": "not_verified",
+    "clock_contract": "Default valid observations; explicit clock='trading_days' uses full calendar window and propagates NaN; absent bars occupy calendar slots; no BRAIN dense=False claim"
   },
   {
     "name": "ts_min",
@@ -461,7 +812,14 @@
     "native": true,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "LEAN 窗口 / FT 扩展"
+    "source": "LEAN 窗口 / FT 扩展",
+    "syntax_support": "supported",
+    "compiler_support": "shared-6bb147e6",
+    "native_implementation": "shared-6bb147e6",
+    "pool_wiring": "connected",
+    "contract_version": "shared-6bb147e6",
+    "official_parity": "not_verified",
+    "clock_contract": "Default valid observations; explicit clock='trading_days' uses full calendar window and propagates NaN; absent bars occupy calendar slots; no BRAIN dense=False claim"
   },
   {
     "name": "ts_max",
@@ -469,7 +827,14 @@
     "native": true,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "LEAN 窗口 / FT 扩展"
+    "source": "LEAN 窗口 / FT 扩展",
+    "syntax_support": "supported",
+    "compiler_support": "shared-6bb147e6",
+    "native_implementation": "shared-6bb147e6",
+    "pool_wiring": "connected",
+    "contract_version": "shared-6bb147e6",
+    "official_parity": "not_verified",
+    "clock_contract": "Default valid observations; explicit clock='trading_days' uses full calendar window and propagates NaN; absent bars occupy calendar slots; no BRAIN dense=False claim"
   },
   {
     "name": "ts_std_dev",
@@ -477,7 +842,14 @@
     "native": true,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "LEAN 窗口 / FT 扩展"
+    "source": "LEAN 窗口 / FT 扩展",
+    "syntax_support": "supported",
+    "compiler_support": "shared-6bb147e6",
+    "native_implementation": "shared-6bb147e6",
+    "pool_wiring": "connected",
+    "contract_version": "shared-6bb147e6",
+    "official_parity": "not_verified",
+    "clock_contract": "Default valid observations; explicit clock='trading_days' uses full calendar window and propagates NaN; absent bars occupy calendar slots; no BRAIN dense=False claim"
   },
   {
     "name": "ts_delay",
@@ -485,7 +857,14 @@
     "native": true,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "LEAN 窗口 / FT 扩展"
+    "source": "LEAN 窗口 / FT 扩展",
+    "syntax_support": "supported",
+    "compiler_support": "shared-6bb147e6",
+    "native_implementation": "shared-6bb147e6",
+    "pool_wiring": "connected",
+    "contract_version": "shared-6bb147e6",
+    "official_parity": "not_verified",
+    "clock_contract": "Default valid observations; explicit clock='trading_days' uses full calendar window and propagates NaN; absent bars occupy calendar slots; no BRAIN dense=False claim"
   },
   {
     "name": "ts_delta",
@@ -493,7 +872,14 @@
     "native": true,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "LEAN 窗口 / FT 扩展"
+    "source": "LEAN 窗口 / FT 扩展",
+    "syntax_support": "supported",
+    "compiler_support": "shared-6bb147e6",
+    "native_implementation": "shared-6bb147e6",
+    "pool_wiring": "connected",
+    "contract_version": "shared-6bb147e6",
+    "official_parity": "not_verified",
+    "clock_contract": "Default valid observations; explicit clock='trading_days' uses full calendar window and propagates NaN; absent bars occupy calendar slots; no BRAIN dense=False claim"
   },
   {
     "name": "ts_returns",
@@ -501,7 +887,13 @@
     "native": true,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "LEAN 窗口 / FT 扩展"
+    "source": "LEAN 窗口 / FT 扩展",
+    "syntax_support": "supported",
+    "compiler_support": "shared-6bb147e6",
+    "native_implementation": "shared-6bb147e6",
+    "pool_wiring": "connected",
+    "contract_version": "shared-6bb147e6",
+    "official_parity": "not_verified"
   },
   {
     "name": "ts_av_diff",
@@ -509,7 +901,13 @@
     "native": true,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "LEAN 窗口 / FT 扩展"
+    "source": "LEAN 窗口 / FT 扩展",
+    "syntax_support": "supported",
+    "compiler_support": "shared-6bb147e6",
+    "native_implementation": "shared-6bb147e6",
+    "pool_wiring": "connected",
+    "contract_version": "shared-6bb147e6",
+    "official_parity": "not_verified"
   },
   {
     "name": "ts_product",
@@ -517,7 +915,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "LEAN 窗口 / FT 扩展"
+    "source": "LEAN 窗口 / FT 扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "ts_median",
@@ -525,7 +929,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "LEAN 窗口 / FT 扩展"
+    "source": "LEAN 窗口 / FT 扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "ts_min_diff",
@@ -533,7 +943,13 @@
     "native": true,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "LEAN 窗口 / FT 扩展"
+    "source": "LEAN 窗口 / FT 扩展",
+    "syntax_support": "supported",
+    "compiler_support": "shared-6bb147e6",
+    "native_implementation": "shared-6bb147e6",
+    "pool_wiring": "connected",
+    "contract_version": "shared-6bb147e6",
+    "official_parity": "not_verified"
   },
   {
     "name": "ts_max_diff",
@@ -541,7 +957,13 @@
     "native": true,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "LEAN 窗口 / FT 扩展"
+    "source": "LEAN 窗口 / FT 扩展",
+    "syntax_support": "supported",
+    "compiler_support": "shared-6bb147e6",
+    "native_implementation": "shared-6bb147e6",
+    "pool_wiring": "connected",
+    "contract_version": "shared-6bb147e6",
+    "official_parity": "not_verified"
   },
   {
     "name": "ts_arg_min",
@@ -549,7 +971,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "LEAN 窗口 / FT 扩展"
+    "source": "LEAN 窗口 / FT 扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "ts_arg_max",
@@ -557,7 +985,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "LEAN 窗口 / FT 扩展"
+    "source": "LEAN 窗口 / FT 扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "ts_rank",
@@ -565,7 +999,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "LEAN 窗口 / FT 扩展"
+    "source": "LEAN 窗口 / FT 扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "ts_quantile",
@@ -573,7 +1013,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "LEAN 窗口 / FT 扩展"
+    "source": "LEAN 窗口 / FT 扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "ts_percentage",
@@ -581,7 +1027,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "LEAN 窗口 / FT 扩展"
+    "source": "LEAN 窗口 / FT 扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "ts_zscore",
@@ -589,7 +1041,13 @@
     "native": true,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "LEAN 窗口 / FT 扩展"
+    "source": "LEAN 窗口 / FT 扩展",
+    "syntax_support": "supported",
+    "compiler_support": "shared-6bb147e6",
+    "native_implementation": "shared-6bb147e6",
+    "pool_wiring": "connected",
+    "contract_version": "shared-6bb147e6",
+    "official_parity": "not_verified"
   },
   {
     "name": "ts_scale",
@@ -597,7 +1055,13 @@
     "native": true,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "LEAN 窗口 / FT 扩展"
+    "source": "LEAN 窗口 / FT 扩展",
+    "syntax_support": "supported",
+    "compiler_support": "shared-6bb147e6",
+    "native_implementation": "shared-6bb147e6",
+    "pool_wiring": "connected",
+    "contract_version": "shared-6bb147e6",
+    "official_parity": "not_verified"
   },
   {
     "name": "ts_ir",
@@ -605,7 +1069,13 @@
     "native": true,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "LEAN 窗口 / FT 扩展"
+    "source": "LEAN 窗口 / FT 扩展",
+    "syntax_support": "supported",
+    "compiler_support": "shared-6bb147e6",
+    "native_implementation": "shared-6bb147e6",
+    "pool_wiring": "connected",
+    "contract_version": "shared-6bb147e6",
+    "official_parity": "not_verified"
   },
   {
     "name": "ts_skewness",
@@ -613,7 +1083,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "LEAN 窗口 / FT 扩展"
+    "source": "LEAN 窗口 / FT 扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "ts_kurtosis",
@@ -621,7 +1097,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "LEAN 窗口 / FT 扩展"
+    "source": "LEAN 窗口 / FT 扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "ts_moment",
@@ -629,7 +1111,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "LEAN 窗口 / FT 扩展"
+    "source": "LEAN 窗口 / FT 扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "ts_entropy",
@@ -637,7 +1125,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "LEAN 窗口 / FT 扩展"
+    "source": "LEAN 窗口 / FT 扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "ts_corr",
@@ -645,7 +1139,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "LEAN 窗口 / FT 扩展"
+    "source": "LEAN 窗口 / FT 扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "ts_covariance",
@@ -653,7 +1153,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "LEAN 窗口 / FT 扩展"
+    "source": "LEAN 窗口 / FT 扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "ts_regression",
@@ -661,7 +1167,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "LEAN 窗口 / FT 扩展"
+    "source": "LEAN 窗口 / FT 扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "ts_poly_regression",
@@ -669,7 +1181,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "LEAN 窗口 / FT 扩展"
+    "source": "LEAN 窗口 / FT 扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "ts_theilsen",
@@ -677,7 +1195,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "LEAN 窗口 / FT 扩展"
+    "source": "LEAN 窗口 / FT 扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "ts_partial_corr",
@@ -685,7 +1209,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "LEAN 窗口 / FT 扩展"
+    "source": "LEAN 窗口 / FT 扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "ts_triple_corr",
@@ -693,7 +1223,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "LEAN 窗口 / FT 扩展"
+    "source": "LEAN 窗口 / FT 扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "ts_co_skewness",
@@ -701,7 +1237,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "LEAN 窗口 / FT 扩展"
+    "source": "LEAN 窗口 / FT 扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "ts_co_kurtosis",
@@ -709,7 +1251,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "LEAN 窗口 / FT 扩展"
+    "source": "LEAN 窗口 / FT 扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "ts_decay_linear",
@@ -717,7 +1265,14 @@
     "native": true,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "固定 LEAN LinearWeightedMovingAverage / FT 有效样本窗口"
+    "source": "固定 LEAN LinearWeightedMovingAverage / FT 有效样本窗口",
+    "syntax_support": "supported",
+    "compiler_support": "shared-6bb147e6",
+    "native_implementation": "shared-6bb147e6",
+    "pool_wiring": "connected",
+    "contract_version": "shared-6bb147e6",
+    "official_parity": "not_verified",
+    "clock_contract": "Default valid observations; explicit clock='trading_days' uses full calendar window and propagates NaN; absent bars occupy calendar slots; no BRAIN dense=False claim"
   },
   {
     "name": "ts_decay_exp_window",
@@ -725,7 +1280,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "LEAN 窗口 / FT 扩展"
+    "source": "LEAN 窗口 / FT 扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "ts_weighted_decay",
@@ -733,7 +1294,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "LEAN 窗口 / FT 扩展"
+    "source": "LEAN 窗口 / FT 扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "ts_backfill",
@@ -741,7 +1308,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "LEAN 窗口 / FT 扩展"
+    "source": "LEAN 窗口 / FT 扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "kth_element",
@@ -749,7 +1322,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "ts_count_nans",
@@ -757,7 +1336,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "LEAN 窗口 / FT 扩展"
+    "source": "LEAN 窗口 / FT 扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "last_diff_value",
@@ -765,7 +1350,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "days_from_last_change",
@@ -773,7 +1364,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "ts_step",
@@ -781,7 +1378,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "LEAN 窗口 / FT 扩展"
+    "source": "LEAN 窗口 / FT 扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "ts_min_max_cps",
@@ -789,7 +1392,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "LEAN 窗口 / FT 扩展"
+    "source": "LEAN 窗口 / FT 扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "ts_min_max_diff",
@@ -797,7 +1406,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "LEAN 窗口 / FT 扩展"
+    "source": "LEAN 窗口 / FT 扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "ts_rank_gmean_amean_diff",
@@ -805,7 +1420,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "LEAN 窗口 / FT 扩展"
+    "source": "LEAN 窗口 / FT 扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "ts_vector_neut",
@@ -813,7 +1434,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "LEAN 窗口 / FT 扩展"
+    "source": "LEAN 窗口 / FT 扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "ts_vector_proj",
@@ -821,7 +1448,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "LEAN 窗口 / FT 扩展"
+    "source": "LEAN 窗口 / FT 扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "hump",
@@ -829,7 +1462,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "hump_decay",
@@ -837,7 +1476,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "jump_decay",
@@ -845,7 +1490,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "keep",
@@ -853,7 +1504,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "trade_when",
@@ -861,7 +1518,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "ts_target_tvr_decay",
@@ -869,7 +1532,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "LEAN 窗口 / FT 扩展"
+    "source": "LEAN 窗口 / FT 扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "ts_target_tvr_hump",
@@ -877,7 +1546,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "LEAN 窗口 / FT 扩展"
+    "source": "LEAN 窗口 / FT 扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "rank",
@@ -885,7 +1560,14 @@
     "native": true,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "supported",
+    "compiler_support": "shared-6bb147e6",
+    "native_implementation": "shared-6bb147e6",
+    "pool_wiring": "connected",
+    "contract_version": "shared-6bb147e6",
+    "official_parity": "not_verified",
+    "contract": "rank pct=True: average 1-based ranks/N; rank_unit: (average_rank-1)/(N-1), singleton/all equal=0.5; BRAIN-style examples use rank_unit"
   },
   {
     "name": "zscore",
@@ -893,7 +1575,14 @@
     "native": true,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "supported",
+    "compiler_support": "shared-6bb147e6",
+    "native_implementation": "shared-6bb147e6",
+    "pool_wiring": "connected",
+    "contract_version": "shared-6bb147e6",
+    "official_parity": "not_verified",
+    "contract": "self.cs path uses shared batch_program population SD; constant/singleton is invalid; separate low-level batch_ops constant-zero entry is not the Pool facade"
   },
   {
     "name": "normalize",
@@ -901,7 +1590,13 @@
     "native": true,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "supported",
+    "compiler_support": "shared-6bb147e6",
+    "native_implementation": "shared-6bb147e6",
+    "pool_wiring": "connected",
+    "contract_version": "shared-6bb147e6",
+    "official_parity": "not_verified"
   },
   {
     "name": "scale",
@@ -909,7 +1604,13 @@
     "native": true,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "supported",
+    "compiler_support": "shared-6bb147e6",
+    "native_implementation": "shared-6bb147e6",
+    "pool_wiring": "connected",
+    "contract_version": "shared-6bb147e6",
+    "official_parity": "not_verified"
   },
   {
     "name": "scale_down",
@@ -917,7 +1618,13 @@
     "native": true,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "supported",
+    "compiler_support": "shared-6bb147e6",
+    "native_implementation": "shared-6bb147e6",
+    "pool_wiring": "connected",
+    "contract_version": "shared-6bb147e6",
+    "official_parity": "not_verified"
   },
   {
     "name": "quantile",
@@ -925,7 +1632,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "winsorize",
@@ -933,7 +1646,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "bucket",
@@ -941,7 +1660,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "group_cartesian_product",
@@ -949,7 +1674,13 @@
     "native": false,
     "data": "同轴历史分组标签（Provider 待接入）",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "group_rank",
@@ -957,7 +1688,13 @@
     "native": true,
     "data": "同轴历史分组标签（Provider 待接入）",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "supported",
+    "compiler_support": "shared-6bb147e6",
+    "native_implementation": "shared-6bb147e6",
+    "pool_wiring": "connected",
+    "contract_version": "shared-6bb147e6",
+    "official_parity": "not_verified"
   },
   {
     "name": "group_zscore",
@@ -965,7 +1702,13 @@
     "native": false,
     "data": "同轴历史分组标签（Provider 待接入）",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "group_neutralize",
@@ -973,7 +1716,13 @@
     "native": true,
     "data": "同轴历史分组标签（Provider 待接入）",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "supported",
+    "compiler_support": "shared-6bb147e6",
+    "native_implementation": "shared-6bb147e6",
+    "pool_wiring": "connected",
+    "contract_version": "shared-6bb147e6",
+    "official_parity": "not_verified"
   },
   {
     "name": "group_mean",
@@ -981,7 +1730,13 @@
     "native": false,
     "data": "同轴历史分组标签（Provider 待接入）",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "group_sum",
@@ -989,7 +1744,13 @@
     "native": true,
     "data": "同轴历史分组标签（Provider 待接入）",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "supported",
+    "compiler_support": "shared-6bb147e6",
+    "native_implementation": "shared-6bb147e6",
+    "pool_wiring": "connected",
+    "contract_version": "shared-6bb147e6",
+    "official_parity": "not_verified"
   },
   {
     "name": "group_count",
@@ -997,7 +1758,13 @@
     "native": true,
     "data": "同轴历史分组标签（Provider 待接入）",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "supported",
+    "compiler_support": "shared-6bb147e6",
+    "native_implementation": "shared-6bb147e6",
+    "pool_wiring": "connected",
+    "contract_version": "shared-6bb147e6",
+    "official_parity": "not_verified"
   },
   {
     "name": "group_std_dev",
@@ -1005,7 +1772,13 @@
     "native": true,
     "data": "同轴历史分组标签（Provider 待接入）",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "supported",
+    "compiler_support": "shared-6bb147e6",
+    "native_implementation": "shared-6bb147e6",
+    "pool_wiring": "connected",
+    "contract_version": "shared-6bb147e6",
+    "official_parity": "not_verified"
   },
   {
     "name": "group_min",
@@ -1013,7 +1786,13 @@
     "native": true,
     "data": "同轴历史分组标签（Provider 待接入）",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "supported",
+    "compiler_support": "shared-6bb147e6",
+    "native_implementation": "shared-6bb147e6",
+    "pool_wiring": "connected",
+    "contract_version": "shared-6bb147e6",
+    "official_parity": "not_verified"
   },
   {
     "name": "group_max",
@@ -1021,7 +1800,13 @@
     "native": true,
     "data": "同轴历史分组标签（Provider 待接入）",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "supported",
+    "compiler_support": "shared-6bb147e6",
+    "native_implementation": "shared-6bb147e6",
+    "pool_wiring": "connected",
+    "contract_version": "shared-6bb147e6",
+    "official_parity": "not_verified"
   },
   {
     "name": "group_median",
@@ -1029,7 +1814,13 @@
     "native": true,
     "data": "同轴历史分组标签（Provider 待接入）",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "supported",
+    "compiler_support": "shared-6bb147e6",
+    "native_implementation": "shared-6bb147e6",
+    "pool_wiring": "connected",
+    "contract_version": "shared-6bb147e6",
+    "official_parity": "not_verified"
   },
   {
     "name": "group_scale",
@@ -1037,7 +1828,13 @@
     "native": false,
     "data": "同轴历史分组标签（Provider 待接入）",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "group_normalize",
@@ -1045,7 +1842,13 @@
     "native": false,
     "data": "同轴历史分组标签（Provider 待接入）",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "group_percentage",
@@ -1053,7 +1856,13 @@
     "native": false,
     "data": "同轴历史分组标签（Provider 待接入）",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "group_backfill",
@@ -1061,7 +1870,13 @@
     "native": false,
     "data": "同轴历史分组标签（Provider 待接入）",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "group_vector_neut",
@@ -1069,7 +1884,13 @@
     "native": false,
     "data": "同轴历史分组标签（Provider 待接入）",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "group_vector_proj",
@@ -1077,7 +1898,13 @@
     "native": false,
     "data": "同轴历史分组标签（Provider 待接入）",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "group_extra",
@@ -1085,7 +1912,13 @@
     "native": false,
     "data": "同轴历史分组标签（Provider 待接入）",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "regression_neut",
@@ -1093,7 +1926,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "regression_proj",
@@ -1101,7 +1940,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "vector_neut",
@@ -1109,7 +1954,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "vector_proj",
@@ -1117,7 +1968,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "rank_by_side",
@@ -1125,7 +1982,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "rank_gmean_amean_diff",
@@ -1133,7 +1996,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "vec_avg",
@@ -1141,7 +2010,13 @@
     "native": false,
     "data": "真实向量 / Alpha 上下文（未接入）",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "vec_sum",
@@ -1149,7 +2024,13 @@
     "native": false,
     "data": "真实向量 / Alpha 上下文（未接入）",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "vec_count",
@@ -1157,7 +2038,13 @@
     "native": false,
     "data": "真实向量 / Alpha 上下文（未接入）",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "vec_min",
@@ -1165,7 +2052,13 @@
     "native": false,
     "data": "真实向量 / Alpha 上下文（未接入）",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "vec_max",
@@ -1173,7 +2066,13 @@
     "native": false,
     "data": "真实向量 / Alpha 上下文（未接入）",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "vec_range",
@@ -1181,7 +2080,13 @@
     "native": false,
     "data": "真实向量 / Alpha 上下文（未接入）",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "vec_stddev",
@@ -1189,7 +2094,13 @@
     "native": false,
     "data": "真实向量 / Alpha 上下文（未接入）",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "vec_ir",
@@ -1197,7 +2108,13 @@
     "native": false,
     "data": "真实向量 / Alpha 上下文（未接入）",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "vec_skewness",
@@ -1205,7 +2122,13 @@
     "native": false,
     "data": "真实向量 / Alpha 上下文（未接入）",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "vec_kurtosis",
@@ -1213,7 +2136,13 @@
     "native": false,
     "data": "真实向量 / Alpha 上下文（未接入）",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "vec_percentage",
@@ -1221,7 +2150,13 @@
     "native": false,
     "data": "真实向量 / Alpha 上下文（未接入）",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "vec_powersum",
@@ -1229,7 +2164,13 @@
     "native": false,
     "data": "真实向量 / Alpha 上下文（未接入）",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "vec_choose",
@@ -1237,7 +2178,13 @@
     "native": false,
     "data": "真实向量 / Alpha 上下文（未接入）",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "vec_norm",
@@ -1245,7 +2192,13 @@
     "native": false,
     "data": "真实向量 / Alpha 上下文（未接入）",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "reduce_avg",
@@ -1253,7 +2206,13 @@
     "native": false,
     "data": "真实向量 / Alpha 上下文（未接入）",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "reduce_sum",
@@ -1261,7 +2220,13 @@
     "native": false,
     "data": "真实向量 / Alpha 上下文（未接入）",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "reduce_count",
@@ -1269,7 +2234,13 @@
     "native": false,
     "data": "真实向量 / Alpha 上下文（未接入）",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "reduce_min",
@@ -1277,7 +2248,13 @@
     "native": false,
     "data": "真实向量 / Alpha 上下文（未接入）",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "reduce_max",
@@ -1285,7 +2262,13 @@
     "native": false,
     "data": "真实向量 / Alpha 上下文（未接入）",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "reduce_range",
@@ -1293,7 +2276,13 @@
     "native": false,
     "data": "真实向量 / Alpha 上下文（未接入）",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "reduce_stddev",
@@ -1301,7 +2290,13 @@
     "native": false,
     "data": "真实向量 / Alpha 上下文（未接入）",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "reduce_ir",
@@ -1309,7 +2304,13 @@
     "native": false,
     "data": "真实向量 / Alpha 上下文（未接入）",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "reduce_skewness",
@@ -1317,7 +2318,13 @@
     "native": false,
     "data": "真实向量 / Alpha 上下文（未接入）",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "reduce_kurtosis",
@@ -1325,7 +2332,13 @@
     "native": false,
     "data": "真实向量 / Alpha 上下文（未接入）",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "reduce_percentage",
@@ -1333,7 +2346,13 @@
     "native": false,
     "data": "真实向量 / Alpha 上下文（未接入）",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "reduce_choose",
@@ -1341,7 +2360,13 @@
     "native": false,
     "data": "真实向量 / Alpha 上下文（未接入）",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "reduce_powersum",
@@ -1349,7 +2374,13 @@
     "native": false,
     "data": "真实向量 / Alpha 上下文（未接入）",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "reduce_norm",
@@ -1357,7 +2388,13 @@
     "native": false,
     "data": "真实向量 / Alpha 上下文（未接入）",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "self_corr",
@@ -1365,7 +2402,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "generate_stats",
@@ -1373,7 +2416,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "combo_weight",
@@ -1381,7 +2430,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "convert",
@@ -1389,7 +2444,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "count",
@@ -1397,7 +2458,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "universe_size",
@@ -1405,7 +2472,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "inst_pnl",
@@ -1413,7 +2486,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "inst_tvr",
@@ -1421,7 +2500,13 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
   },
   {
     "name": "position_safeguard",
@@ -1429,6 +2514,28 @@
     "native": false,
     "data": "日线 OHLCV",
     "brain": "官方行为待核验",
-    "source": "FT 截面扩展"
+    "source": "FT 截面扩展",
+    "syntax_support": "unavailable",
+    "compiler_support": "unavailable",
+    "native_implementation": "unavailable",
+    "pool_wiring": "unavailable",
+    "contract_version": null,
+    "official_parity": "not_verified"
+  },
+  {
+    "name": "modulo",
+    "frontend": "x % y / self.cs.mod(x,y)",
+    "native": true,
+    "data": "日线 OHLCV",
+    "brain": "官方行为待核验",
+    "source": "FactorPool native extension",
+    "syntax_support": "supported",
+    "compiler_support": "pool-operators-v1",
+    "native_implementation": "Pool C++ vector kernel",
+    "pool_wiring": "connected",
+    "contract_version": "pool-operators-v1",
+    "official_parity": "not_verified",
+    "contract": "Python remainder sign follows divisor; zero divisor invalid",
+    "scope": "project Python modulo extension; not an assertion of an official BRAIN operator name"
   }
 ]

@@ -173,7 +173,7 @@ def load(data, warmup, future, *, connection=None, pasteurization="ON"):
     frames = []
     for t, day in enumerate(dates[initial:stop]):
         if day > last:
-            frames.append(dict(date=day, symbols=[], rows={}))
+            frames.append(dict(date=day, session_index=initial+t, symbols=[], rows={}))
             continue
         axis = ([s for n, s in enumerate(selected) if matrices[8, t, n] > 0]
                 if dynamic else selected.copy())
@@ -185,7 +185,7 @@ def load(data, warmup, future, *, connection=None, pasteurization="ON"):
                    for k, field in enumerate(FIELDS) if field not in ("member", "return")}
             row["value"] = row["close"]
             rows[symbol] = row
-        frames.append(dict(date=day, symbols=axis, rows=rows))
+        frames.append(dict(date=day, session_index=initial+t, symbols=axis, rows=rows))
     return dict(provider="market_matrix", adjustment="raw", symbols=selected,
                 frames=frames, returns=np.ascontiguousarray(matrices[7]),
                 snapshot_id=snapshot_id, synthetic=False,
@@ -258,7 +258,7 @@ def _load_unpasteurized(conn, snapshot_id, manifest, all_symbols, dates, fields,
     frames = []
     for t, day in enumerate(dates[initial:stop]):
         if t >= historical_days:
-            frames.append(dict(date=day, symbols=[], rows={}, research_symbols=[]))
+            frames.append(dict(date=day, session_index=initial+t, symbols=[], rows={}, research_symbols=[]))
             continue
         axis = [symbol for n, symbol in enumerate(calculation_symbols) if calculation[8, t, n] > 0]
         research_axis = ([symbol for symbol, column in zip(selected, research_columns)
@@ -272,7 +272,7 @@ def _load_unpasteurized(conn, snapshot_id, manifest, all_symbols, dates, fields,
                    for k, field in enumerate(FIELDS) if field not in ("member", "return")}
             row["value"] = row["close"]
             rows[symbol] = row
-        frames.append(dict(date=day, symbols=axis, rows=rows, research_symbols=research_axis))
+        frames.append(dict(date=day, session_index=initial+t, symbols=axis, rows=rows, research_symbols=research_axis))
     return dict(provider="market_matrix", adjustment="raw", symbols=selected,
                 frames=frames, returns=np.ascontiguousarray(returns),
                 snapshot_id=snapshot_id, synthetic=False,

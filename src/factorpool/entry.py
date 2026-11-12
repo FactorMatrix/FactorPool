@@ -9,6 +9,28 @@ from factortrader import PythonIndicator as SharedPythonIndicator
 
 
 class PythonIndicator(SharedPythonIndicator):
+    def _prepare(self):
+        if self._prepared:
+            return super()._prepare()
+        from .operator_compiler import compile_pool_indicator
+        prepared = compile_pool_indicator(self)
+        if prepared is None:
+            return super()._prepare()
+        if prepared[1] is None:
+            self._ir = prepared[0]
+            self._prepared = True
+            return self._ir
+        from factortrader.indicator.ir import IndicatorIR, Node
+        self._batch_ir, self._pool_ir = prepared
+        self._batch_dependencies = ()
+        self._has_scalar_stage = False
+        self._ir = IndicatorIR((Node("constant", value=0), Node("constant", value=1)),
+                               0, 1, self._batch_ir.warm_up_period)
+        self._prepared = True
+        self.execution_mode = "pool_native"
+        self.native_failure_reason = None
+        return self._ir
+
     @classmethod
     def run(cls, config):
         from .config import effective_config, normalize_config

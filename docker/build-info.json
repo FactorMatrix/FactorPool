@@ -4,7 +4,8 @@
   "lean_reference": "f49bb9623a3e8782bf22bbd2cb51f691058cfdc3",
   "environment_image": "factortrader/platform:20261105-factortrader-48804c66-r1",
   "python": "3.11.16",
-  "operator_contract": "ft-pool-1",
+  "operator_contract": "pool-indicator-2",
+  "shared_primitive_contract": "ft-pool-1",
   "research_kernel": "return-matrix-v3",
-  "factorpool_source_sha256": "92bcfdd9b27ae18af6f99bb0032a9d18ce609e4c8f3097a175dde18a19103333"
+  "factorpool_source_sha256": "0eefe2ba6ee0f90ee4f1bb72188f74faefdd9be05240432f1e28c45f70b1af04"
 }

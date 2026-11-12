@@ -36,6 +36,8 @@ def validate(request):
         raise ValueError("Supported providers: market_matrix or fixture")
     if data.get("frequency", "1d") != "1d" or data.get("adjustment", "raw") != "raw":
         raise ValueError("This release supports daily, raw prices only")
+    if data.get("factor_price", "raw") not in ("raw", "quote_adjusted"):
+        raise ValueError("factor_price must be raw or quote_adjusted")
     if analysis.get("entry", "signal_close") != "signal_close" or analysis.get("exit", "next_close") != "next_close":
         raise ValueError("Supported return interval: signal_close to next_close, using close / prev_close - 1; legacy open-based requests are unsupported")
     if analysis.get("annualize_icir", False) or analysis.get("group_weight", "equal") != "equal":
@@ -102,16 +104,21 @@ def run(directory, *, factory=None):
     (directory / "factor.py").write_text(request["source_code"])
     if factory is None:
         factory = load_factor(directory / "factor.py", request["factor_class"], request.get("factor_params", {}))
-    # Only the shared compiler/Graph binding is used; no Engine/Runtime instance.
+    # Pool owns the Indicator contract, reusing native numerical primitives;
+    # research never creates an Engine/Runtime or a trading account.
     indicator = factory()
-    adapter = IndicatorAdapter(indicator)
+    data = request["data"]
+    if data.get("factor_price", "raw") == "quote_adjusted":
+        from .quote_adjusted_indicator import QuoteAdjustedIndicatorAdapter
+        adapter = QuoteAdjustedIndicatorAdapter(indicator)
+    else:
+        adapter = IndicatorAdapter(indicator)
     warmup = indicator.warm_up_period
     settings = request.get("brain_settings")
     simulation_warmup = max(0, settings["decay"] - 1) if settings is not None else 0
     timings["prepare"] = time.perf_counter() - started
     log("prepared", mode=adapter.mode, warmup=warmup)
     checkpoint = time.perf_counter()
-    data = request["data"]
     provider = data["provider"]
     if provider == "fixture":
         payload = fixture()
@@ -255,7 +262,18 @@ def run(directory, *, factory=None):
         group_weight="equal among available returns", cumulative="nonoverlapping one-day; invalid after a missing interval",
         ic_rank_ties="average", icir_ddof=options.get("icir_ddof", 1), annualized=False,
         annualized_scope="legacy ICIR only; portfolio annualization is defined in diagnostics.conventions",
-        operator_contract="ft-pool-1", forward_return_horizon=1, report_version=3, report_horizons=horizons, coverage_axis="historical universe membership", stage_seconds=timings, value_count=len(rows))
+        operator_contract="pool-indicator-2", shared_primitive_contract="ft-pool-1", forward_return_horizon=1, report_version=3, report_horizons=horizons, coverage_axis="historical universe membership", stage_seconds=timings, value_count=len(rows))
+    result["metadata"]["indicator_backend"] = "pool_native" if getattr(indicator, "_pool_ir", None) is not None else adapter.mode
+    if getattr(indicator, "_pool_ir", None) is not None:
+        from .operators import CONTRACT
+        result["metadata"]["pool_operator_contract"] = deepcopy(CONTRACT)
+    result["metadata"]["factor_price"] = data.get("factor_price", "raw")
+    result["metadata"]["price_contract"] = (deepcopy(adapter.contract) if hasattr(adapter, "contract") else dict(
+        mode="raw", history="original OHLC/previous-close quotes", volume="raw", returns="stored independent daily return matrix"))
+    result["metadata"]["signal_clock"] = dict(
+        date_axis="signal session", price_basis="same signal session close",
+        visibility="only completed input frames through the signal session",
+        delay=1, returns="next trading session onward; no additional input shift")
     result["metadata"]["source_mode"] = request.get("source_mode", "class")
     if request.get("source_mode") == "script":
         for key in ("source_config", "effective_config", "brain_settings"):

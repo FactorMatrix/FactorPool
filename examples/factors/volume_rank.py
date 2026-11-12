@@ -9,7 +9,7 @@ class VolumeRankFactor(PythonIndicator):
 
     def update(self, input):
         volume_mean = self.ts.mean(input.volume, self.volume_period)
-        first_rank = self.cs.rank(volume_mean, pct=True)
+        first_rank = self.cs.rank_unit(volume_mean)
         rank_mean = self.ts.mean(first_rank, self.rank_period)
-        self.value = self.cs.rank(rank_mean, pct=True)
+        self.value = self.cs.rank_unit(rank_mean)
         return self.ts.is_ready(rank_mean)
