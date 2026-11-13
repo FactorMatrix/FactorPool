@@ -44,6 +44,7 @@ try {
   assert.equal(parsedSample.data.factor_start, '2016-01-01')
   assert.equal(parsedSample.data.factor_end, '2026-01-01')
   assert.equal(parsedSample.data.provider, 'market_matrix')
+  assert.equal(parsedSample.data.universe, 'all_a_dynamic')
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
   await docs.getByRole('button', { name: '复制完整示例', exact: true }).click()
   assert.equal(await page.evaluate(() => navigator.clipboard.readText()), sample)

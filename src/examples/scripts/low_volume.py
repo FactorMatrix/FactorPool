@@ -10,7 +10,7 @@ config = {
     },
     'data': {
         'provider': 'market_matrix',
-        'universe': ['000001.XSHE', '000002.XSHE', '600000.XSHG'],
+        'universe': 'all_a_dynamic',
         'factor_price': 'quote_adjusted',
     },
     'factor': {

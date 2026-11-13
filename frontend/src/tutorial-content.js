@@ -8,7 +8,7 @@ config = {
         "end_date": "2026-01-01",
         "frequency": "1d",
     },
-    "data": {"provider": "market_matrix", "universe": ["000001.XSHE", "000002.XSHE", "600000.XSHG"], "factor_price": "quote_adjusted"},
+    "data": {"provider": "market_matrix", "universe": "all_a_dynamic", "factor_price": "quote_adjusted"},
     "factor": {"period": 3},
     "analysis": {"groups": 3, "horizons": [1, 5]},
     "settings": {
@@ -45,7 +45,7 @@ export const settingHints = {
   delay: "当前只支持 1：信号日收盘形成因子，收益从下一交易日起计算。",
   testPeriod: "从研究结束日向前划出测试期，例如 P30D、P2W、P1Y6M；P0Y0M 不划分。",
   visualization: "True 展示图表；False 关闭图表，数值与结果导出仍保留。",
-  universe: "跟随 data.universe；可以是明确证券列表或 all_a_dynamic。TOPxxx 需要另有合格股票池。",
+  universe: "默认使用 all_a_dynamic 历史动态全 A；自选池应覆盖足够大的研究范围。指数池和 TOPxxx 需要对应的真实股票池数据。",
   pasteurization: "ON 只在研究池上计算因子截面；OFF 使用快照中当时存续的更大证券轴计算因子，最终研究与收益仍限于所选研究池。合成 fixture 没有额外池外数据。",
   nanHandling: "当前只支持 OFF；缺失保持不可用，不把最后一步填零当成算子级 NaN 处理。",
   unitHandling: "当前只支持 OFF；VERIFY 所需的算子量纲验证尚未接入。",

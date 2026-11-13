@@ -19,8 +19,8 @@ let resolveRevision = 0;
 const scriptMode = computed(() => sourceMode.value === "script");
 const provider = ref("market_matrix"),
   snapshotId = ref(null),
-  universe = ref("000001.XSHE,000002.XSHE,600000.XSHG"),
-  dynamic = ref(false);
+  universe = ref(""),
+  dynamic = ref(true);
 const start = ref("2016-01-01"),
   end = ref("2026-01-01"),
   groups = ref(3);
@@ -37,7 +37,6 @@ function followLearnLink() {
   if (window.location.hash.startsWith("#learn/")) tab.value = "learn";
 }
 const factors = ref([]),
-  history = ref([]),
   examples = ref([]),
   operators = ref([]),
   sources = ref([]),
@@ -241,10 +240,7 @@ async function action(fn) {
   }
 }
 async function refreshLists() {
-  [factors.value, history.value] = await Promise.all([
-    api("/factors"),
-    api("/tasks"),
-  ]);
+  factors.value = await api("/factors");
 }
 function example(item) {
   sourceMode.value = "script";
@@ -357,7 +353,6 @@ async function runBatch() {
     }
     const batch = await api("/tasks/batch", body);
     notice.value = `批次 ${batch.id} · ${batch.tasks.length} 个任务已提交`;
-    tab.value = "history";
     await refreshLists();
   });
 }
@@ -447,10 +442,9 @@ onBeforeUnmount(() => {
         <button
           v-for="[key, icon, title, label] in [
             ['research', 'terminal', 'Simulate', '研究'],
-            ['library', 'alpha', 'Alphas', '因子库'],
+            ['library', 'alpha', 'Factors', '因子库'],
             ['learn', 'book', 'Learn', '使用说明'],
-            ['operators', 'data', 'Data', '算子兼容'],
-            ['history', 'history', 'History', '测试记录'],
+            ['data', 'data', 'Data', '数据'],
           ]"
           :key="key"
           :class="{ active: tab === key }"
@@ -680,92 +674,11 @@ onBeforeUnmount(() => {
       </table>
       <p v-if="!factors.length" class="empty">在工作台保存第一个因子版本。</p>
     </section>
-    <section v-else-if="tab === 'history'" class="page">
-      <div class="page-title">
-        <div>
-          <span class="eyebrow">RESEARCH HISTORY</span>
-          <h1>测试记录</h1>
-        </div>
-        <button @click="action(refreshLists)">刷新</button>
-      </div>
-      <table>
-        <thead>
-          <tr>
-            <th>名称</th>
-            <th>提交时间</th>
-            <th>状态</th>
-            <th>批次</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="t in history">
-            <td>{{ t.name }}</td>
-            <td>{{ t.created_at }}</td>
-            <td>
-              <span class="badge" :class="t.status">{{
-                states[t.status]
-              }}</span>
-            </td>
-            <td class="mono">{{ t.batch_id?.slice(0, 8) || "--" }}</td>
-            <td>
-              <button
-                @click="
-                  action(async () => {
-                    await openTask(t.id);
-                    tab = 'research';
-                  })
-                "
-              >
-                查看
-              </button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-      <p v-if="!history.length" class="empty">
-        运行后，源码与结果会保存在这里。
-      </p>
-    </section>
     <section v-else-if="tab === 'learn'" class="documentation-page">
       <TutorialPanel :operators="operators" />
     </section>
-    <section v-else class="page">
-      <span class="eyebrow">SHARED INDICATOR / COMPATIBILITY</span>
-      <h1>算子兼容台账</h1>
-      <p class="muted">
-        Python → LEAN →
-        BRAIN。前端可调用、原生已验证与官方兼容是独立状态。rank_unit 使用明确的
-        FT/Pool 端点合同；BRAIN rate=2 尚待核验。
-      </p>
-      <div class="table-scroll">
-        <table>
-          <thead>
-            <tr>
-              <th>目标算子</th>
-              <th>共享入口</th>
-              <th>原生实现</th>
-              <th>数据要求</th>
-              <th>BRAIN 对照</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="o in operators">
-              <td>{{ o.name }}</td>
-              <td class="mono">{{ o.frontend || "--" }}</td>
-              <td>
-                <span :class="o.native ? 'supported' : 'muted'">{{
-                  o.native ? "已接通" : "待实现 / 待核验"
-                }}</span>
-              </td>
-              <td>{{ o.data }}</td>
-              <td>{{ o.brain }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
-    <footer v-if="!['research', 'learn'].includes(tab)">
+    <section v-else-if="tab === 'data'" class="page" aria-label="数据"></section>
+    <footer v-if="!['research', 'learn', 'data'].includes(tab)">
       <span>FactorPool / Research workspace</span
       ><span>PythonIndicator · FT C++ Core · PostgreSQL</span>
     </footer>

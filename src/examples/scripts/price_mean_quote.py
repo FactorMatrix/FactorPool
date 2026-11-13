@@ -6,7 +6,7 @@ config = {
     'base': {'start_date': '2016-01-01', 'end_date': '2026-01-01', 'frequency': '1d'},
     'data': {
         'provider': 'market_matrix',
-        'universe': ['000001.XSHE', '000002.XSHE', '600000.XSHG'],
+        'universe': 'all_a_dynamic',
         'factor_price': 'quote_adjusted',
     },
     'factor': {'period': 2},

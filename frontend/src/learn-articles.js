@@ -41,16 +41,16 @@ export const learnArticles = {
         "写因子时可直接打开“算子参考”查调用方式；调整参数时使用“参数参考”核对默认值与支持状态。搜索也可以按算子名、参数名或问题查找。",
       ] },
       { id: "research-scope", title: "当前研究范围", paragraphs: [
-        "FactorPool 使用已发布的日线行情矩阵，按股票权重比例计算收益。当前市场范围为中国股票；合成 fixture 数据用于熟悉流程和核对计算。",
+        "FactorPool 使用已发布的日线行情矩阵，按股票权重比例计算收益。当前市场范围为中国股票；合成 fixture 数据仅用于独立计算核对。",
         "教程说明的是本项目当前行为。算子和设置中的“已接通”表示本项目调用链可用；具体选项还要满足相应的数据条件。",
       ] },
     ],
   },
   "quick-start": {
-    id: "quick-start", title: "创建第一个因子", subtitle: "用三只股票的十年行情运行低成交量排名，熟悉完整研究流程。", readingTime: "4 分钟",
+    id: "quick-start", title: "创建第一个因子", subtitle: "用历史动态全 A 股票池的十年行情运行低成交量排名，熟悉完整研究流程。", readingTime: "4 分钟",
     sections: [
       { id: "first-run", title: "运行这份脚本", paragraphs: [
-        "复制下面的完整示例，回到 Simulate，粘贴到代码框并点击 Simulate。示例读取已发布的日线行情，统一研究区间为 2016-01-01 至 2026-01-01。",
+        "复制下面的完整示例，回到 Simulate，粘贴到代码框并点击 Simulate。示例读取已发布的日线行情，使用历史动态全 A 股票池，研究区间为 2016-01-01 至 2026-01-01。",
         "这个因子先计算每只股票最近 3 个有效观测的平均成交量，再对负均量做同日截面排名。因此，成交量越低，因子排名越高。",
       ], code: quickStartCode, codeLabel: "入门完整脚本" },
       { id: "inspect-first-result", title: "先看因子值，再看收益", paragraphs: [
@@ -109,8 +109,8 @@ return self.ts.is_ready(mean_volume)`, codeLabel: "update 内的组合表达式"
     id: "data-fields", title: "行情字段与股票池", subtitle: "先明确因子在什么数据和证券范围上计算。", readingTime: "4 分钟",
     sections: [
       { id: "providers", title: "选择数据源", table: { columns: ["provider", "universe", "适用场景"], rows: [
-        ["fixture", "fixture", "合成样例、熟悉界面与计算核对"],
-        ["market_matrix", "证券代码列表", "在明确的一组股票上研究"],
+        ["fixture", "fixture", "独立计算核对"],
+        ["market_matrix", "证券代码列表", "使用明确提供的较大自选股票池"],
         ["market_matrix", "all_a_dynamic", "使用历史动态全 A 股票池"],
       ] }, paragraphs: ["真实行情任务读取已经发布的行情快照。省略 snapshot_id 时，提交任务会固定当时选用的快照；任务本身不会导入或刷新行情。"] },
       { id: "quote-fields", title: "可用的基础字段", table: { columns: ["字段", "含义", "使用提示"], rows: [
@@ -120,12 +120,12 @@ return self.ts.is_ready(mean_volume)`, codeLabel: "update 内的组合表达式"
         ["input.total_turnover", "成交额", "保持基础行情原值"],
         ["input.is_st / is_suspended", "ST 与停牌状态", "按所选快照中的实际字段使用"],
       ] } },
-      { id: "market-config", title: "配置一个明确股票池", code: `"data": {
+      { id: "market-config", title: "默认使用历史动态全 A", code: `"data": {
     "provider": "market_matrix",
-    "universe": ["000001.XSHE", "000002.XSHE", "600000.XSHG"],
+    "universe": "all_a_dynamic",
     "factor_price": "quote_adjusted"
 }`, codeLabel: "config 中的 data 部分", paragraphs: [
-        "证券列表必须非空且不重复。日期和股票数会影响有效配对数量；单日 IC 默认至少需要 3 组有效的因子值与未来收益配对。",
+        "默认使用历史动态全 A，范围随历史上市和退市变化。自选证券列表应覆盖足够大的研究范围，且须非空、不重复；指数池需对应的真实历史成分数据。",
       ] },
       { id: "classification-data", title: "分组和池外计算", paragraphs: [
         "分组算子需要与证券轴对齐的真实分组标签。当前基础行情没有历史行业分类，不能把任意数字当作行业数据。财务向量和风险暴露同样需要对应的数据接入。",
@@ -142,7 +142,7 @@ return self.ts.is_ready(mean_volume)`, codeLabel: "update 内的组合表达式"
         ["quote_adjusted（默认）", "以当前信号日为基准前复权的历史价格", "在同一基准计算窗口与截面信号"],
       ] }, code: `"data": {
     "provider": "market_matrix",
-    "universe": ["000001.XSHE", "000002.XSHE", "600000.XSHG"],
+    "universe": "all_a_dynamic",
     "factor_price": "quote_adjusted"
 }`, codeLabel: "前复权配置" },
       { id: "quote-bridge", title: "倍率如何计算", paragraphs: [
@@ -236,7 +236,7 @@ value = self.ts.delay(input.close, 1, clock="trading_days")`, codeLabel: "在 up
     },
     "data": {
         "provider": "market_matrix",
-        "universe": ["000001.XSHE", "000002.XSHE", "600000.XSHG"],
+        "universe": "all_a_dynamic",
         "factor_price": "quote_adjusted",
     },
     "factor": {"period": 20},
@@ -351,7 +351,7 @@ value = self.ts.delay(input.close, 1, clock="trading_days")`, codeLabel: "在 up
         "确认 config 是字面量字典，日期为 YYYY-MM-DD，Python 布尔值使用 True / False。",
         "确认末尾使用受 __main__ 保护的 因子类.run(config)，没有在顶层启动其他运行入口。",
         "核对 factor 的键与 __init__ 参数名是否一致；不认识的配置项不会被忽略。",
-        "先运行 fixture 样例，再逐项替换数据、股票池和表达式，缩小出错范围。",
+        "先用默认历史动态全 A 案例确认流程，再按需要调整表达式和股票池。",
       ] },
       { id: "values-missing", title: "任务成功，为什么因子值为空？", paragraphs: [
         "先看 Factor Values 的 ready 和 reason。not_ready 通常表示预热未完成；missing_bar 表示当天没有该股票的 Bar；source_missing 表示表达式所需字段缺失。",

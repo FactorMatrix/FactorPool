@@ -3,8 +3,7 @@ import { onMounted, onBeforeUnmount, watch, ref } from "vue";
 import { EditorView, basicSetup } from "codemirror";
 import { python, globalCompletion, localCompletionSource } from "@codemirror/lang-python";
 import { autocompletion } from "@codemirror/autocomplete";
-import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
-import { tags } from "@lezer/highlight";
+import { darculaTheme } from "../editorTheme";
 const props = defineProps({ modelValue: String, operators: { type: Array, default: () => [] } });
 const emit = defineEmits(["update:modelValue"]);
 const host = ref(null);
@@ -39,41 +38,17 @@ onMounted(() => {
       basicSetup,
       python(),
       autocompletion({ override: [operatorCompletion, outsideOperator(localCompletionSource), outsideOperator(pythonGlobals)] }),
-      syntaxHighlighting(
-        HighlightStyle.define([
-          { tag: tags.keyword, color: "#c792ea" },
-          {
-            tag: [tags.className, tags.function(tags.variableName)],
-            color: "#ffcb6b",
-          },
-          { tag: tags.number, color: "#f78c6c" },
-          { tag: tags.string, color: "#c3e88d" },
-          { tag: tags.comment, color: "#78879b" },
-          { tag: tags.variableName, color: "#cad8e7" },
-          { tag: tags.operator, color: "#89d8e9" },
-        ]),
-      ),
-      EditorView.theme(
-        {
-          "&": { height: "100%", backgroundColor: "#000000", color: "#cfd9e2" },
-          ".cm-scroller": {
-            overflow: "auto",
-            fontFamily: "monospace",
-            lineHeight: "1.6",
-            fontSize: "13px",
-          },
-          ".cm-content": { caretColor: "#6ecb4b", padding: "16px 0" },
-          ".cm-gutters": {
-            backgroundColor: "#000000",
-            color: "#606c80",
-            border: "none",
-          },
-          ".cm-activeLine, .cm-activeLineGutter": {
-            backgroundColor: "#11151d",
-          },
+      darculaTheme,
+      EditorView.theme({
+        "&": { height: "100%" },
+        ".cm-scroller": {
+          overflow: "auto",
+          fontFamily: "monospace",
+          lineHeight: "1.6",
+          fontSize: "13px",
         },
-        { dark: true },
-      ),
+        ".cm-content": { padding: "16px 0" },
+      }),
       EditorView.updateListener.of((update) => {
         if (update.docChanged)
           emit("update:modelValue", update.state.doc.toString());
