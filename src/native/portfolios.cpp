@@ -239,14 +239,18 @@ PyObject *portfolio_report(PyObject *, PyObject *args) {
               const auto value = input.alpha_weights[t][n];
               if (std::isfinite(value)) {
                 weights[n] = value;
-                usable = usable || value != 0;
+                // A supplied all-zero target is a known flat book, distinct
+                // from the all-NaN row used for an unavailable target.
+                usable = true;
               }
             }
           } else if (norm > 0)
             for (auto n : order)
               weights[n] = double((static_cast<long double>(f[t][n]) - mean) / norm);
           else
-            usable = false;
+            // Finite eligible constants neutralize to a known zero target.
+            // Only an empty eligible sample leaves the Alpha unavailable.
+            usable = !order.empty() && norm == 0;
         } else if (s.name == "high_low" || s.name == "inner_high_low") {
           int lo = s.name == "high_low" ? 0 : 1,
               hi = s.name == "high_low" ? groups - 1 : groups - 2;

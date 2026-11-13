@@ -67,7 +67,7 @@ def reference_targets(values, members, neutralization='MARKET', cap=0):
             data -= np.mean(data)
         norm = np.sum(abs(data))
         if not norm > 0:
-            out[t] = np.nan
+            out[t] = 0 if data.size and np.isfinite(norm) and norm == 0 else np.nan
         else:
             out[t, selected] = data/norm
             if cap:
@@ -219,10 +219,10 @@ class NativeTargetTests(unittest.TestCase):
             with self.subTest(weights=weights):
                 with self.assertRaises(ValueError):
                     native.prepare_research(factors, returns, members, weights)
-        for weights in ([[np.nan]*3], [[0.]*3]):
+        for weights, expected in (([[np.nan]*3], None), ([[0.]*3], 0)):
             prepared = native.prepare_research(factors, returns, members, weights)
             alpha = native.portfolio_report(prepared, None, None, 3, 1, 252)['strategies']['alpha']
-            self.assertIsNone(alpha['returns'][0])
+            self.assertEqual(alpha['returns'][0], expected)
         with self.assertRaises(ValueError):
             native.performance_stats([.1], [1, 0], [.1], 252)
 

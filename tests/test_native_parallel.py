@@ -72,8 +72,8 @@ class NativeParallelTests(unittest.TestCase):
         prepared = native.prepare_research(factors, returns, None, weights)
         report = native.portfolio_report(prepared, None, None, 5, 3, 252, [0, 3, 6])
         alpha = report['strategies']['alpha']
-        self.assertEqual(alpha['book_pnl_series'], [0., .0625, 0., -.375, .125, None, None])
-        self.assertEqual(alpha['returns'], [0., .0625, 0., -.375, .75 / .625 - 1, None, None])
+        self.assertEqual(alpha['book_pnl_series'], [0., .0625, 0., -.375, .125, None, 0.])
+        self.assertEqual(alpha['returns'], [0., .0625, 0., -.375, .75 / .625 - 1, None, 0.])
         self.assertEqual(alpha['turnover_series'], [1., 0., 0., 2.0625, 0., 0., None])
         self.assertEqual(alpha['period_returns'], [.0625, None, None])
         trace = report['trace']
@@ -84,7 +84,13 @@ class NativeParallelTests(unittest.TestCase):
         self.assertEqual(trace[4]['rows'][2]['status'], 'zero_weight')
         self.assertEqual(trace[4]['rows'][2]['pnl_fraction'], 0.)
         self.assertEqual(trace[5]['status'], 'missing_return')
-        self.assertEqual(trace[6]['status'], 'no_valid_weights')
+        self.assertEqual(trace[6]['status'], 'ok')
+        self.assertEqual(trace[6]['target_gross'], 0)
+        self.assertEqual(alpha['positions'][-1], 0)
+        # The current flat book is known, but it cannot repair the previous
+        # interval's held missing return or reconstruct its exit turnover.
+        self.assertIsNone(alpha['nav'][-1])
+        self.assertIsNone(alpha['turnover_series'][-1])
 
     def test_shared_growth_preserves_overflow_underflow_and_trace_error_order(self):
         factors = np.ones((4, 1))

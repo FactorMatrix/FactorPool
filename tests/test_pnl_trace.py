@@ -120,18 +120,18 @@ class PnlTraceTests(unittest.TestCase):
         self.assertIsNone(second['rows'][1]['pnl_fraction'])
         self.assertIsNotNone(second['rows'][0]['pnl_fraction'])
 
-    def test_constant_market_alpha_has_no_valid_target_or_fabricated_cash_return(self):
+    def test_constant_market_alpha_is_a_known_zero_exposure_target(self):
         day = report(prepared([[5., 5, 5, 5]], [[0.]*4, [.1]*4]), signals=[0])['trace'][0]
-        self.assertEqual(day['status'], 'no_valid_weights')
-        self.assertIsNone(day['pnl_fraction'])
-        self.assertIsNone(day['target_gross'])
-        self.assertIsNone(day['target_net'])
+        self.assertEqual(day['status'], 'ok')
+        self.assertEqual(day['pnl_fraction'], 0)
+        self.assertEqual(day['target_gross'], 0)
+        self.assertEqual(day['target_net'], 0)
         self.assertEqual([row['neutralized'] for row in day['rows']], [0]*4)
         for row in day['rows']:
-            self.assertEqual(row['status'], 'no_valid_weights')
-            self.assertIsNone(row['target_weight'])
-            self.assertIsNone(row['effective_weight_before_return'])
-            self.assertIsNone(row['pnl_fraction'])
+            self.assertEqual(row['status'], 'zero_weight')
+            self.assertEqual(row['target_weight'], 0)
+            self.assertEqual(row['effective_weight_before_return'], 0)
+            self.assertEqual(row['pnl_fraction'], 0)
 
     def test_selection_validation_and_partial_future_budget_are_bounded(self):
         value = prepared([[1., 3, 5, 7]], [[0.]*4, [.1]*4])

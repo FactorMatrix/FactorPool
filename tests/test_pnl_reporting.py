@@ -79,8 +79,12 @@ class PnlReportingTests(unittest.TestCase):
         self.assertAlmostEqual(report['capacity'],.32)
         self.assertAlmostEqual(report['target_gross'],.32)
         self.assertAlmostEqual(report['unallocated_gross'],.68)
-        self.assertEqual(details['constraints'][1]['status'],'no_valid_weights')
-        self.assertTrue(np.isnan(W[1:]).all())
+        for item in details['constraints'][1:]:
+            self.assertEqual(item['status'],'unit_gross_capacity_infeasible')
+            self.assertEqual(item['target_gross'],0)
+            self.assertEqual(item['target_net'],0)
+            self.assertEqual(item['unallocated_gross'],1)
+        np.testing.assert_array_equal(W[1:],np.zeros((2,4)))
         np.testing.assert_allclose(details['trace'][0]['neutralized'],[-3,-1,1,3])
 
     def test_trace_formats_actual_date_symbol_transforms_and_nominal_amount(self):

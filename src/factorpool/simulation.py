@@ -10,8 +10,8 @@ ALPHA_POLICY = (
     "Shared FT linear decay over valid factor observations, then finite in-pool "
     "NONE/MARKET arithmetic neutralization and L1 normalization; truncation clips "
     "absolute single-name weights without renormalizing, leaving unused gross "
-    "unallocated. Missing cross sections, MARKET constants and zero L1 norm "
-    "are invalid. Local research "
+    "unallocated. Finite eligible MARKET constants and zero L1 norm produce "
+    "known zero exposure; unavailable cross sections remain invalid. Local research "
     "semantics; official BRAIN numerical parity is unverified."
 )
 SETTINGS_SCOPE = (

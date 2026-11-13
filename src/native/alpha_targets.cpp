@@ -93,6 +93,7 @@ void normalize(const Matrix& factors, const Matrix& members, bool market, double
     std::vector<double> targets(factors.columns(), missing), weights;
     const bool constant = market && !values.empty() &&
         std::all_of(values.begin(), values.end(), [&](auto value) { return value == values.front(); });
+    bool known_cash = constant;
     if (constant) {
       if (trace) for (auto n : selected) trace->neutralized[n] = 0;
     } else if (!values.empty()) {
@@ -105,6 +106,7 @@ void normalize(const Matrix& factors, const Matrix& members, bool market, double
         for (std::size_t slot = 0; slot < selected.size(); ++slot)
           trace->neutralized[selected[slot]] = static_cast<double>(values[slot]);
       const auto norm = sum<long double>(values.size(), [&](auto n) { return std::abs(values[n]); });
+      known_cash = std::isfinite(norm) && norm == 0;
       if (std::isfinite(norm) && norm > 0) {
         weights.reserve(values.size());
         std::fill(targets.begin(), targets.end(), 0.);
@@ -118,6 +120,10 @@ void normalize(const Matrix& factors, const Matrix& members, bool market, double
           constraint.net = sum<double>(weights.size(), [&](auto n) { return weights[n]; });
         }
       }
+    }
+    if (known_cash) {
+      std::fill(targets.begin(), targets.end(), 0.);
+      if (!constraints.empty()) constraint.gross = constraint.net = 0;
     }
     if (!targets.empty()) std::memcpy(output + t * factors.columns() * sizeof(double),
                                      targets.data(), targets.size() * sizeof(double));

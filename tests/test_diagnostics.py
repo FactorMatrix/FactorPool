@@ -122,7 +122,11 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertEqual(strategies['alpha']['brain_style']['turnover'], .5)
         self.assertNotIn('inner_high_low', strategies)
         flat = native.portfolio_report([[0, 0, 0]], [[0]*3]*2, [[1]*3], 3, 1, 252)['strategies']['alpha']
-        self.assertIsNone(flat['returns'][0])
+        self.assertEqual(flat['returns'][0], 0)
+        self.assertEqual(flat['positions'], [0])
+        self.assertEqual(flat['nav'], [1])
+        self.assertEqual(flat['brain_style']['turnover'], 0)
+        self.assertEqual(flat['brain_style']['drawdown'], 0)
         self.assertIsNone(flat['brain_style']['sharpe'])
 
     def test_decay_entry_lag_and_internal_missing_future(self):

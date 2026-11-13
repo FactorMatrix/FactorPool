@@ -104,6 +104,35 @@ def published_targets(full_factors, full_membership, settings, *, details=None, 
     return targets
 
 
+def zero_exposure_reference(factors, membership, settings, *, details=None, trace_indices=()):
+    """Keep the published arithmetic oracle; correct only its known-cash rows.
+
+    The historical implementation conflated finite zero norm with unavailable
+    input. This explicit contract difference must not hide changes to any
+    nonzero target, missing sample, trace or floating-point reduction.
+    """
+    result = published_targets(factors, membership, settings, details=details,
+                               trace_indices=trace_indices)
+    if result is None:
+        return None
+    members = np.isfinite(membership) & (membership > 0)
+    transformed = (published_decay_reference(factors, members, settings['decay'])
+                   if settings['decay'] > 1 else factors)
+    for index, row in enumerate(transformed):
+        eligible = row[members[index] & np.isfinite(row)]
+        known_cash = eligible.size and (np.all(eligible == 0) or
+            settings['neutralization'] == 'MARKET' and np.all(eligible == eligible[0]))
+        if not known_cash:
+            continue
+        result[index] = 0
+        if details is not None and settings['truncation'] > 0:
+            constraint = details['constraints'][index]
+            constraint.update(target_gross=0., target_net=0., unallocated_gross=1.,
+                status='unallocated_gross' if constraint['full_gross_feasible']
+                       else 'unit_gross_capacity_infeasible')
+    return result
+
+
 class NativeAlphaTests(unittest.TestCase):
     def assert_bits(self, actual, expected):
         self.assertEqual(actual.shape, expected.shape)
@@ -115,7 +144,7 @@ class NativeAlphaTests(unittest.TestCase):
                                       dict(provider='fixture', universe='fixture'))
         indices = sorted(set([0, max(0, len(factors)-1)])) if len(factors) else []
         expected_details, actual_details = {}, {}
-        expected = published_targets(factors, members, settings, details=expected_details,
+        expected = zero_exposure_reference(factors, members, settings, details=expected_details,
                                      trace_indices=indices)
         actual = alpha_targets(factors, members, settings, details=actual_details,
                                trace_indices=indices)
@@ -227,7 +256,7 @@ class NativeAlphaTests(unittest.TestCase):
                           'if __name__ == "__main__":\n'
                           '    Factor.run(config)\n')
                 results, values = [], []
-                for function in (published_targets, alpha_targets):
+                for function in (zero_exposure_reference, alpha_targets):
                     with tempfile.TemporaryDirectory() as directory, \
                             patch('factorpool.simulation.alpha_targets', function):
                         path = Path(directory)
