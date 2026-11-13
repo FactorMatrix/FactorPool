@@ -1,4 +1,4 @@
-"""Research entry points; all indicator arithmetic remains in FactorTrader."""
+"""Research Indicator frontend over the shared native graph and Pool kernels."""
 
 __all__ = ["PythonIndicator", "Indicator"]
 

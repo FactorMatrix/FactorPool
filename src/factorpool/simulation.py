@@ -22,7 +22,7 @@ SETTINGS_SCOPE = (
 
 
 def _decayed(factors, members, period):
-    from factortrader import PythonIndicator
+    from factorpool import PythonIndicator
     from .adapter import IndicatorAdapter
 
     class LinearDecay(PythonIndicator):

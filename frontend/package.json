@@ -15,7 +15,8 @@
     "@codemirror/state": "6.5.0",
     "@codemirror/view": "6.35.3",
     "@codemirror/language": "6.13.1",
-    "@lezer/highlight": "1.2.5"
+    "@lezer/highlight": "1.2.5",
+    "@codemirror/autocomplete": "6.20.4"
   },
   "devDependencies": {
     "vite": "6.0.7",

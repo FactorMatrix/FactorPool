@@ -5,9 +5,8 @@ import UiIcon from "./UiIcon.vue";
 import DocCode from "./DocCode.vue";
 import OperatorDetails from "./OperatorDetails.vue";
 import SettingDetails from "./SettingDetails.vue";
-import { operatorDescriptions, settingHints } from "../tutorial-content";
+import { settingHints } from "../tutorial-content";
 import { learnGroups, learnArticles } from "../learn-articles";
-import { operatorReference } from "../operator-reference";
 import { operatorCategories, operatorCategoryOf } from "../operator-categories";
 
 const props = defineProps({ operators: { type: Array, default: () => [] } });
@@ -33,7 +32,7 @@ const sections = computed(() => {
 });
 const categoryCount = id => coreOperators.value.filter(item => operatorCategoryOf(item) === id).length;
 const filteredOperators = computed(() => coreOperators.value.filter(item =>
-  [item.name, item.frontend, operatorDescriptions[item.name], operatorReference[item.name]?.title].join(" ").toLowerCase().includes(operatorQuery.value.trim().toLowerCase())
+  [item.name, item.frontend, item.summary, item.reference?.title, item.brain_category].join(" ").toLowerCase().includes(operatorQuery.value.trim().toLowerCase())
  ));
 const operatorGroups = computed(() => operatorCategories
   .map(group => ({ ...group, items: filteredOperators.value.filter(item => operatorCategoryOf(item) === group.id) }))
@@ -42,7 +41,7 @@ const filteredSettings = computed(() => (catalog.value?.fields || []).filter(ite
 const searchResults = computed(() => {
   const value = query.value.trim().toLowerCase(); if (!value) return [];
   const pages = navigation.value.filter(item => [item.title, item.description, ...(learnArticles[item.id]?.sections || []).map(section => [section.title, ...(section.paragraphs || [])].join(" "))].join(" ").toLowerCase().includes(value)).map(item => ({ label: item.title, context: item.group, page: item.id }));
-  const operators = coreOperators.value.filter(item => [item.name, item.frontend, operatorDescriptions[item.name]].join(" ").toLowerCase().includes(value)).map(item => ({ label: item.name, context: "算子参考", page: "operators", operator: item.name }));
+  const operators = coreOperators.value.filter(item => [item.name, item.frontend, item.summary].join(" ").toLowerCase().includes(value)).map(item => ({ label: item.name, context: "算子参考", page: "operators", operator: item.name }));
   const fields = catalog.value?.fields || Object.keys(settingHints).map(field => ({ field }));
   const settings = fields.filter(item => [item.field, item.stage, settingHints[item.field]].join(" ").toLowerCase().includes(value)).map(item => ({ label: item.field, context: "模拟设置", page: "settings", setting: item.field }));
   return [...pages, ...operators, ...settings].slice(0, 12);
@@ -179,7 +178,7 @@ onBeforeUnmount(() => { window.removeEventListener("hashchange", readRoute); win
             <header class="docs-article-header"><span class="docs-section-label">{{ activeNav.group }}</span><h1 tabindex="-1">{{ title }}</h1><p>{{ subtitle }}</p></header>
             <template v-if="pageId === 'operators'">
               <section data-section="operator-guide" class="doc-section operator-guide">
-                <p><code>self.ts</code> 处理单股历史，<code>self.cs</code> 处理同日截面。各类算子按章节列在下方，点击名称原地展开参数和例子。</p>
+                <p>算术使用 Python 运算符或 <code>self.log(x)</code> 等直接方法；<code>self.ts</code> 处理历史，<code>self.cs</code> 处理截面，<code>self.vc</code> 处理证券内分量，<code>self.gp</code> 处理分组，<code>self.tf</code> 处理分桶与条件更新。点击名称原地展开。</p>
                 <details class="operator-usage"><summary>查看调用示例</summary><DocCode :code="'mean_volume = self.ts.mean(input.volume, 20)\nself.value = self.cs.rank_unit(-mean_volume)\nreturn self.ts.is_ready(mean_volume)'" /></details>
                 <p class="doc-caption">BRAIN核心清单 {{ coreOperators.length }} 项，当前已接通 {{ connectedCount }} 项。下方按标准分类完整列出，并逐项标明实际支持状态。</p>
               </section>
@@ -194,7 +193,7 @@ onBeforeUnmount(() => { window.removeEventListener("hashchange", readRoute); win
                     <article v-for="item in group.items" :key="item.name" :data-operator="item.name" class="operator-entry">
                       <button :id="'operator-toggle-' + item.name" class="reference-toggle" :aria-expanded="expandedOperators.has(item.name)" :aria-controls="'operator-details-' + item.name" @click="toggleOperator(item.name)">
                         <div><strong>{{ item.name }}</strong><span class="row-badges"><span class="doc-status" :class="connected(item) ? 'available' : 'unavailable'">{{ connected(item) ? '已接通' : '待接通' }}</span><span class="toggle-label">{{ expandedOperators.has(item.name) ? '收起' : '展开' }}<UiIcon name="arrow" :size="14" :class="{ expanded: expandedOperators.has(item.name) }" /></span></span></div>
-                        <code>{{ item.frontend || '暂无可调用入口' }}</code><p>{{ operatorDescriptions[item.name] || '点击查看调用方式与使用说明。' }}</p>
+                        <code>{{ item.frontend || '暂无可调用入口' }}</code><p>{{ item.summary || '点击查看调用方式与使用说明。' }}</p>
                       </button>
                       <OperatorDetails v-if="expandedOperators.has(item.name)" :id="'operator-details-' + item.name" :operator="item" :aria-labelledby="'operator-toggle-' + item.name" />
                     </article>

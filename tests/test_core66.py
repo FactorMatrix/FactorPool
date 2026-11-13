@@ -4,23 +4,24 @@ import json
 import tempfile
 import unittest
 import numpy as np
+from scipy.special import ndtri
 from factorpool.adapter import IndicatorAdapter
 from factorpool.runner import load_factor
 
 CORE_EXPRESSIONS = {
- 'abs':'self.cs.abs(input.close)', 'add':'self.cs.add(input.close, input.high, filter=True)',
- 'densify':'self.cs.densify(input.open)', 'divide':'self.cs.divide(input.close,input.high)',
- 'inverse':'self.cs.inverse(input.close)', 'log':'self.cs.log(input.close)',
- 'max':'self.cs.max(input.close,input.high)', 'min':'self.cs.min(input.close,input.high)',
- 'multiply':'self.cs.multiply(input.close,2,filter=True)', 'power':'self.cs.power(input.close,2)',
- 'reverse':'self.cs.reverse(input.close)', 'sign':'self.cs.sign(input.close)',
- 'signed_power':'self.cs.signed_power(input.close,0.5)', 'sqrt':'self.cs.sqrt(input.close)',
- 'subtract':'self.cs.subtract(input.high,input.close,filter=True)',
+ 'abs':'self.abs(input.close)', 'add':'input.close + input.high',
+ 'densify':'self.cs.densify(input.open)', 'divide':'input.close / input.high',
+ 'inverse':'1 / input.close', 'log':'self.log(input.close)',
+ 'max':'self.max(input.close,input.high)', 'min':'self.min(input.close,input.high)',
+ 'multiply':'input.close * 2', 'power':'input.close ** 2',
+ 'reverse':'-input.close', 'sign':'self.sign(input.close)',
+ 'signed_power':'self.signed_power(input.close,0.5)', 'sqrt':'self.sqrt(input.close)',
+ 'subtract':'input.high - input.close',
  'and':'(input.close > 0) & (input.high > input.close)', 'or':'(input.close > 0) | (input.high < 0)',
  'not':'~(input.close < 0)', 'equal':'input.close == input.high', 'not_equal':'input.close != input.high',
  'less':'input.close < input.high','less_than_equal':'input.close <= input.high',
  'greater':'input.high > input.close','greater_than_equal':'input.high >= input.close',
- 'if_else':'self.cs.if_else(input.close > 0,input.close,0)', 'is_nan':'self.cs.is_nan(input.close)',
+ 'if_else':'(input.close if input.close > 0 else 0)', 'is_nan':'self.is_nan(input.close)',
  'days_from_last_change':'self.ts.days_from_last_change(input.close)', 'hump':'self.ts.hump(input.close,hump=0.01)',
  'kth_element':'self.ts.kth_element(input.close,3,1,ignore="NaN")',
  'last_diff_value':'self.ts.last_diff_value(input.close,3)', 'ts_arg_max':'self.ts.arg_max(input.close,3)',
@@ -38,15 +39,76 @@ CORE_EXPRESSIONS = {
  'quantile':'self.cs.quantile(input.close,driver="gaussian",sigma=1)',
  'rank':'self.cs.rank_unit(input.close,rate=0)', 'scale':'self.cs.scale(input.close,scale=1)',
  'winsorize':'self.cs.winsorize(input.close,std=2)', 'zscore':'self.cs.zscore(input.close)',
- 'vec_avg':'self.cs.vec_avg((input.close,input.high))', 'vec_sum':'self.cs.vec_sum([input.close,input.high])',
- 'bucket':'self.cs.bucket(input.close,buckets="5,10,20")',
- 'trade_when':'self.cs.trade_when(input.close > 0,input.close,-1)',
- 'group_backfill':'self.cs.group_backfill(input.close,input.open,3,std=4)',
- 'group_mean':'self.cs.group_mean(input.close,input.volume,input.open)',
- 'group_neutralize':'self.cs.group_neutralize(input.close,input.open)',
- 'group_rank':'self.cs.group_rank(input.close,input.open)', 'group_scale':'self.cs.group_scale(input.close,input.open)',
- 'group_zscore':'self.cs.group_zscore(input.close,input.open)',
+ 'vec_avg':'self.vc.avg((input.close,input.high))', 'vec_sum':'self.vc.sum([input.close,input.high])',
+ 'bucket':'self.tf.bucket(input.close,buckets="5,10,20")',
+ 'trade_when':'self.tf.trade_when(input.close > 0,input.close,-1)',
+ 'group_backfill':'self.gp.backfill(input.close,input.open,3,std=4)',
+ 'group_mean':'self.gp.mean(input.close, input.open, weight=input.volume)',
+ 'group_neutralize':'self.gp.neutralize(input.close,input.open)',
+ 'group_rank':'self.gp.rank(input.close,input.open)', 'group_scale':'self.gp.scale(input.close,input.open)',
+ 'group_zscore':'self.gp.zscore(input.close,input.open)',
 }
+
+def expected_core_values(name):
+ """Independent NumPy/SciPy calculations for the six complete input frames."""
+ axis=np.arange(5,dtype=float)
+ history=np.array([(t+2)*(axis+1)+axis**2 for t in range(6)])
+ x=history[-1];y=x+1;step=axis+1;window=history[-3:]
+ groups=axis%2;weight=2*x+1
+ arithmetic={
+  'abs':np.abs(x),'add':x+y,'densify':groups,'divide':x/y,
+  'inverse':1/x,'log':np.log(x),'max':y,'min':x,'multiply':x*2,
+  'power':x**2,'reverse':-x,'sign':np.sign(x),'signed_power':np.sqrt(x),
+  'sqrt':np.sqrt(x),'subtract':y-x,
+ }
+ logical={
+  'and':np.ones(5),'or':np.ones(5),'not':np.ones(5),'equal':np.zeros(5),
+  'not_equal':np.ones(5),'less':np.ones(5),'less_than_equal':np.ones(5),
+  'greater':np.ones(5),'greater_than_equal':np.ones(5),'if_else':x,'is_nan':np.zeros(5),
+ }
+ if name in arithmetic:return arithmetic[name]
+ if name in logical:return logical[name]
+ if name=='hump':
+  held=history[0].copy()
+  for current in history[1:]:
+   limit=.01*np.abs(current).sum()
+   difference=current-held
+   held=np.where(np.abs(difference)>limit,held+np.sign(difference)*limit,held)
+  return held
+ temporal={
+  'days_from_last_change':np.zeros(5),'kth_element':x,'last_diff_value':history[-2],
+  'ts_arg_max':np.zeros(5),'ts_arg_min':np.full(5,2.),
+  'ts_av_diff':x-window.mean(axis=0),'ts_backfill':x,'ts_corr':np.ones(5),
+  'ts_count_nans':np.zeros(5),'ts_covariance':2*window.var(axis=0),
+  'ts_decay_linear':np.average(window,weights=[1,2,3],axis=0),
+  'ts_delay':history[-3],'ts_delta':x-history[-3],'ts_mean':window.mean(axis=0),
+  'ts_product':window.prod(axis=0),'ts_quantile':np.full(5,ndtri(5/6)),
+  'ts_rank':np.full(5,1.1),'ts_regression':np.full(5,.5),
+  'ts_scale':np.full(5,1.1),'ts_std_dev':window.std(axis=0),
+  'ts_step':np.full(5,6.),'ts_sum':window.sum(axis=0),
+  'ts_zscore':(x-window.mean(axis=0))/window.std(axis=0),
+ }
+ if name in temporal:return temporal[name]
+ standardized=(x-x.mean())/x.std()
+ cross={
+  'normalize':np.clip(standardized,-3,3),'quantile':ndtri(np.linspace(.2,.8,5)),
+  'rank':np.linspace(0,1,5),'scale':x/np.abs(x).sum(),
+  'winsorize':np.clip(x,x.mean()-2*x.std(),x.mean()+2*x.std()),'zscore':standardized,
+  'vec_avg':(x+y)/2,'vec_sum':x+y,'bucket':np.searchsorted([5,10,20],x,side='right'),
+  'trade_when':x,'group_backfill':x,
+ }
+ if name in cross:return cross[name]
+ output=np.empty(5)
+ for group in (0,1):
+  selected=groups==group;data=x[selected]
+  if name=='group_mean':value=np.average(data,weights=weight[selected])
+  elif name=='group_neutralize':value=data-data.mean()
+  elif name=='group_rank':value=np.linspace(0,1,len(data))
+  elif name=='group_scale':value=(data-data.min())/(data.max()-data.min())
+  elif name=='group_zscore':value=(data-data.mean())/data.std()
+  else:raise AssertionError(name)
+  output[selected]=value
+ return output
 
 class Core66Tests(unittest.TestCase):
  def build(self, expression, statements=""):
@@ -73,6 +135,7 @@ class Core66Tests(unittest.TestCase):
     for t in range(6):result=adapter.update(self.frame(t),factory)
     self.assertEqual(len(result),5)
     self.assertTrue(all(row['ready'] and row['valid'] and np.isfinite(row['value']) for row in result),result)
+    np.testing.assert_allclose([row['value'] for row in result],expected_core_values(name),rtol=2e-10,atol=2e-10)
  def test_paired_regression_rettypes_and_lag_reach_public_adapter(self):
   for rettype in range(10):
    with self.subTest(rettype=rettype):
@@ -95,7 +158,7 @@ class Core66Tests(unittest.TestCase):
   cases=[('self.ts.product(input.close,20)',20),
          ('self.ts.product(self.ts.product(input.close,3),5)',7),
          ('self.ts.regression(input.close,input.volume,4,lag=2)',6),
-         ('self.cs.group_backfill(input.close,input.open,5)',5),
+         ('self.gp.backfill(input.close,input.open,5)',5),
          ('self.ts.mean(self.ts.product(input.close,3),5)',7),
          ('self.ts.product(self.ts.mean(input.close,3,clock="trading_days"),5)',7),
          ('self.ts.step(2)',1)]
@@ -111,7 +174,7 @@ class Core66Tests(unittest.TestCase):
    with self.subTest(expression=expression):
     with self.assertRaises(ValueError):self.build(expression)
  def test_prewarmed_valid_observation_window_does_not_hide_unready_selected_input(self):
-  expression='self.cs.is_nan(self.ts.product(self.cs.if_else(input.close > 0,input.close,self.ts.mean(input.volume,10)),2,clock="valid_observations"))'
+  expression='self.is_nan(self.ts.product((input.close if input.close > 0 else self.ts.mean(input.volume, 10)),2,clock="valid_observations"))'
   adapter,factory=self.build(expression)
   outputs=[]
   for t,x in enumerate([1,2,-1]):
@@ -121,7 +184,7 @@ class Core66Tests(unittest.TestCase):
   self.assertTrue(all(row['valid'] and row['value']==0 for row in outputs[1]))
   self.assertTrue(all(not row['ready'] and not row['valid'] for row in outputs[2]),outputs[2])
  def test_group_backfill_reuses_each_group_mean_for_multiple_missing_members(self):
-  adapter,factory=self.build('self.cs.group_backfill(input.close,input.open,2,std=100)')
+  adapter,factory=self.build('self.gp.backfill(input.close,input.open,2,std=100)')
   first=self.frame(0)
   for row in first['rows'].values():row['close']=2;row['open']=0
   adapter.update(first,factory)

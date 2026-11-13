@@ -240,8 +240,8 @@ class FactorMatrixTests(unittest.TestCase):
         payload["quotes"]["values"] = values
         expressions = [
             "self.ts.count_nans(input.close, 3)",
-            "self.cs.if_else(self.cs.is_nan(input.close), self.ts.backfill(input.volume, 3), self.ts.mean(input.close, 3))",
-            "self.ts.mean(self.cs.if_else(self.cs.is_nan(input.close), input.volume, input.close), 3)",
+            '(self.ts.backfill(input.volume, 3) if self.is_nan(input.close) else self.ts.mean(input.close, 3))',
+            'self.ts.mean((input.volume if self.is_nan(input.close) else input.close), 3)',
         ]
         for expression in expressions:
             with self.subTest(expression=expression):
@@ -262,8 +262,7 @@ class FactorMatrixTests(unittest.TestCase):
             frames.append(dict(date=(date(2024, 1, 2)+timedelta(days=t)).isoformat(),
                                session_index=t, symbols=["A"], rows={"A": row}))
         payload = payload_from_frames(frames)
-        expression = ('self.ts.mean(self.cs.if_else(self.cs.is_nan(input.total_turnover), '
-                      'input.open, input.total_turnover), 3, clock="valid_observations")')
+        expression = ('self.ts.mean((input.open if self.is_nan(input.total_turnover) else input.total_turnover), 3, clock="valid_observations")')
         indicator, factory, _ = self.factor(expression)
         reference = IndicatorAdapter(factory())
         for frame in frames:
@@ -353,7 +352,7 @@ class FactorMatrixTests(unittest.TestCase):
         payload["frames"][5]["rows"]["A"]["close"] = None
         values.setflags(write=False)
         payload["quotes"]["values"] = values
-        indicator, factory, _ = self.factor("self.cs.is_nan(input.close)")
+        indicator, factory, _ = self.factor("self.is_nan(input.close)")
         evaluator = FactorMatrix(payload, indicator, factory, payload["quotes"]["dates"][-1])
         output = evaluator.evaluate(5)
         self.assertEqual(output[0]["value"], 1)

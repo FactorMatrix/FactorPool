@@ -20,11 +20,16 @@ def log(stage, **values):
 
 
 def load_factor(path, class_name, params):
+    from .operator_frontend import validate_source_frontend
+    from .entry import PythonIndicator
+    validate_source_frontend(Path(path).read_text())
     spec = importlib.util.spec_from_file_location("factorpool_user_factor", path)
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     cls = getattr(module, class_name)
+    if not isinstance(cls, type) or not issubclass(cls, PythonIndicator):
+        raise TypeError("Use from factorpool import PythonIndicator; the shared Trader research base is not a Pool frontend")
     return lambda: cls(**params)
 
 
@@ -277,6 +282,8 @@ def run(directory, *, factory=None):
         annualized_scope="legacy ICIR only; portfolio annualization is defined in diagnostics.conventions",
         operator_contract="pool-indicator-2", shared_primitive_contract="ft-pool-1", forward_return_horizon=1, report_version=3, report_horizons=horizons, coverage_axis="historical universe membership", stage_seconds=timings, value_count=len(rows))
     result["metadata"]["indicator_backend"] = "pool_native" if getattr(indicator, "_pool_ir", None) is not None else adapter.mode
+    from .operator_frontend import FRONTEND_VERSION
+    result["metadata"]["public_operator_api"] = FRONTEND_VERSION
     if getattr(indicator, "_pool_ir", None) is not None:
         from .operators import CONTRACT
         result["metadata"]["pool_operator_contract"] = deepcopy(CONTRACT)

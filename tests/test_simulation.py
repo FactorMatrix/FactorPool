@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import numpy as np
 import _factorpool_native as native
@@ -31,17 +31,31 @@ class SharedDecayReference(SharedIndicator):
 
 
 def shared_decay_values(factors, members, period):
-    factory = lambda: SharedDecayReference(period)
-    adapter = IndicatorAdapter(factory())
+    reference = SharedDecayReference(period)
+    reference._prepare()
     out = np.full(factors.shape, np.nan)
     for t, row in enumerate(factors):
         symbols = [f'S{n:04d}' for n in range(factors.shape[1]) if members[t, n] > 0]
         rows = {f'S{n:04d}': dict(open=value, high=value, low=value, close=value, volume=1)
                 for n, value in enumerate(row) if members[t, n] > 0 and np.isfinite(value)}
         frame = dict(date=(date(2024, 1, 2)+timedelta(days=t)).isoformat(), symbols=symbols, rows=rows)
-        for cell in adapter.update(frame, factory):
-            if cell['value'] is not None:
-                out[t, int(cell['symbol'][1:])] = cell['value']
+        # This is an explicit fixed-SDK numerical oracle, not a Pool user
+        # factor entry or a route through IndicatorAdapter.
+        ids = tuple(sorted(symbols))
+        if reference._graph is None:
+            reference._activate(ids, batch=True)
+        columns = {field: [rows.get(symbol, {}).get(field, float('nan')) for symbol in ids]
+                   for field in reference._manual_fields}
+        stamp = int(frame['date'].replace('-', '')+'150000')
+        reference._update_native_columns(stamp, columns, symbols=ids,
+                                         valid=[symbol in rows for symbol in ids])
+        state = reference._binding.graph_snapshot(reference._graph)
+        current = NativeVector._view(reference._binding, state['current']).to_numpy()
+        valid = NativeVector._view(reference._binding, state['valid']).to_numpy()
+        ready = NativeVector._view(reference._binding, state['ready']).to_numpy()
+        for i, symbol in enumerate(state['symbols']):
+            if valid[i] and ready[i] and np.isfinite(current[i]):
+                out[t, int(symbol[1:])] = current[i]
     return out
 
 
@@ -220,7 +234,7 @@ class CalculationUniverseTests(unittest.TestCase):
 config = CONFIG
 class PoolRank(PythonIndicator):
     def update(self, input):
-        self.value = self.cs.rank(input.volume, pct=True)
+        self.value = self.cs.rank_unit(input.volume, normalization='percentile')
         return True
 if __name__ == "__main__":
     PoolRank.run(config)
@@ -244,7 +258,7 @@ if __name__ == "__main__":
             source = source_template.replace('CONFIG', repr(config))
             held = []
             def capture(indicator):
-                adapter = IndicatorAdapter(indicator); held.append(adapter); return adapter
+                adapter = IndicatorAdapter(indicator); adapter.binding = Mock(wraps=adapter.binding); held.append(adapter); return adapter
             with tempfile.TemporaryDirectory() as temporary, \
                     patch('factorpool.market_store.load', return_value=payload) as load, \
                     patch('factorpool.factor_matrix.IndicatorAdapter', side_effect=capture), \
@@ -260,7 +274,7 @@ if __name__ == "__main__":
                     adapter = held[-1]
                     state = adapter.binding.graph_snapshot(adapter.graph)
                     self.assertEqual(list(state['symbols']), ['A', 'B', 'C'])
-                    np.testing.assert_equal(NativeVector._view(adapter.binding, state['samples']).to_numpy(), [1, 1, 1])
+                    self.assertEqual(adapter.binding.graph_update.call_count, 1)
                 self.assertEqual(len(values), 2)
         np.testing.assert_allclose(results['ON'], [.5, 1], atol=1e-14)
         np.testing.assert_allclose(results['OFF'], [2/3, 1], atol=1e-14)

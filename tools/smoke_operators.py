@@ -37,7 +37,7 @@ def run(config,body,label):
  return dict(task=task,report=report,values=values)
 config=dict(base=dict(start_date='2024-01-04',end_date='2024-01-08'),
             data=dict(provider='fixture',universe='fixture'),analysis=dict(groups=3,horizons=[1],decay_steps=1))
-extended=run(config,'''        safe = self.cs.if_else(input.close > 0, self.cs.sqrt(input.close), self.cs.log(-1))
+extended=run(config,'''        safe = (self.sqrt(input.close) if input.close > 0 else self.log(-1))
         ranked = self.cs.rank_unit(safe)
         value = self.ts.mean(ranked, 2, clock='trading_days')
         self.value = value

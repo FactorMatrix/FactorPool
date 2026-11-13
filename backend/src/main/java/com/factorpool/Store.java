@@ -252,6 +252,8 @@ public class Store {
       }
       normalized.put("source_mode", "script");
       validate(normalized);
+    } else {
+      scripts.validateFrontend(normalized.path("source_code").asText());
     }
     if (!normalized.path("factor_class").asText().matches("[A-Za-z_][A-Za-z0-9_]*"))
       throw new IllegalArgumentException("Invalid factor_class");

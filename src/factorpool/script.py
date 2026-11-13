@@ -37,9 +37,20 @@ def _calls(statements):
         yield from _calls(ast.iter_child_nodes(node))
 
 
-def parse_source(source):
+def validate_frontend_source(source):
     if not isinstance(source, str) or not source.strip() or len(source) > 131072:
         _fail(None, "source_code (max 128 KiB) is required")
+    from .operator_frontend import validate_source_frontend
+    try:
+        validate_source_frontend(source)
+    except SyntaxError as error:
+        raise ScriptError(f"line {error.lineno or 1}: invalid Python syntax") from None
+    except ValueError as error:
+        raise ScriptError(str(error)) from None
+
+
+def parse_source(source):
+    validate_frontend_source(source)
     try:
         module = ast.parse(source)
     except (SyntaxError, ValueError) as error:
@@ -147,7 +158,11 @@ def main():
         body = json.loads(sys.stdin.read(1048577))
         if not isinstance(body, dict):
             raise ScriptError("line 1: expected a source_code object")
-        result = parse_source(body.get("source_code"))
+        if body.get("frontend_only") is True:
+            validate_frontend_source(body.get("source_code"))
+            result = {"valid": True}
+        else:
+            result = parse_source(body.get("source_code"))
         print(json.dumps(result, ensure_ascii=False, allow_nan=False))
     except (ValueError, RecursionError):
         error = sys.exc_info()[1]

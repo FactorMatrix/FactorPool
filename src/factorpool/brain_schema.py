@@ -29,33 +29,34 @@ TS = {
     'delay': ('ts_delay', 1, ('period',), {}),
     'delta': ('ts_delta', 1, ('period',), {}),
 }
-NEW_TS = set(TS) - {'av_diff', 'scale', 'zscore', 'decay_linear', 'mean', 'sum', 'std', 'delay', 'delta'}
+LEGACY_TS = frozenset(('av_diff', 'scale', 'zscore', 'decay_linear', 'mean', 'sum', 'std', 'delay', 'delta'))
+NEW_TS = set(TS) - LEGACY_TS
 CS = {
     'densify': ('densify', 1, (), {}),
     'quantile': ('quantile', 1, ('driver', 'sigma'), {'driver': 'gaussian', 'sigma': 1}),
     'winsorize': ('winsorize', 1, ('std',), {'std': 4}),
+    'normalize': ('normalize', 1, ('useStd', 'limit'), {'useStd': False, 'limit': 0}),
+    'scale': ('scale', 1, ('scale', 'longscale', 'shortscale'), {'scale': 1}),
+    'rank_unit': ('rank', 1, ('rate',), {'rate': 2}),
+    'zscore': ('zscore', 1, (), {}),
+}
+GROUP = {'backfill':'group_backfill', 'mean':'group_mean', 'neutralize':'group_neutralize',
+         'rank':'group_rank', 'scale':'group_scale', 'zscore':'group_zscore'}
+VECTOR = {'avg':'vec_avg', 'sum':'vec_sum'}
+TRANSFORM = {'bucket':'bucket', 'trade_when':'trade_when'}
+_CROSS_KERNELS = {
+    **CS,
     'bucket': ('bucket', 1, ('range', 'buckets', 'skipBegin', 'skipEnd', 'skipBoth', 'NaNGroup'), {}),
     'trade_when': ('trade_when', 3, (), {}),
-    'group_backfill': ('group_backfill', 2, ('period', 'std'), {'std': 4}),
+    'group_backfill': ('group_backfill', 2, ('period', 'std'), {'std':4}),
     'group_mean': ('group_mean', 3, (), {}),
-    'group_scale': ('group_scale', 2, (), {}),
-    'group_zscore': ('group_zscore', 2, (), {}),
-    'normalize': ('normalize', 1, ('useStd', 'limit'), {'useStd': False, 'limit': 0}),
-    'scale': ('scale', 1, ('scale', 'longscale', 'shortscale'), {}),
-    'rank_unit': ('rank', 1, ('rate',), {'rate': 2}),
-    'rank': ('rank', 1, ('rate',), {'rate': 2}),
-    'zscore': ('zscore', 1, (), {}),
     'group_neutralize': ('group_neutralize', 2, (), {}),
     'group_rank': ('group_rank', 2, (), {}),
-    'inverse': ('inverse', 1, (), {}),
-    'reverse': ('reverse', 1, (), {}),
+    'group_scale': ('group_scale', 2, (), {}),
+    'group_zscore': ('group_zscore', 2, (), {}),
     'abs': ('abs', 1, (), {}),
-    'divide': ('divide', 2, (), {}),
 }
-NEW_CS = set(CS) - {'normalize', 'scale', 'rank_unit', 'rank', 'zscore', 'group_neutralize', 'group_rank'}
 VARIADIC = {'add', 'subtract', 'multiply', 'min', 'max'}
-VECTOR = {'vec_avg', 'vec_sum'}
-ALIASES = {'d': 'period', 'lookback': 'period', 'use_std': 'useStd', 'long_scale': 'longscale', 'short_scale': 'shortscale', 'skip_begin': 'skipBegin', 'skip_end': 'skipEnd', 'skip_both': 'skipBoth', 'nan_group': 'NaNGroup'}
 
 def literal(compiler, node):
     if isinstance(node, ast.Constant) and type(node.value) in (str, bool, int, float):
@@ -72,12 +73,22 @@ def literal(compiler, node):
 
 def prepare_core_call(compiler, domain, method, syntax, variables):
     values = []
-    if domain == 'cs' and method in VARIADIC | VECTOR:
-        if method in VECTOR and len(syntax.args) == 1 and isinstance(syntax.args[0], (ast.Tuple, ast.List)):
+    if domain == 'gp':
+        if method == 'mean':
+            if len(syntax.args) != 2 or any(k.arg != 'weight' for k in syntax.keywords) or len(syntax.keywords)>1:
+                raise compiler.error(syntax, 'self.gp.mean(x, g, *, weight=1) requires exactly x and g; weight is keyword-only')
+            weight=syntax.keywords[0].value if syntax.keywords else ast.copy_location(ast.Constant(value=1),syntax)
+            syntax=ast.copy_location(ast.Call(func=syntax.func,args=[syntax.args[0],weight,syntax.args[1]],keywords=[]),syntax)
+        method=GROUP[method]
+    elif domain == 'vc':method=VECTOR[method]
+    elif domain == 'tf':method=TRANSFORM[method]
+    domain='ts' if domain=='ts' else 'cs'
+    if domain == 'cs' and method in VARIADIC | set(VECTOR.values()):
+        if method in VECTOR.values() and len(syntax.args) == 1 and isinstance(syntax.args[0], (ast.Tuple, ast.List)):
             expressions = syntax.args[0].elts
         else:
             expressions = syntax.args
-        minimum = 1 if method in VECTOR else 2
+        minimum = 1 if method in VECTOR.values() else 2
         if len(expressions) < minimum:
             raise compiler.error(syntax, method + ' has too few input expressions')
         values = [compiler.value(compiler.expression(arg, variables), arg) for arg in expressions]
@@ -88,7 +99,7 @@ def prepare_core_call(compiler, domain, method, syntax, variables):
             options['filter'] = literal(compiler, keyword.value)
         name, depth = method, 1
     else:
-        name, count, parameters, defaults = (TS if domain == 'ts' else CS)[method]
+        name, count, parameters, defaults = (TS if domain == 'ts' else _CROSS_KERNELS)[method]
         if len(syntax.args) < count:
             raise compiler.error(syntax, method + ' requires ' + str(count) + ' data expressions')
         values = [compiler.value(compiler.expression(arg, variables), arg) for arg in syntax.args[:count]]
@@ -97,11 +108,12 @@ def prepare_core_call(compiler, domain, method, syntax, variables):
             raise compiler.error(syntax, 'too many options for ' + method)
         options = dict(zip(parameters, [literal(compiler, arg) for arg in supplied]))
         for keyword in syntax.keywords:
-            key = ALIASES.get(keyword.arg, keyword.arg)
+            key = 'period' if domain=='ts' and method=='backfill' and keyword.arg=='lookback' else keyword.arg
             if key not in parameters + ('clock',) or key in options or domain != 'ts' and key == 'clock':
                 raise compiler.error(syntax, 'unsupported/repeated option ' + str(keyword.arg))
             options[key] = literal(compiler, keyword.value)
         options = {**defaults, **options}
+        if domain == 'ts':options.setdefault('clock', 'valid_observations' if method in LEGACY_TS else 'trading_days')
         if 'period' in parameters and 'period' not in options:
             raise compiler.error(syntax, method + ' requires a period/lookback')
         if name == 'bucket' and sum(key in options for key in ('range', 'buckets')) != 1:

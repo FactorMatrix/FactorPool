@@ -566,6 +566,7 @@ onBeforeUnmount(() => {
               <FactorEditor
                 :key="workspaceId"
                 v-model="source"
+                :operators="operators"
               /><WorkspaceSettings
                 v-if="settingsOpen"
                 :values="settings"

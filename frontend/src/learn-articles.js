@@ -79,11 +79,21 @@ export const learnArticles = {
         self.value = value
         return self.ts.is_ready(value)`, codeLabel: "因子类示例" },
       { id: "ts-and-cs", title: "时序 TS 与截面 CS", paragraphs: [
-        "self.ts 对每只股票自己的历史序列计算，例如均线、延迟和标准差。self.cs 对同一交易日的完整股票截面计算，例如排名和标准化。",
+        "self.ts 沿单股历史计算，self.cs 沿同日证券截面计算；self.vc 处理每只股票内部的分量，self.tf 处理分桶与条件更新，self.gp 处理同日分组。算术直接使用 self.log(x)、self.max(x, y) 等方法或Python运算符。",
         "可以先做时序，再做截面。下面的表达式会对每只股票的 20 期均量做同日排名；截面步骤等待完整的同日数据，不按股票到达顺序提前消费。",
       ], code: `mean_volume = self.ts.mean(input.volume, 20)
 self.value = self.cs.rank_unit(-mean_volume)
 return self.ts.is_ready(mean_volume)`, codeLabel: "update 内的组合表达式" },
+      { id: "operator-domains", title: "组合算子入口", paragraphs: [
+        "普通算术直接用Python符号或self上的数学方法，无需导入math或算子函数。逻辑选择写yes if condition else no，由表达式编译器逐证券处理。",
+        "下面先对每只证券的价格分量求均值，再做时序均值；成交量截面排名分桶后，作为真实表达式标签参与组内标准化。桶不代表行业。",
+      ], code: `def update(self, input):
+    x = self.vc.avg((input.open, input.close))
+    y = self.ts.mean(x, 3)
+    group = self.tf.bucket(self.cs.rank_unit(input.volume), buckets="0.33,0.66")
+    value = self.gp.zscore(y, group)
+    self.value = value
+    return self.ts.is_ready(value)`, codeLabel: "vc、ts、cs、tf、gp 组合" },
       { id: "ready-and-valid", title: "ready 和 valid 表示什么", table: { columns: ["状态", "含义", "常见原因"], rows: [
         ["ready=False", "历史窗口还未完成", "均线样本不足、股票重新进入计算轴"],
         ["ready=True，valid=False", "窗口时间已到，但本次结果不可用", "所需值缺失、除数为零、标准差为零"],
@@ -91,7 +101,7 @@ return self.ts.is_ready(mean_volume)`, codeLabel: "update 内的组合表达式"
       ] }, paragraphs: ["不要用 0 代替未准备好或缺失的结果。先检查 Factor Values 的 reason，再决定表达式是否需要调整。"] },
       { id: "rank-conventions", title: "明确使用哪一种排名", paragraphs: [
         "推荐 self.cs.rank_unit(x)：正常截面映射到 0 到 1，端点为 0 和 1，并列值使用平均名次；单样本或全相等截面取 0.5。",
-        "旧 self.cs.rank(x, pct=True) 保留“平均名次 / 样本数”的口径。两者端点不同，替换接口会改变因子值。",
+        "需要不同尺度时，显式使用 normalization=\"percentile\"（平均名次/N）或 normalization=\"ordinal\"（1基平均并列名次）；默认 normalization=\"unit\"。",
       ] },
     ],
   },
@@ -164,9 +174,9 @@ Q[t] = Q[t-1] * q[t]
     id: "windows", title: "窗口、缺失与时钟", subtitle: "同样的 period，先确定它数的是有效观测还是交易日。", readingTime: "5 分钟",
     sections: [
       { id: "window-clocks", title: "两种窗口时钟", table: { columns: ["时钟", "如何推进", "写法"], rows: [
-        ["valid_observations（默认）", "按有效观测推进；缺失不占有效观测次数", "self.ts.mean(x, 5)"],
+        ["valid_observations", "按有效观测推进；缺失不占有效观测次数", "self.ts.mean(x, 5)"],
         ["trading_days", "按传入的交易日轴占槽；缺失日仍保留槽位", "self.ts.mean(x, 5, clock=\"trading_days\")"],
-      ] }, paragraphs: ["交易日窗口不把周末当成交易日。动态退出后重新进入计算轴的股票会重新积累状态。"] },
+      ] }, paragraphs: ["每个算子的默认clock在其详情列明；不要把mean的默认值套用到全部时序算子。省略参数与显式写出同一个默认值保持一致。交易日窗口不把周末当成交易日，动态退出再入会重新积累状态。"] },
       { id: "delay-example", title: "用 delay 看出差别", paragraphs: [
         "假设某只股票连续四个交易日的输入为 10、缺失、30、40。在第三日，delay(x, 1) 的默认时钟返回上一个有效观测 10；交易日时钟要取第二日的槽位，所以结果不可用。第四日，两者都可以取到第三日的 30。",
         "若当前交易日没有 Bar，不发布该股票的有效因子值。日历槽位存在，与当前日存在真实观测，是两件不同的事。",
@@ -181,7 +191,7 @@ value = self.ts.delay(input.close, 1, clock="trading_days")`, codeLabel: "在 up
       ] },
       { id: "zero-and-missing", title: "真实零值不是缺失", paragraphs: [
         "输入为零时仍可能是有效观测，例如真实零成交量或表达式算出的零。不要用“值等于零”判断窗口是否完成。",
-        "若表达式需要条件选择，可使用 self.cs.if_else(condition, yes, no)。缺失条件保持不可用；只要求实际选中的分支有效。",
+        "若表达式需要条件选择，使用 yes if condition else no。缺失条件保持不可用；只要求实际选中的分支有效。",
       ] },
     ],
   },

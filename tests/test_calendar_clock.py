@@ -88,7 +88,7 @@ class NestedCalendarMean(PythonIndicator):
 class CalendarMissingProbe(PythonIndicator):
     def update(self, input):
         average = self.ts.mean(input.close, 3, clock='trading_days')
-        self.value = self.cs.is_nan(average)
+        self.value = self.is_nan(average)
         return True
 
 

@@ -122,8 +122,8 @@ for index, child in enumerate(script_batch['tasks']):
     assert child_task['snapshot']['source_config'] == [config, one_config][index]
 api('/tasks/batch', dict(factors=[script_factor['id']], data=resolved['data'], analysis=resolved['analysis']), status=400)
 
-# The original class-only API remains available for saved historical factors.
-source = '''from factortrader import PythonIndicator
+# Class-only submissions use the same Pool frontend as complete scripts.
+source = '''from factorpool import PythonIndicator
 class LowVolumeFactor(PythonIndicator):
     def __init__(self, period=20):
         super().__init__()
@@ -154,12 +154,14 @@ for horizon in result['diagnostics']['horizons'].values():
     for portfolio in horizon['portfolios'].values():
         assert len(horizon['portfolio_dates']) == len(portfolio['returns']) == len(portfolio['nav'])
 bad = dict(request, source_code=source.replace('self.cs.rank_unit(-mean_volume)', 'self.cs.unknown(-mean_volume)'))
-failed = api('/tasks', bad)['id']
+api('/tasks', bad, status=400)
+missing_data = dict(request, source_code=source.replace('self.cs.rank_unit(-mean_volume)', 'self.ts.mean(input.unavailable_market_field,20)'))
+failed = api('/tasks', missing_data)['id']
 wait(failed, ('FAILED',))
 api('/tasks/'+failed+'/result', status=409)
 # An ordinary Python callback makes queueing/cancellation observable.
 slow = dict(request, name='验收 · 停止运行进程', factor_class='Slow', factor_params={}, source_code='''import time
-from factortrader import PythonIndicator
+from factorpool import PythonIndicator
 class Slow(PythonIndicator):
     def update(self,input):
         time.sleep(60)

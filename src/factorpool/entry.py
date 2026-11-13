@@ -1,14 +1,41 @@
 """FT-style class.run(config) facade over the shared Indicator and research core."""
 from copy import deepcopy
 import inspect
+import dis
 import json
 from pathlib import Path
 import tempfile
 
 from factortrader import PythonIndicator as SharedPythonIndicator
+from .operator_frontend import DIRECT, DOMAINS, NAMESPACES, _native_only
 
 
 class PythonIndicator(SharedPythonIndicator):
+    ts = property(lambda self: NAMESPACES['ts'])
+    cs = property(lambda self: NAMESPACES['cs'])
+    vc = property(lambda self: NAMESPACES['vc'])
+    gp = property(lambda self: NAMESPACES['gp'])
+    tf = property(lambda self: NAMESPACES['tf'])
+    abs = add = subtract = multiply = log = sqrt = min = max = _native_only
+    sign = signed_power = is_nan = _native_only
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        pending=[inspect.getattr_static(cls,'_indicator_function',None)];seen=set()
+        while pending:
+            function=pending.pop()
+            if isinstance(function,(staticmethod,classmethod)):function=function.__func__
+            if isinstance(function,property):function=function.fget
+            if not inspect.isfunction(function) or function in seen:continue
+            seen.add(function);code=function.__code__
+            instructions=tuple(dis.get_instructions(function))
+            for left,right in zip(instructions,instructions[1:]):
+                if (left.opname=='LOAD_FAST' and code.co_varnames and left.argval==code.co_varnames[0]
+                        and right.opname in ('LOAD_ATTR','LOAD_METHOD')):
+                    if right.argval in DOMAINS or right.argval in DIRECT:
+                        cls._indicator_native_domains=True
+                    else:pending.append(inspect.getattr_static(cls,right.argval,None))
+
     def _prepare(self):
         if self._prepared:
             return super()._prepare()

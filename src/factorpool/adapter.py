@@ -2,7 +2,8 @@
 import math
 import numpy as np
 from datetime import datetime, timedelta
-from factortrader import PythonIndicator, TradeBar
+from factortrader import TradeBar
+from .entry import PythonIndicator
 from factortrader.binding.loading import _load_native_rows
 import os
 
@@ -10,7 +11,7 @@ import os
 class IndicatorAdapter:
     def __init__(self, indicator):
         if not isinstance(indicator, PythonIndicator):
-            raise TypeError("Factor must inherit factortrader.PythonIndicator")
+            raise TypeError("Use from factorpool import PythonIndicator for the FactorPool operator frontend")
         self.indicator = indicator
         indicator._prepare()
         if indicator._batch_dependencies:

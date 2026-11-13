@@ -214,6 +214,6 @@ class StoreScriptTest {
     assertFalse(input.path("data").has("factor_price"));
     assertEquals(input.path("analysis"), saved.path("analysis"));
     assertFalse(saved.has("effective_config"));
-    verifyNoInteractions(scripts);
+    verify(scripts).validateFrontend("class OldFactor: pass");
   }
 }

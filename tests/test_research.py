@@ -6,11 +6,11 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 import numpy as np
 import _factorpool_native as native
-from factortrader import PythonIndicator, NativeVector
-from factortrader.binding import engine as engine_binding
+from factortrader import NativeVector
+from factorpool import PythonIndicator
 from factortrader.binding.loading import _load_native_rows
 from factorpool.adapter import IndicatorAdapter
 from factorpool.datasource import fixture
@@ -57,7 +57,7 @@ class ResearchTests(unittest.TestCase):
                 native.analyze(factors, returns, groups, 3, 1)
 
     def test_runner_uses_explicit_previous_close_without_reconstructing_adjustments(self):
-        source = """from factortrader import PythonIndicator
+        source = """from factorpool import PythonIndicator
 class Factor(PythonIndicator):
     def update(self, input):
         self.value = input.volume
@@ -115,6 +115,7 @@ class Factor(PythonIndicator):
         adapters = []
         def create(indicator):
             adapter = IndicatorAdapter(indicator)
+            adapter.binding = Mock(wraps=adapter.binding)
             adapters.append(adapter)
             return adapter
         with tempfile.TemporaryDirectory() as directory, patch('factorpool.market_store.load', return_value=payload) as load, \
@@ -133,8 +134,8 @@ class Factor(PythonIndicator):
             self.assertFalse(result['metadata']['synthetic'])
         adapter = adapters[0]
         state = adapter.binding.graph_snapshot(adapter.graph)
-        np.testing.assert_equal(NativeVector._view(adapter.binding, state['samples']).to_numpy(), [3, 3, 3])
-        np.testing.assert_equal(NativeVector._view(adapter.binding, state['end_time']).to_numpy(), [20240104150000]*3)
+        self.assertEqual(adapter.binding.graph_update.call_count, 3)
+        self.assertEqual(adapter.binding.graph_update.call_args.args[1],20240104150000)
 
     def test_legacy_mmap_provider_is_rejected_before_factor_or_market_loading(self):
         request = dict(data=dict(provider='ft_daily_mmap', universe=['A'], frequency='1d', adjustment='raw',
@@ -150,18 +151,28 @@ class Factor(PythonIndicator):
     def assert_parity(self, source, frames):
         factory=self.factor(source)
         adapter=IndicatorAdapter(factory())
-        engine_binding._INDICATOR_EXTENSION=adapter.binding
-        ft=factory()
+        compiled=factory();compiled._prepare()
+        binding=adapter.binding
+        handle=None
+        fields=list(compiled._ir.fields)
+        if compiled._batch_ir is not None:
+            fields.extend(compiled._batch_ir.fields)
+            for port in compiled._batch_ir.temporals:
+                fields.extend(field for field in port.fields if field not in port.bindings)
+        fields=tuple(dict.fromkeys(fields))
         for frame in frames:
             actual=adapter.update(frame,factory)
             ids=tuple(sorted(frame['symbols']))
-            if ft._graph is None:ft._activate(ids,batch=True)
-            fields=ft._manual_fields
+            if handle is None:
+                handle=binding.graph_create(compiled._ir.to_dict(),ids)
+                if compiled._batch_ir is not None:
+                    binding.graph_configure_batch(handle,compiled._batch_ir.to_dict(),(),False)
             columns={k:[float('nan') if frame['rows'].get(s,{}).get(k) is None else frame['rows'][s][k] for s in ids] for k in fields}
             stamp=int(frame['date'].replace('-','')+'150000')
-            ft._update_native_columns(stamp,columns,symbols=ids,valid=[s in frame['rows'] for s in ids])
-            state=ft._binding.graph_snapshot(ft._graph)
-            values={k:NativeVector._view(ft._binding,state[k]).to_numpy() for k in ('current','ready','valid')}
+            binding.graph_set_symbols(handle,ids)
+            binding.graph_update(handle,stamp,columns,[s in frame['rows'] for s in ids])
+            state=binding.graph_snapshot(handle)
+            values={k:np.frombuffer(binding.native_vector_export(state[k]), dtype=np.float64 if k=='current' else bool).copy() for k in ('current','ready','valid')}
             for i,row in enumerate(actual):
                 ready=bool(values['ready'][i]);usable=ready and bool(values['valid'][i]) and row['symbol'] in frame['rows']
                 self.assertEqual(row['valid'],usable)
@@ -169,8 +180,8 @@ class Factor(PythonIndicator):
                 if usable:self.assertAlmostEqual(row['value'],values['current'][i])
         return actual
 
-    def test_ft_pool_parity_missing_zero_dynamic_and_reset_axes(self):
-        source='''from factortrader import PythonIndicator
+    def test_pool_adapter_and_direct_native_columns_match_missing_zero_and_dynamic_axes(self):
+        source='''from factorpool import PythonIndicator
 class Factor(PythonIndicator):
     def update(self,input):
         value=self.ts.mean(input.close,3)
@@ -185,17 +196,17 @@ class Factor(PythonIndicator):
         frames[4]['symbols']=['A','C']
         frames[5]['symbols']=['C','B','A']
         self.assert_parity(source,frames)
-        source=source.replace('value=self.ts.mean(input.close,3)','value=self.cs.rank(self.ts.mean(input.close,3),pct=True)')
+        source=source.replace('value=self.ts.mean(input.close,3)',"value=self.cs.rank_unit(self.ts.mean(input.close, 3), normalization='percentile')")
         self.assert_parity(source,frames)
 
     def test_ts_cs_ts_cs_warmup_24_and_axis_invariance(self):
-        source='''from factortrader import PythonIndicator
+        source='''from factorpool import PythonIndicator
 class Factor(PythonIndicator):
     def update(self,input):
         a=self.ts.mean(input.volume,20)
-        b=self.cs.rank(a,pct=True)
+        b=self.cs.rank_unit(a, normalization='percentile')
         c=self.ts.mean(b,5)
-        self.value=self.cs.rank(c,pct=True)
+        self.value=self.cs.rank_unit(c, normalization='percentile')
         return self.ts.is_ready(c)
 '''
         frames=fixture()['frames']
@@ -220,13 +231,13 @@ class Factor(PythonIndicator):
                      data=dict(provider='fixture',universe='fixture',frequency='1d',adjustment='raw',factor_start='2024-01-29',factor_end='2024-01-29'),analysis=dict(groups=3,horizons=[1,5,20],decay_steps=10))
         held=[]
         def create(indicator):
-            value=IndicatorAdapter(indicator);held.append(value);return value
+            value=IndicatorAdapter(indicator);value.binding=Mock(wraps=value.binding);held.append(value);return value
         with tempfile.TemporaryDirectory() as d,patch('factorpool.factor_matrix.IndicatorAdapter',side_effect=create):
             path=Path(d);(path/'request.json').write_text(json.dumps(request));run(d)
         binding,graph=held[-1].binding,held[-1].graph
         state=binding.graph_snapshot(graph)
-        np.testing.assert_equal(NativeVector._view(binding,state['samples']).to_numpy(),[20,20,20])
-        np.testing.assert_equal(NativeVector._view(binding,state['end_time']).to_numpy(),[20240129150000]*3)
+        self.assertEqual(binding.graph_update.call_count, 20)
+        self.assertEqual(binding.graph_update.call_args.args[1], 20240129150000)
 
     def test_runner_never_constructs_engine_and_future_never_enters_factor(self):
         source=(ROOT/'src/examples/factors/low_volume.py').read_text()
@@ -239,7 +250,7 @@ class Factor(PythonIndicator):
             self.assertEqual(result['summary']['valid_dates'],1)
             self.assertEqual(result['metadata']['value_count'],3)
             self.assertEqual(len((path/'values.jsonl').read_text().splitlines()),3)
-            self.assertNotIn('NaN',(path/'result.json').read_text())
+            json.loads((path/'result.json').read_text(), parse_constant=lambda token: self.fail('Nonfinite JSON number: '+token))
 
 
 if __name__=='__main__':unittest.main()

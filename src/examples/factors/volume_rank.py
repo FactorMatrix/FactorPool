@@ -1,4 +1,4 @@
-from factortrader import PythonIndicator
+from factorpool import PythonIndicator
 
 
 class VolumeRankFactor(PythonIndicator):

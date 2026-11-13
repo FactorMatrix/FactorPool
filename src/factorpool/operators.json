@@ -1,9 +1,9 @@
 [
   {
     "name": "abs",
-    "frontend": "abs(x)",
+    "frontend": "self.abs(x)",
     "native": true,
-    "data": "日线 OHLCV",
+    "data": "标量或同轴数值表达式",
     "brain": "官方行为待核验",
     "source": "Python",
     "syntax_support": "supported",
@@ -13,13 +13,41 @@
     "contract_version": "shared-6bb147e6",
     "official_parity": "not_verified",
     "catalog_source": "BRAIN",
-    "brain_category": "算术"
+    "brain_category": "算术",
+    "category": "arithmetic",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "逐元素取绝对值。",
+    "reference": {
+      "title": "绝对值",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "输入表达式。数学算子接受有限标量或同轴向量；时序算子逐股计算，截面算子使用同一日的证券轴。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        }
+      ],
+      "example": {
+        "expression": "self.abs(x)",
+        "input": "x = [-2, 0, 3]",
+        "output": "[2, 0, 3]",
+        "direction": "同一时点，输入和输出均按原证券顺序排列。"
+      },
+      "notes": [
+        "NaN、Inf 或不可用的输入不会被当成真实零；下例的 null 表示结果不可用。"
+      ],
+      "execution_dependencies": [
+        "逐项计算；仅继承上游表达式已有依赖"
+      ]
+    }
   },
   {
     "name": "add",
-    "frontend": "+",
+    "frontend": "x + y",
     "native": true,
-    "data": "日线 OHLCV",
+    "data": "标量或同轴数值表达式",
     "brain": "官方行为待核验",
     "source": "Python",
     "syntax_support": "supported",
@@ -29,13 +57,59 @@
     "contract_version": "shared-6bb147e6",
     "official_parity": "not_verified",
     "catalog_source": "BRAIN",
-    "brain_category": "算术"
+    "brain_category": "算术",
+    "category": "arithmetic",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "逐元素相加；可与有限常数组合。",
+    "reference": {
+      "title": "加法",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "输入表达式。数学算子接受有限标量或同轴向量；时序算子逐股计算，截面算子使用同一日的证券轴。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "y",
+          "description": "第二个输入表达式；可为有限常数，也可为与 x 同轴的向量。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "filter",
+          "description": "True时add/subtract把已观测NaN当0，multiply当1；Inf与未就绪不被填补。",
+          "type": "bool",
+          "default": false,
+          "optional": true,
+          "advanced": true
+        }
+      ],
+      "example": {
+        "expression": "x + 2",
+        "input": "x = [1, 3]；y = 2",
+        "output": "[3, 5]",
+        "direction": "同一时点，输入和输出均按原证券顺序排列。"
+      },
+      "notes": [
+        "NaN、Inf 或不可用的输入不会被当成真实零；下例的 null 表示结果不可用。",
+        "普通运算使用Python符号；只有特殊NaN规则需要展开高级参数中的函数写法。"
+      ],
+      "advanced_syntax": "self.add(x, y, filter=True)",
+      "execution_dependencies": [
+        "逐项计算；仅继承上游表达式已有依赖"
+      ]
+    }
   },
   {
     "name": "densify",
     "frontend": "self.cs.densify(x)",
     "native": true,
-    "data": "日线 OHLCV",
+    "data": "同日证券数值与当期证券池",
     "brain": "官方行为待核验",
     "source": "FactorPool native extension",
     "syntax_support": "supported",
@@ -47,13 +121,41 @@
     "catalog_source": "BRAIN",
     "brain_category": "算术",
     "source_path": "src/native/brain_cross.cpp",
-    "contract": "按同日有限唯一值升序编码为0..N-1，缺失保留；编码随截面变化，不是永久证券或行业编号"
+    "contract": "按同日有限唯一值升序编码为0..N-1，缺失保留；编码随截面变化，不是永久证券或行业编号",
+    "category": "arithmetic",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "按同日有限唯一值升序编码为0..N-1，缺失保留；编码随截面变化，不是永久证券或行业编号",
+    "reference": {
+      "title": "连续整数编码",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "输入表达式。数学算子接受有限标量或同轴向量；时序算子逐股计算，截面算子使用同一日的证券轴。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        }
+      ],
+      "example": {
+        "expression": "self.cs.densify(x)",
+        "input": "同日 x = [99, 2, 0, 2]",
+        "output": "[2, 1, 0, 1]",
+        "direction": "同一时点，输入和输出均按原证券顺序排列。"
+      },
+      "notes": [
+        "对当日有限唯一值升序编号为0..N-1；相同值得到相同编号，缺失保持不可用。编码随当日截面变化，不是永久证券或行业编号。"
+      ],
+      "execution_dependencies": [
+        "当时实际证券池的同日截面"
+      ]
+    }
   },
   {
     "name": "divide",
-    "frontend": "/",
+    "frontend": "x / y",
     "native": true,
-    "data": "日线 OHLCV",
+    "data": "标量或同轴数值表达式",
     "brain": "官方行为待核验",
     "source": "Python",
     "syntax_support": "supported",
@@ -63,13 +165,50 @@
     "contract_version": "shared-6bb147e6",
     "official_parity": "not_verified",
     "catalog_source": "BRAIN",
-    "brain_category": "算术"
+    "brain_category": "算术",
+    "category": "arithmetic",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "逐元素相除；分母为零时结果不可用。",
+    "reference": {
+      "title": "除法",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "输入表达式。数学算子接受有限标量或同轴向量；时序算子逐股计算，截面算子使用同一日的证券轴。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "y",
+          "description": "第二个输入表达式；可为有限常数，也可为与 x 同轴的向量。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        }
+      ],
+      "example": {
+        "expression": "x / y",
+        "input": "x = [6, 0, 2]；y = [3, 0, 0]",
+        "output": "[2, null, null]",
+        "direction": "同一时点，输入和输出均按原证券顺序排列。"
+      },
+      "notes": [
+        "NaN、Inf 或不可用的输入不会被当成真实零；下例的 null 表示结果不可用。",
+        "分母为零、非有限商或溢出时不可用；0/0 不会变成零。"
+      ],
+      "execution_dependencies": [
+        "逐项计算；仅继承上游表达式已有依赖"
+      ]
+    }
   },
   {
     "name": "inverse",
-    "frontend": "1/x",
+    "frontend": "1 / x",
     "native": true,
-    "data": "日线 OHLCV",
+    "data": "标量或同轴数值表达式",
     "brain": "官方行为待核验",
     "source": "Python",
     "syntax_support": "supported",
@@ -79,13 +218,42 @@
     "contract_version": "shared-6bb147e6",
     "official_parity": "not_verified",
     "catalog_source": "BRAIN",
-    "brain_category": "算术"
+    "brain_category": "算术",
+    "category": "arithmetic",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "取倒数；零输入不可用。",
+    "reference": {
+      "title": "倒数",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "输入表达式。数学算子接受有限标量或同轴向量；时序算子逐股计算，截面算子使用同一日的证券轴。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        }
+      ],
+      "example": {
+        "expression": "1 / x",
+        "input": "x = [2, -4, 0]",
+        "output": "[0.5, -0.25, null]",
+        "direction": "同一时点，输入和输出均按原证券顺序排列。"
+      },
+      "notes": [
+        "NaN、Inf 或不可用的输入不会被当成真实零；下例的 null 表示结果不可用。",
+        "零输入不可用。"
+      ],
+      "execution_dependencies": [
+        "逐项计算；仅继承上游表达式已有依赖"
+      ]
+    }
   },
   {
     "name": "log",
-    "frontend": "self.cs.log(x) / math.log(x)",
+    "frontend": "self.log(x)",
     "native": true,
-    "data": "日线 OHLCV",
+    "data": "标量或同轴数值表达式",
     "brain": "官方行为待核验",
     "source": "FactorPool native extension",
     "syntax_support": "supported",
@@ -96,13 +264,41 @@
     "official_parity": "not_verified",
     "contract": "Natural log; finite x>0",
     "catalog_source": "BRAIN",
-    "brain_category": "算术"
+    "brain_category": "算术",
+    "category": "arithmetic",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "自然对数；输入必须大于零。",
+    "reference": {
+      "title": "自然对数",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "输入表达式。数学算子接受有限标量或同轴向量；时序算子逐股计算，截面算子使用同一日的证券轴。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        }
+      ],
+      "example": {
+        "expression": "self.log(x)",
+        "input": "x = [1, e, 0]，其中 e 为自然常数",
+        "output": "[0, 1, null]",
+        "direction": "同一时点，输入和输出均按原证券顺序排列。"
+      },
+      "notes": [
+        "NaN、Inf 或不可用的输入不会被当成真实零；下例的 null 表示结果不可用。"
+      ],
+      "execution_dependencies": [
+        "逐项计算；仅继承上游表达式已有依赖"
+      ]
+    }
   },
   {
     "name": "max",
-    "frontend": "max(x,y)",
+    "frontend": "self.max(x, y)",
     "native": true,
-    "data": "日线 OHLCV",
+    "data": "标量或同轴数值表达式",
     "brain": "官方行为待核验",
     "source": "Python",
     "syntax_support": "supported",
@@ -112,13 +308,50 @@
     "contract_version": "shared-6bb147e6",
     "official_parity": "not_verified",
     "catalog_source": "BRAIN",
-    "brain_category": "算术"
+    "brain_category": "算术",
+    "category": "arithmetic",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "取两个表达式的逐元素较大值。",
+    "reference": {
+      "title": "逐元素较大值",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "输入表达式。数学算子接受有限标量或同轴向量；时序算子逐股计算，截面算子使用同一日的证券轴。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "y",
+          "description": "第二个输入表达式；可为有限常数，也可为与 x 同轴的向量。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        }
+      ],
+      "example": {
+        "expression": "self.max(x, 2)",
+        "input": "x = [1, 3]；y = 2",
+        "output": "[2, 3]",
+        "direction": "同一时点，输入和输出均按原证券顺序排列。"
+      },
+      "notes": [
+        "NaN、Inf 或不可用的输入不会被当成真实零；下例的 null 表示结果不可用。",
+        "至少两个表达式；比较同一证券位置的输入，不是时序极值或截面极值。"
+      ],
+      "execution_dependencies": [
+        "逐项计算；仅继承上游表达式已有依赖"
+      ]
+    }
   },
   {
     "name": "min",
-    "frontend": "min(x,y)",
+    "frontend": "self.min(x, y)",
     "native": true,
-    "data": "日线 OHLCV",
+    "data": "标量或同轴数值表达式",
     "brain": "官方行为待核验",
     "source": "Python",
     "syntax_support": "supported",
@@ -128,13 +361,51 @@
     "contract_version": "shared-6bb147e6",
     "official_parity": "not_verified",
     "catalog_source": "BRAIN",
-    "brain_category": "算术"
+    "brain_category": "算术",
+    "category": "arithmetic",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "取两个表达式的逐元素较小值。",
+    "reference": {
+      "title": "逐元素较小值",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "输入表达式。数学算子接受有限标量或同轴向量；时序算子逐股计算，截面算子使用同一日的证券轴。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "y",
+          "description": "第二个输入表达式；可为有限常数，也可为与 x 同轴的向量。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        }
+      ],
+      "example": {
+        "expression": "self.min(x, 2)",
+        "input": "x = [1, 3]；y = 2",
+        "output": "[1, 2]",
+        "direction": "同一时点，输入和输出均按原证券顺序排列。"
+      },
+      "notes": [
+        "NaN、Inf 或不可用的输入不会被当成真实零；下例的 null 表示结果不可用。",
+        "至少两个参数；这是同一位置不同表达式的比较，不是时序窗口最小值。",
+        "至少两个表达式；比较同一证券位置的输入，不是时序极值或截面极值。"
+      ],
+      "execution_dependencies": [
+        "逐项计算；仅继承上游表达式已有依赖"
+      ]
+    }
   },
   {
     "name": "multiply",
-    "frontend": "*",
+    "frontend": "x * y",
     "native": true,
-    "data": "日线 OHLCV",
+    "data": "标量或同轴数值表达式",
     "brain": "官方行为待核验",
     "source": "Python",
     "syntax_support": "supported",
@@ -144,13 +415,59 @@
     "contract_version": "shared-6bb147e6",
     "official_parity": "not_verified",
     "catalog_source": "BRAIN",
-    "brain_category": "算术"
+    "brain_category": "算术",
+    "category": "arithmetic",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "逐元素相乘。",
+    "reference": {
+      "title": "乘法",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "输入表达式。数学算子接受有限标量或同轴向量；时序算子逐股计算，截面算子使用同一日的证券轴。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "y",
+          "description": "第二个输入表达式；可为有限常数，也可为与 x 同轴的向量。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "filter",
+          "description": "True时add/subtract把已观测NaN当0，multiply当1；Inf与未就绪不被填补。",
+          "type": "bool",
+          "default": false,
+          "optional": true,
+          "advanced": true
+        }
+      ],
+      "example": {
+        "expression": "x * 2",
+        "input": "x = [1, 3]；y = 2",
+        "output": "[2, 6]",
+        "direction": "同一时点，输入和输出均按原证券顺序排列。"
+      },
+      "notes": [
+        "NaN、Inf 或不可用的输入不会被当成真实零；下例的 null 表示结果不可用。",
+        "普通运算使用Python符号；只有特殊NaN规则需要展开高级参数中的函数写法。"
+      ],
+      "advanced_syntax": "self.multiply(x, y, filter=True)",
+      "execution_dependencies": [
+        "逐项计算；仅继承上游表达式已有依赖"
+      ]
+    }
   },
   {
     "name": "power",
-    "frontend": "self.cs.power(x,y) / x**y / pow(x,y) / math.pow(x,y)",
+    "frontend": "x ** y",
     "native": true,
-    "data": "日线 OHLCV",
+    "data": "标量或同轴数值表达式",
     "brain": "官方行为待核验",
     "source": "FactorPool native extension",
     "syntax_support": "supported",
@@ -161,13 +478,49 @@
     "official_parity": "not_verified",
     "contract": "Real finite result; negative base requires integral exponent; 0**0=1",
     "catalog_source": "BRAIN",
-    "brain_category": "算术"
+    "brain_category": "算术",
+    "category": "arithmetic",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "实数幂；负底数要求整数指数，零的负次幂不可用。",
+    "reference": {
+      "title": "实数幂",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "输入表达式。数学算子接受有限标量或同轴向量；时序算子逐股计算，截面算子使用同一日的证券轴。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "y",
+          "description": "有限实数指数；负底数只接受整数指数。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        }
+      ],
+      "example": {
+        "expression": "x ** y",
+        "input": "x = [-2, 3]；y = 2",
+        "output": "[4, 9]",
+        "direction": "同一时点，输入和输出均按原证券顺序排列。"
+      },
+      "notes": [
+        "0**0 为 1；零的负次幂、负底数的非整数次幂、溢出或非有限结果不可用。"
+      ],
+      "execution_dependencies": [
+        "逐项计算；仅继承上游表达式已有依赖"
+      ]
+    }
   },
   {
     "name": "reverse",
     "frontend": "-x",
     "native": true,
-    "data": "日线 OHLCV",
+    "data": "标量或同轴数值表达式",
     "brain": "官方行为待核验",
     "source": "Python",
     "syntax_support": "supported",
@@ -177,13 +530,42 @@
     "contract_version": "shared-6bb147e6",
     "official_parity": "not_verified",
     "catalog_source": "BRAIN",
-    "brain_category": "算术"
+    "brain_category": "算术",
+    "category": "arithmetic",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "逐元素取相反数。",
+    "reference": {
+      "title": "取相反数",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "输入表达式。数学算子接受有限标量或同轴向量；时序算子逐股计算，截面算子使用同一日的证券轴。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        }
+      ],
+      "example": {
+        "expression": "-x",
+        "input": "x = [-2, 0, 3]",
+        "output": "[2, 0, -3]",
+        "direction": "同一时点，输入和输出均按原证券顺序排列。"
+      },
+      "notes": [
+        "NaN、Inf 或不可用的输入不会被当成真实零；下例的 null 表示结果不可用。",
+        "逐元素取负，与 -x 相同。"
+      ],
+      "execution_dependencies": [
+        "逐项计算；仅继承上游表达式已有依赖"
+      ]
+    }
   },
   {
     "name": "sign",
-    "frontend": "self.cs.sign(x)",
+    "frontend": "self.sign(x)",
     "native": true,
-    "data": "日线 OHLCV",
+    "data": "标量或同轴数值表达式",
     "brain": "官方行为待核验",
     "source": "FactorPool native extension",
     "syntax_support": "supported",
@@ -194,13 +576,41 @@
     "official_parity": "not_verified",
     "contract": "-1/0/+1; finite zero is valid",
     "catalog_source": "BRAIN",
-    "brain_category": "算术"
+    "brain_category": "算术",
+    "category": "arithmetic",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "将有限输入映射为 -1、0 或 1。",
+    "reference": {
+      "title": "符号",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "输入表达式。数学算子接受有限标量或同轴向量；时序算子逐股计算，截面算子使用同一日的证券轴。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        }
+      ],
+      "example": {
+        "expression": "self.sign(x)",
+        "input": "x = [-5, 0, 2]",
+        "output": "[-1, 0, 1]",
+        "direction": "同一时点，输入和输出均按原证券顺序排列。"
+      },
+      "notes": [
+        "NaN、Inf 或不可用的输入不会被当成真实零；下例的 null 表示结果不可用。"
+      ],
+      "execution_dependencies": [
+        "逐项计算；仅继承上游表达式已有依赖"
+      ]
+    }
   },
   {
     "name": "signed_power",
-    "frontend": "self.cs.signed_power(x,y)",
+    "frontend": "self.signed_power(x, y)",
     "native": true,
-    "data": "日线 OHLCV",
+    "data": "标量或同轴数值表达式",
     "brain": "官方行为待核验",
     "source": "FactorPool native extension",
     "syntax_support": "supported",
@@ -211,13 +621,50 @@
     "official_parity": "not_verified",
     "contract": "sign(x)*abs(x)**y; zero to nonnegative power is zero",
     "catalog_source": "BRAIN",
-    "brain_category": "算术"
+    "brain_category": "算术",
+    "category": "arithmetic",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "计算输入绝对值的幂，再恢复原输入的符号；零的非负次幂返回零。",
+    "reference": {
+      "title": "保留符号的幂",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "输入表达式。数学算子接受有限标量或同轴向量；时序算子逐股计算，截面算子使用同一日的证券轴。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "y",
+          "description": "第二个输入表达式；可为有限常数，也可为与 x 同轴的向量。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        }
+      ],
+      "example": {
+        "expression": "self.signed_power(x, 2)",
+        "input": "x = [-2, 0, 2]；y = 2",
+        "output": "[-4, 0, 4]",
+        "direction": "同一时点，输入和输出均按原证券顺序排列。"
+      },
+      "notes": [
+        "按 输入符号 × 绝对值的y次幂 计算；零的非负次幂为 0，因此 self.signed_power(0, 0) 与普通 0**0 不同。",
+        "零的负次幂或非有限结果不可用。"
+      ],
+      "execution_dependencies": [
+        "逐项计算；仅继承上游表达式已有依赖"
+      ]
+    }
   },
   {
     "name": "sqrt",
-    "frontend": "self.cs.sqrt(x) / math.sqrt(x)",
+    "frontend": "self.sqrt(x)",
     "native": true,
-    "data": "日线 OHLCV",
+    "data": "标量或同轴数值表达式",
     "brain": "官方行为待核验",
     "source": "FactorPool native extension",
     "syntax_support": "supported",
@@ -228,13 +675,41 @@
     "official_parity": "not_verified",
     "contract": "Finite x>=0; negative domain is invalid",
     "catalog_source": "BRAIN",
-    "brain_category": "算术"
+    "brain_category": "算术",
+    "category": "arithmetic",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "平方根；输入必须大于或等于零。",
+    "reference": {
+      "title": "平方根",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "输入表达式。数学算子接受有限标量或同轴向量；时序算子逐股计算，截面算子使用同一日的证券轴。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        }
+      ],
+      "example": {
+        "expression": "self.sqrt(x)",
+        "input": "x = [0, 4, -1]",
+        "output": "[0, 2, null]",
+        "direction": "同一时点，输入和输出均按原证券顺序排列。"
+      },
+      "notes": [
+        "NaN、Inf 或不可用的输入不会被当成真实零；下例的 null 表示结果不可用。"
+      ],
+      "execution_dependencies": [
+        "逐项计算；仅继承上游表达式已有依赖"
+      ]
+    }
   },
   {
     "name": "subtract",
-    "frontend": "-",
+    "frontend": "x - y",
     "native": true,
-    "data": "日线 OHLCV",
+    "data": "标量或同轴数值表达式",
     "brain": "官方行为待核验",
     "source": "Python",
     "syntax_support": "supported",
@@ -244,13 +719,59 @@
     "contract_version": "shared-6bb147e6",
     "official_parity": "not_verified",
     "catalog_source": "BRAIN",
-    "brain_category": "算术"
+    "brain_category": "算术",
+    "category": "arithmetic",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "逐元素相减。",
+    "reference": {
+      "title": "减法",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "输入表达式。数学算子接受有限标量或同轴向量；时序算子逐股计算，截面算子使用同一日的证券轴。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "y",
+          "description": "第二个输入表达式；可为有限常数，也可为与 x 同轴的向量。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "filter",
+          "description": "True时add/subtract把已观测NaN当0，multiply当1；Inf与未就绪不被填补。",
+          "type": "bool",
+          "default": false,
+          "optional": true,
+          "advanced": true
+        }
+      ],
+      "example": {
+        "expression": "x - 2",
+        "input": "x = [1, 3]；y = 2",
+        "output": "[-1, 1]",
+        "direction": "同一时点，输入和输出均按原证券顺序排列。"
+      },
+      "notes": [
+        "NaN、Inf 或不可用的输入不会被当成真实零；下例的 null 表示结果不可用。",
+        "普通运算使用Python符号；只有特殊NaN规则需要展开高级参数中的函数写法。"
+      ],
+      "advanced_syntax": "self.subtract(x, y, filter=True)",
+      "execution_dependencies": [
+        "逐项计算；仅继承上游表达式已有依赖"
+      ]
+    }
   },
   {
     "name": "and",
-    "frontend": "&",
+    "frontend": "(x > 0) & (y > 0)",
     "native": true,
-    "data": "日线 OHLCV",
+    "data": "同轴数值或条件表达式",
     "brain": "官方行为待核验",
     "source": "FT 截面扩展",
     "syntax_support": "supported",
@@ -260,13 +781,50 @@
     "contract_version": "shared-6bb147e6",
     "official_parity": "not_verified",
     "catalog_source": "BRAIN",
-    "brain_category": "逻辑"
+    "brain_category": "逻辑",
+    "category": "logical",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "逐元素逻辑与；条件两边加括号，例如 (x > 0) & (y > 0)。",
+    "reference": {
+      "title": "逻辑与",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "输入表达式。数学算子接受有限标量或同轴向量；时序算子逐股计算，截面算子使用同一日的证券轴。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "y",
+          "description": "第二个输入表达式；可为有限常数，也可为与 x 同轴的向量。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        }
+      ],
+      "example": {
+        "expression": "(x > 0) & (y > 0)",
+        "input": "x = [-1, 1, 1]；y = [1, -1, 2]",
+        "output": "[0, 0, 1]",
+        "direction": "同一时点，输入和输出均按原证券顺序排列。"
+      },
+      "notes": [
+        "NaN、Inf 或不可用的输入不会被当成真实零；下例的 null 表示结果不可用。",
+        "向量条件使用 & 并给两侧条件加括号，不使用 Python 的 and。缺失条件严格传播，不按短路逻辑补值。"
+      ],
+      "execution_dependencies": [
+        "逐项计算；仅继承上游表达式已有依赖"
+      ]
+    }
   },
   {
     "name": "if_else",
-    "frontend": "self.cs.if_else(condition,yes,no)",
+    "frontend": "yes if condition else no",
     "native": true,
-    "data": "日线 OHLCV",
+    "data": "同轴数值或条件表达式",
     "brain": "官方行为待核验",
     "source": "FactorPool native extension",
     "syntax_support": "supported",
@@ -277,13 +835,58 @@
     "official_parity": "not_verified",
     "contract": "Scalar/vector finite nonzero selects yes; zero selects no; invalid condition invalid; only selected branch required",
     "catalog_source": "BRAIN",
-    "brain_category": "逻辑"
+    "brain_category": "逻辑",
+    "category": "logical",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "有限非零条件选 yes，零条件选 no；只要求选中的分支有效。缺失条件不可用。",
+    "reference": {
+      "title": "条件选择",
+      "parameters": [
+        {
+          "name": "condition",
+          "description": "有限非零条件选 yes，有限零条件选 no；可以是同轴条件向量。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "yes",
+          "description": "条件成立时使用的表达式。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "no",
+          "description": "条件不成立时使用的表达式。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        }
+      ],
+      "example": {
+        "expression": "x if x > 0 else 0",
+        "input": "同日 x = [4, 0, -1]",
+        "output": "[4, 0, 0]",
+        "direction": "同一时点，输入和输出均按原证券顺序排列。"
+      },
+      "notes": [
+        "表达式编译为逐证券条件选择；仅要求实际选中的分支有效并ready。条件缺失时结果不可用。",
+        "未选分支的无效数学输入不会污染结果，例如 self.sqrt(x) if x > 0 else 0。"
+      ],
+      "execution_dependencies": [
+        "逐项计算；仅继承上游表达式已有依赖"
+      ]
+    }
   },
   {
     "name": "less",
-    "frontend": "<",
+    "frontend": "x < y",
     "native": true,
-    "data": "日线 OHLCV",
+    "data": "同轴数值或条件表达式",
     "brain": "官方行为待核验",
     "source": "FT 截面扩展",
     "syntax_support": "supported",
@@ -293,13 +896,49 @@
     "contract_version": "shared-6bb147e6",
     "official_parity": "not_verified",
     "catalog_source": "BRAIN",
-    "brain_category": "逻辑"
+    "brain_category": "逻辑",
+    "category": "logical",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "逐元素判断小于。",
+    "reference": {
+      "title": "小于比较",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "输入表达式。数学算子接受有限标量或同轴向量；时序算子逐股计算，截面算子使用同一日的证券轴。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "y",
+          "description": "第二个输入表达式；可为有限常数，也可为与 x 同轴的向量。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        }
+      ],
+      "example": {
+        "expression": "x < 2",
+        "input": "x = [1, 2, 3]；y = 2",
+        "output": "[1, 0, 0]",
+        "direction": "同一时点，输入和输出均按原证券顺序排列。"
+      },
+      "notes": [
+        "NaN、Inf 或不可用的输入不会被当成真实零；下例的 null 表示结果不可用。"
+      ],
+      "execution_dependencies": [
+        "逐项计算；仅继承上游表达式已有依赖"
+      ]
+    }
   },
   {
     "name": "less_than_equal",
-    "frontend": "<=",
+    "frontend": "x <= y",
     "native": true,
-    "data": "日线 OHLCV",
+    "data": "同轴数值或条件表达式",
     "brain": "官方行为待核验",
     "source": "FT 截面扩展",
     "syntax_support": "supported",
@@ -309,13 +948,49 @@
     "contract_version": "shared-6bb147e6",
     "official_parity": "not_verified",
     "catalog_source": "BRAIN",
-    "brain_category": "逻辑"
+    "brain_category": "逻辑",
+    "category": "logical",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "逐元素判断小于等于。",
+    "reference": {
+      "title": "小于等于比较",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "输入表达式。数学算子接受有限标量或同轴向量；时序算子逐股计算，截面算子使用同一日的证券轴。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "y",
+          "description": "第二个输入表达式；可为有限常数，也可为与 x 同轴的向量。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        }
+      ],
+      "example": {
+        "expression": "x <= 2",
+        "input": "x = [1, 2, 3]；y = 2",
+        "output": "[1, 1, 0]",
+        "direction": "同一时点，输入和输出均按原证券顺序排列。"
+      },
+      "notes": [
+        "NaN、Inf 或不可用的输入不会被当成真实零；下例的 null 表示结果不可用。"
+      ],
+      "execution_dependencies": [
+        "逐项计算；仅继承上游表达式已有依赖"
+      ]
+    }
   },
   {
     "name": "equal",
-    "frontend": "==",
+    "frontend": "x == y",
     "native": true,
-    "data": "日线 OHLCV",
+    "data": "同轴数值或条件表达式",
     "brain": "官方行为待核验",
     "source": "FT 截面扩展",
     "syntax_support": "supported",
@@ -325,13 +1000,49 @@
     "contract_version": "shared-6bb147e6",
     "official_parity": "not_verified",
     "catalog_source": "BRAIN",
-    "brain_category": "逻辑"
+    "brain_category": "逻辑",
+    "category": "logical",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "逐元素判断相等。",
+    "reference": {
+      "title": "相等比较",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "输入表达式。数学算子接受有限标量或同轴向量；时序算子逐股计算，截面算子使用同一日的证券轴。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "y",
+          "description": "第二个输入表达式；可为有限常数，也可为与 x 同轴的向量。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        }
+      ],
+      "example": {
+        "expression": "x == 2",
+        "input": "x = [1, 2, 3]；y = 2",
+        "output": "[0, 1, 0]",
+        "direction": "同一时点，输入和输出均按原证券顺序排列。"
+      },
+      "notes": [
+        "NaN、Inf 或不可用的输入不会被当成真实零；下例的 null 表示结果不可用。"
+      ],
+      "execution_dependencies": [
+        "逐项计算；仅继承上游表达式已有依赖"
+      ]
+    }
   },
   {
     "name": "greater",
-    "frontend": ">",
+    "frontend": "x > y",
     "native": true,
-    "data": "日线 OHLCV",
+    "data": "同轴数值或条件表达式",
     "brain": "官方行为待核验",
     "source": "FT 截面扩展",
     "syntax_support": "supported",
@@ -341,13 +1052,49 @@
     "contract_version": "shared-6bb147e6",
     "official_parity": "not_verified",
     "catalog_source": "BRAIN",
-    "brain_category": "逻辑"
+    "brain_category": "逻辑",
+    "category": "logical",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "逐元素判断大于。",
+    "reference": {
+      "title": "大于比较",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "输入表达式。数学算子接受有限标量或同轴向量；时序算子逐股计算，截面算子使用同一日的证券轴。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "y",
+          "description": "第二个输入表达式；可为有限常数，也可为与 x 同轴的向量。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        }
+      ],
+      "example": {
+        "expression": "x > 2",
+        "input": "x = [1, 2, 3]；y = 2",
+        "output": "[0, 0, 1]",
+        "direction": "同一时点，输入和输出均按原证券顺序排列。"
+      },
+      "notes": [
+        "NaN、Inf 或不可用的输入不会被当成真实零；下例的 null 表示结果不可用。"
+      ],
+      "execution_dependencies": [
+        "逐项计算；仅继承上游表达式已有依赖"
+      ]
+    }
   },
   {
     "name": "greater_than_equal",
-    "frontend": ">=",
+    "frontend": "x >= y",
     "native": true,
-    "data": "日线 OHLCV",
+    "data": "同轴数值或条件表达式",
     "brain": "官方行为待核验",
     "source": "FT 截面扩展",
     "syntax_support": "supported",
@@ -357,13 +1104,49 @@
     "contract_version": "shared-6bb147e6",
     "official_parity": "not_verified",
     "catalog_source": "BRAIN",
-    "brain_category": "逻辑"
+    "brain_category": "逻辑",
+    "category": "logical",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "逐元素判断大于等于。",
+    "reference": {
+      "title": "大于等于比较",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "输入表达式。数学算子接受有限标量或同轴向量；时序算子逐股计算，截面算子使用同一日的证券轴。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "y",
+          "description": "第二个输入表达式；可为有限常数，也可为与 x 同轴的向量。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        }
+      ],
+      "example": {
+        "expression": "x >= 2",
+        "input": "x = [1, 2, 3]；y = 2",
+        "output": "[0, 1, 1]",
+        "direction": "同一时点，输入和输出均按原证券顺序排列。"
+      },
+      "notes": [
+        "NaN、Inf 或不可用的输入不会被当成真实零；下例的 null 表示结果不可用。"
+      ],
+      "execution_dependencies": [
+        "逐项计算；仅继承上游表达式已有依赖"
+      ]
+    }
   },
   {
     "name": "not_equal",
-    "frontend": "!=",
+    "frontend": "x != y",
     "native": true,
-    "data": "日线 OHLCV",
+    "data": "同轴数值或条件表达式",
     "brain": "官方行为待核验",
     "source": "FT 截面扩展",
     "syntax_support": "supported",
@@ -373,13 +1156,49 @@
     "contract_version": "shared-6bb147e6",
     "official_parity": "not_verified",
     "catalog_source": "BRAIN",
-    "brain_category": "逻辑"
+    "brain_category": "逻辑",
+    "category": "logical",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "逐元素判断不相等。",
+    "reference": {
+      "title": "不等比较",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "输入表达式。数学算子接受有限标量或同轴向量；时序算子逐股计算，截面算子使用同一日的证券轴。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "y",
+          "description": "第二个输入表达式；可为有限常数，也可为与 x 同轴的向量。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        }
+      ],
+      "example": {
+        "expression": "x != 2",
+        "input": "x = [1, 2, 3]；y = 2",
+        "output": "[1, 0, 1]",
+        "direction": "同一时点，输入和输出均按原证券顺序排列。"
+      },
+      "notes": [
+        "NaN、Inf 或不可用的输入不会被当成真实零；下例的 null 表示结果不可用。"
+      ],
+      "execution_dependencies": [
+        "逐项计算；仅继承上游表达式已有依赖"
+      ]
+    }
   },
   {
     "name": "is_nan",
-    "frontend": "self.cs.is_nan(x) / math.isnan(x)",
+    "frontend": "self.is_nan(x)",
     "native": true,
-    "data": "日线 OHLCV",
+    "data": "同轴数值或条件表达式",
     "brain": "官方行为待核验",
     "source": "FactorPool native extension",
     "syntax_support": "supported",
@@ -390,13 +1209,42 @@
     "official_parity": "not_verified",
     "contract": "Observed NaN=1, finite=0, infinity invalid; unready and absent bars remain invalid",
     "catalog_source": "BRAIN",
-    "brain_category": "逻辑"
+    "brain_category": "逻辑",
+    "category": "logical",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "已观测 NaN 返回 1，有限值返回 0；Inf、缺 Bar 和尚未预热不伪装成可用的 NaN 观测。",
+    "reference": {
+      "title": "检测 NaN",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "输入表达式。数学算子接受有限标量或同轴向量；时序算子逐股计算，截面算子使用同一日的证券轴。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        }
+      ],
+      "example": {
+        "expression": "self.is_nan(x)",
+        "input": "已观测的 x = [NaN, 1, Inf]",
+        "output": "[1, 0, null]",
+        "direction": "同一时点，输入和输出均按原证券顺序排列。"
+      },
+      "notes": [
+        "NaN、Inf 或不可用的输入不会被当成真实零；下例的 null 表示结果不可用。",
+        "已观测 NaN 返回 1，有限值返回 0；Inf 仍不可用。缺 Bar 或上游尚未 ready 不会被伪装成可检测的 NaN 观测。"
+      ],
+      "execution_dependencies": [
+        "逐项计算；仅继承上游表达式已有依赖"
+      ]
+    }
   },
   {
     "name": "not",
-    "frontend": "~",
+    "frontend": "~(x > 0)",
     "native": true,
-    "data": "日线 OHLCV",
+    "data": "同轴数值或条件表达式",
     "brain": "官方行为待核验",
     "source": "FT 截面扩展",
     "syntax_support": "supported",
@@ -406,13 +1254,42 @@
     "contract_version": "shared-6bb147e6",
     "official_parity": "not_verified",
     "catalog_source": "BRAIN",
-    "brain_category": "逻辑"
+    "brain_category": "逻辑",
+    "category": "logical",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "逐元素逻辑非；使用 ~(x > 0)。缺失条件仍不可用。",
+    "reference": {
+      "title": "逻辑非",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "输入表达式。数学算子接受有限标量或同轴向量；时序算子逐股计算，截面算子使用同一日的证券轴。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        }
+      ],
+      "example": {
+        "expression": "~(x > 0)",
+        "input": "x = [-1, 0, 2]",
+        "output": "[1, 1, 0]",
+        "direction": "同一时点，输入和输出均按原证券顺序排列。"
+      },
+      "notes": [
+        "NaN、Inf 或不可用的输入不会被当成真实零；下例的 null 表示结果不可用。",
+        "对向量条件使用 ~，不是 Python 的 not。"
+      ],
+      "execution_dependencies": [
+        "逐项计算；仅继承上游表达式已有依赖"
+      ]
+    }
   },
   {
     "name": "or",
-    "frontend": "|",
+    "frontend": "(x > 0) | (y > 0)",
     "native": true,
-    "data": "日线 OHLCV",
+    "data": "同轴数值或条件表达式",
     "brain": "官方行为待核验",
     "source": "FT 截面扩展",
     "syntax_support": "supported",
@@ -422,13 +1299,50 @@
     "contract_version": "shared-6bb147e6",
     "official_parity": "not_verified",
     "catalog_source": "BRAIN",
-    "brain_category": "逻辑"
+    "brain_category": "逻辑",
+    "category": "logical",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "逐元素逻辑或；条件两边加括号，例如 (x > 0) | (y > 0)。",
+    "reference": {
+      "title": "逻辑或",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "输入表达式。数学算子接受有限标量或同轴向量；时序算子逐股计算，截面算子使用同一日的证券轴。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "y",
+          "description": "第二个输入表达式；可为有限常数，也可为与 x 同轴的向量。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        }
+      ],
+      "example": {
+        "expression": "(x > 0) | (y > 0)",
+        "input": "x = [-1, 1, -1]；y = [1, -1, -1]",
+        "output": "[1, 1, 0]",
+        "direction": "同一时点，输入和输出均按原证券顺序排列。"
+      },
+      "notes": [
+        "NaN、Inf 或不可用的输入不会被当成真实零；下例的 null 表示结果不可用。",
+        "向量条件使用 | 并给两侧条件加括号，不使用 Python 的 or；缺失条件保持不可用。"
+      ],
+      "execution_dependencies": [
+        "逐项计算；仅继承上游表达式已有依赖"
+      ]
+    }
   },
   {
     "name": "days_from_last_change",
     "frontend": "self.ts.days_from_last_change(x)",
     "native": true,
-    "data": "日线 OHLCV",
+    "data": "逐证券历史输入表达式",
     "brain": "官方行为待核验",
     "source": "FactorPool native extension",
     "syntax_support": "supported",
@@ -440,13 +1354,50 @@
     "catalog_source": "BRAIN",
     "brain_category": "时序",
     "source_path": "src/native/brain_temporal.cpp",
-    "contract": "有限值首次出现或变化时为0，连续相同值逐帧递增；默认日历模式的缺失会断开连续段"
+    "contract": "有限值首次出现或变化时为0，连续相同值逐帧递增；默认日历模式的缺失会断开连续段",
+    "category": "ts",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "有限值首次出现或变化时为0，连续相同值逐帧递增；默认日历模式的缺失会断开连续段",
+    "reference": {
+      "title": "距上次变化的期数",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "输入表达式。数学算子接受有限标量或同轴向量；时序算子逐股计算，截面算子使用同一日的证券轴。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "clock",
+          "description": "valid_observations按有效观测推进；trading_days保留完整输入交易日槽。省略与显式默认值走同一合同。",
+          "type": "enum: valid_observations / trading_days",
+          "default": "trading_days",
+          "optional": true,
+          "advanced": true
+        }
+      ],
+      "example": {
+        "expression": "self.ts.days_from_last_change(x)",
+        "input": "同一股票逐帧 x = [3, 3, 4, 4, 4]",
+        "output": "逐帧输出 [0, 1, 0, 1, 2]",
+        "direction": "同一证券，观测从旧到新；通常只列当前输出。"
+      },
+      "notes": [
+        "第一次有限值或数值改变时计0，连续相同值每帧加1。默认按交易日槽推进；缺失会中断连续段并使当前输出不可用。",
+        "clock=\"valid_observations\" 可跳过缺失帧，移出再入证券从新状态开始。"
+      ],
+      "execution_dependencies": [
+        "逐证券时序窗口或状态"
+      ]
+    }
   },
   {
     "name": "hump",
-    "frontend": "self.ts.hump(x,hump=0.01)",
+    "frontend": "self.ts.hump(x, hump=0.01)",
     "native": true,
-    "data": "日线 OHLCV",
+    "data": "逐证券历史输入表达式",
     "brain": "官方行为待核验",
     "source": "FactorPool native extension",
     "syntax_support": "supported",
@@ -458,13 +1409,59 @@
     "catalog_source": "BRAIN",
     "brain_category": "时序",
     "source_path": "src/native/brain_temporal.cpp",
-    "contract": "阈值=hump*当日有效截面abs_sum；小变化保持，大变化每期最多移动阈值，按股票保存历史输出"
+    "contract": "阈值=hump*当日有效截面abs_sum；小变化保持，大变化每期最多移动阈值，按股票保存历史输出",
+    "category": "ts",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "阈值=hump*当日有效截面abs_sum；小变化保持，大变化每期最多移动阈值，按股票保存历史输出",
+    "reference": {
+      "title": "限制逐期变化",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "输入表达式。数学算子接受有限标量或同轴向量；时序算子逐股计算，截面算子使用同一日的证券轴。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "hump",
+          "description": "非负阈值系数，默认0.01；绝对阈值为该系数乘当日有效截面abs_sum。",
+          "type": "有限数值",
+          "default": 0.01,
+          "optional": true,
+          "advanced": true
+        },
+        {
+          "name": "clock",
+          "description": "valid_observations按有效观测推进；trading_days保留完整输入交易日槽。省略与显式默认值走同一合同。",
+          "type": "enum: valid_observations / trading_days",
+          "default": "trading_days",
+          "optional": true,
+          "advanced": true
+        }
+      ],
+      "example": {
+        "expression": "self.ts.hump(x, hump=0.1)",
+        "input": "前期输出 [1, 2]；当日输入 [1.01, 4]，阈值=0.1×5.01=0.501",
+        "output": "当日输出 [1, 2.501]",
+        "direction": "当日证券轴及每只证券的上一期输出。"
+      },
+      "notes": [
+        "变化不超过阈值时保留旧值；超过时沿变化方向最多移动一个阈值。首次有限输入原样作为状态，按股票独立保存。",
+        "阈值取同日整个有效输入截面的绝对值之和，不能简化成每只股票值的百分比。缺失输入当前不可用，不伪造交易行为。"
+      ],
+      "execution_dependencies": [
+        "逐证券时序窗口或状态",
+        "阈值依赖当日有效截面的绝对值之和"
+      ]
+    }
   },
   {
     "name": "kth_element",
-    "frontend": "self.ts.kth_element(x,period,k=1,ignore=\"NaN\")",
+    "frontend": "self.ts.kth_element(x, period, k=1, ignore=\"NaN\")",
     "native": true,
-    "data": "日线 OHLCV",
+    "data": "逐证券历史输入表达式",
     "brain": "官方行为待核验",
     "source": "FactorPool native extension",
     "syntax_support": "supported",
@@ -476,13 +1473,74 @@
     "catalog_source": "BRAIN",
     "brain_category": "时序",
     "source_path": "src/native/brain_temporal.cpp",
-    "contract": "从最近向最旧取第k个未被ignore排除的观测，不是窗口第k小；ignore可指定NaN和有限数值"
+    "contract": "从最近向最旧取第k个未被ignore排除的观测，不是窗口第k小；ignore可指定NaN和有限数值",
+    "category": "ts",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "从最近向最旧取第k个未被ignore排除的观测，不是窗口第k小；ignore可指定NaN和有限数值",
+    "reference": {
+      "title": "从近到远第k个观测",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "输入表达式。数学算子接受有限标量或同轴向量；时序算子逐股计算，截面算子使用同一日的证券轴。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "period",
+          "description": "正整数窗口或滞后期数，可以使用构造参数；窗口时间轴由clock决定。",
+          "type": "整数",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "k",
+          "description": "从最新向最旧数第k个未忽略观测，正整数，默认1。",
+          "type": "整数",
+          "default": 1,
+          "optional": true,
+          "advanced": true
+        },
+        {
+          "name": "ignore",
+          "description": "忽略项的字符串，可包含NaN及有限数值，例如\"NaN 0\"或\"NaN,0\"。",
+          "type": "字符串",
+          "default": "NaN",
+          "optional": true,
+          "advanced": true
+        },
+        {
+          "name": "clock",
+          "description": "valid_observations按有效观测推进；trading_days保留完整输入交易日槽。省略与显式默认值走同一合同。",
+          "type": "enum: valid_observations / trading_days",
+          "default": "trading_days",
+          "optional": true,
+          "advanced": true
+        }
+      ],
+      "example": {
+        "expression": "self.ts.kth_element(x, 4, k=2, ignore=\"NaN\")",
+        "input": "最近四帧 x = [3, NaN, 5, NaN]",
+        "output": "当前输出 3",
+        "direction": "同一证券，观测从旧到新；通常只列当前输出。"
+      },
+      "notes": [
+        "这是时间顺序中的第k个保留观测，不是数值排序后的第k小。默认交易日槽窗口包含当前点，完整窗口后从近到远查找。",
+        "找不到足够观测或窗口含Inf时不可用；可显式clock=\"valid_observations\"选择有效观测时钟。"
+      ],
+      "execution_dependencies": [
+        "逐证券时序窗口或状态"
+      ]
+    }
   },
   {
     "name": "last_diff_value",
-    "frontend": "self.ts.last_diff_value(x,period)",
+    "frontend": "self.ts.last_diff_value(x, period)",
     "native": true,
-    "data": "日线 OHLCV",
+    "data": "逐证券历史输入表达式",
     "brain": "官方行为待核验",
     "source": "FactorPool native extension",
     "syntax_support": "supported",
@@ -494,13 +1552,57 @@
     "catalog_source": "BRAIN",
     "brain_category": "时序",
     "source_path": "src/native/brain_temporal.cpp",
-    "contract": "窗口内从近到远找最近一个与当前值不同的有限值；当前缺失或无不同值则不可用"
+    "contract": "窗口内从近到远找最近一个与当前值不同的有限值；当前缺失或无不同值则不可用",
+    "category": "ts",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "窗口内从近到远找最近一个与当前值不同的有限值；当前缺失或无不同值则不可用",
+    "reference": {
+      "title": "最近的不同值",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "输入表达式。数学算子接受有限标量或同轴向量；时序算子逐股计算，截面算子使用同一日的证券轴。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "period",
+          "description": "正整数窗口或滞后期数，可以使用构造参数；窗口时间轴由clock决定。",
+          "type": "整数",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "clock",
+          "description": "valid_observations按有效观测推进；trading_days保留完整输入交易日槽。省略与显式默认值走同一合同。",
+          "type": "enum: valid_observations / trading_days",
+          "default": "trading_days",
+          "optional": true,
+          "advanced": true
+        }
+      ],
+      "example": {
+        "expression": "self.ts.last_diff_value(x, 4)",
+        "input": "最近四帧 x = [1, 2, 2, 2]",
+        "output": "当前输出 1",
+        "direction": "同一证券，观测从旧到新；通常只列当前输出。"
+      },
+      "notes": [
+        "从当前往过去查找最近一个与当前值不同的有限值。默认交易日槽窗口包含当前点；当前值缺失、没有不同值或窗口含Inf时不可用。"
+      ],
+      "execution_dependencies": [
+        "逐证券时序窗口或状态"
+      ]
+    }
   },
   {
     "name": "ts_arg_max",
-    "frontend": "self.ts.arg_max(x,period)",
+    "frontend": "self.ts.arg_max(x, period)",
     "native": true,
-    "data": "日线 OHLCV",
+    "data": "逐证券历史输入表达式",
     "brain": "官方行为待核验",
     "source": "FactorPool native extension",
     "syntax_support": "supported",
@@ -512,13 +1614,58 @@
     "catalog_source": "BRAIN",
     "brain_category": "时序",
     "source_path": "src/native/brain_temporal.cpp",
-    "contract": "返回极大值距当前帧的距离，当前为0，并列选择最近一次"
+    "contract": "返回极大值距当前帧的距离，当前为0，并列选择最近一次",
+    "category": "ts",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "返回极大值距当前帧的距离，当前为0，并列选择最近一次",
+    "reference": {
+      "title": "窗口最大值位置",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "输入表达式。数学算子接受有限标量或同轴向量；时序算子逐股计算，截面算子使用同一日的证券轴。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "period",
+          "description": "正整数窗口或滞后期数，可以使用构造参数；窗口时间轴由clock决定。",
+          "type": "整数",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "clock",
+          "description": "valid_observations按有效观测推进；trading_days保留完整输入交易日槽。省略与显式默认值走同一合同。",
+          "type": "enum: valid_observations / trading_days",
+          "default": "trading_days",
+          "optional": true,
+          "advanced": true
+        }
+      ],
+      "example": {
+        "expression": "self.ts.arg_max(x, 4)",
+        "input": "最近四帧 x = [3, 5, 5, 2]",
+        "output": "当前输出 1",
+        "direction": "同一证券，观测从旧到新；通常只列当前输出。"
+      },
+      "notes": [
+        "默认交易日槽窗口，返回距当前帧的距离：当前为0、上一帧为1。并列最大值选择最近的一次，有限样本中的NaN不参加极值比较。",
+        "没有有限样本或窗口含Inf时不可用；结果是时间位置，不是最大值本身。"
+      ],
+      "execution_dependencies": [
+        "逐证券时序窗口或状态"
+      ]
+    }
   },
   {
     "name": "ts_arg_min",
-    "frontend": "self.ts.arg_min(x,period)",
+    "frontend": "self.ts.arg_min(x, period)",
     "native": true,
-    "data": "日线 OHLCV",
+    "data": "逐证券历史输入表达式",
     "brain": "官方行为待核验",
     "source": "FactorPool native extension",
     "syntax_support": "supported",
@@ -530,13 +1677,57 @@
     "catalog_source": "BRAIN",
     "brain_category": "时序",
     "source_path": "src/native/brain_temporal.cpp",
-    "contract": "返回极小值距当前帧的距离，当前为0，并列选择最近一次"
+    "contract": "返回极小值距当前帧的距离，当前为0，并列选择最近一次",
+    "category": "ts",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "返回极小值距当前帧的距离，当前为0，并列选择最近一次",
+    "reference": {
+      "title": "窗口最小值位置",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "输入表达式。数学算子接受有限标量或同轴向量；时序算子逐股计算，截面算子使用同一日的证券轴。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "period",
+          "description": "正整数窗口或滞后期数，可以使用构造参数；窗口时间轴由clock决定。",
+          "type": "整数",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "clock",
+          "description": "valid_observations按有效观测推进；trading_days保留完整输入交易日槽。省略与显式默认值走同一合同。",
+          "type": "enum: valid_observations / trading_days",
+          "default": "trading_days",
+          "optional": true,
+          "advanced": true
+        }
+      ],
+      "example": {
+        "expression": "self.ts.arg_min(x, 4)",
+        "input": "最近四帧 x = [1, 3, 1, 2]",
+        "output": "当前输出 1",
+        "direction": "同一证券，观测从旧到新；通常只列当前输出。"
+      },
+      "notes": [
+        "默认交易日槽窗口，返回距当前帧的距离，当前为0。并列最小值选择最近的一次；NaN不参加极值比较，Inf使该窗口结果不可用。"
+      ],
+      "execution_dependencies": [
+        "逐证券时序窗口或状态"
+      ]
+    }
   },
   {
     "name": "ts_av_diff",
-    "frontend": "self.ts.av_diff(x,period)",
+    "frontend": "self.ts.av_diff(x, period)",
     "native": true,
-    "data": "日线 OHLCV",
+    "data": "逐证券历史输入表达式",
     "brain": "官方行为待核验",
     "source": "LEAN 窗口 / FT 扩展",
     "syntax_support": "supported",
@@ -546,13 +1737,58 @@
     "contract_version": "shared-6bb147e6",
     "official_parity": "not_verified",
     "catalog_source": "BRAIN",
-    "brain_category": "时序"
+    "brain_category": "时序",
+    "category": "ts",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "当前值减窗口均值。",
+    "reference": {
+      "title": "偏离窗口均值",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "输入表达式。数学算子接受有限标量或同轴向量；时序算子逐股计算，截面算子使用同一日的证券轴。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "period",
+          "description": "正整数窗口或滞后期数，可以使用构造参数；窗口时间轴由clock决定。",
+          "type": "整数",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "clock",
+          "description": "valid_observations按有效观测推进；trading_days保留完整输入交易日槽。省略与显式默认值走同一合同。",
+          "type": "enum: valid_observations / trading_days",
+          "default": "valid_observations",
+          "optional": true,
+          "advanced": true
+        }
+      ],
+      "example": {
+        "expression": "self.ts.av_diff(x, 3)",
+        "input": "最近三个有效观测 x = [1, 2, 3]，当前值为 3",
+        "output": "当前输出 3 - 2 = 1",
+        "direction": "同一证券，观测从旧到新；通常只列当前输出。"
+      },
+      "notes": [
+        "时序示例只展示已得到完整窗口时的当前输出，输入按从旧到新的顺序排列；窗口完成与结果有效应分别检查。",
+        "等于当前值减窗口均值；显式 clock 可选择完整交易日槽或有效观测时钟。"
+      ],
+      "execution_dependencies": [
+        "逐证券时序窗口或状态"
+      ]
+    }
   },
   {
     "name": "ts_backfill",
-    "frontend": "self.ts.backfill(x,lookback=period,k=1)",
+    "frontend": "self.ts.backfill(x, lookback=period, k=1)",
     "native": true,
-    "data": "日线 OHLCV",
+    "data": "逐证券历史输入表达式",
     "brain": "官方行为待核验",
     "source": "FactorPool native extension",
     "syntax_support": "supported",
@@ -564,13 +1800,65 @@
     "catalog_source": "BRAIN",
     "brain_category": "时序",
     "source_path": "src/native/brain_temporal.cpp",
-    "contract": "窗口包含当前点，按从近到远取第k个有限值；找不到则不可用"
+    "contract": "窗口包含当前点，按从近到远取第k个有限值；找不到则不可用",
+    "category": "ts",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "窗口包含当前点，按从近到远取第k个有限值；找不到则不可用",
+    "reference": {
+      "title": "向历史寻找有效值",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "输入表达式。数学算子接受有限标量或同轴向量；时序算子逐股计算，截面算子使用同一日的证券轴。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "lookback",
+          "description": "包含当前帧的正整数查找范围；可以使用位置参数或lookback关键字。",
+          "type": "整数",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "k",
+          "description": "从最新往过去找到的第k个有限值，默认1。",
+          "type": "整数",
+          "default": 1,
+          "optional": true,
+          "advanced": true
+        },
+        {
+          "name": "clock",
+          "description": "valid_observations按有效观测推进；trading_days保留完整输入交易日槽。省略与显式默认值走同一合同。",
+          "type": "enum: valid_observations / trading_days",
+          "default": "trading_days",
+          "optional": true,
+          "advanced": true
+        }
+      ],
+      "example": {
+        "expression": "self.ts.backfill(x, lookback=4, k=1)",
+        "input": "最近四帧 x = [3, NaN, 5, NaN]",
+        "output": "当前输出 5",
+        "direction": "同一证券，观测从旧到新；通常只列当前输出。"
+      },
+      "notes": [
+        "默认交易日槽，窗口准备完整后包含当前点查找。当前值有限且k=1时原样返回；找不到足够有效值或窗口含Inf时不可用。"
+      ],
+      "execution_dependencies": [
+        "逐证券时序窗口或状态"
+      ]
+    }
   },
   {
     "name": "ts_corr",
-    "frontend": "self.ts.corr(x,y,period)",
+    "frontend": "self.ts.corr(x, y, period)",
     "native": true,
-    "data": "日线 OHLCV",
+    "data": "逐证券历史输入表达式",
     "brain": "官方行为待核验",
     "source": "FactorPool native extension",
     "syntax_support": "supported",
@@ -582,13 +1870,66 @@
     "catalog_source": "BRAIN",
     "brain_category": "时序",
     "source_path": "src/native/brain_temporal.cpp",
-    "contract": "窗口内成对有限样本的Pearson相关；至少2对且双方方差为正，否则不可用"
+    "contract": "窗口内成对有限样本的Pearson相关；至少2对且双方方差为正，否则不可用",
+    "category": "ts",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "窗口内成对有限样本的Pearson相关；至少2对且双方方差为正，否则不可用",
+    "reference": {
+      "title": "窗口相关系数",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "输入表达式。数学算子接受有限标量或同轴向量；时序算子逐股计算，截面算子使用同一日的证券轴。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "y",
+          "description": "第二个输入表达式；可为有限常数，也可为与 x 同轴的向量。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "period",
+          "description": "正整数窗口或滞后期数，可以使用构造参数；窗口时间轴由clock决定。",
+          "type": "整数",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "clock",
+          "description": "valid_observations按有效观测推进；trading_days保留完整输入交易日槽。省略与显式默认值走同一合同。",
+          "type": "enum: valid_observations / trading_days",
+          "default": "trading_days",
+          "optional": true,
+          "advanced": true
+        }
+      ],
+      "example": {
+        "expression": "self.ts.corr(x, y, 3)",
+        "input": "最近三帧 x = [1, 2, 3]；y = [2, 4, 6]",
+        "output": "当前输出 1",
+        "direction": "同一证券，观测从旧到新；通常只列当前输出。"
+      },
+      "notes": [
+        "默认交易日槽；只保留x、y都有限的成对样本计算Pearson相关。至少需要2对样本且双方方差均为正。",
+        "NaN按配对剔除，任意一列出现Inf会使本次结果不可用；两列数据必须同日、同证券轴。"
+      ],
+      "execution_dependencies": [
+        "逐证券时序窗口或状态"
+      ]
+    }
   },
   {
     "name": "ts_count_nans",
-    "frontend": "self.ts.count_nans(x,period)",
+    "frontend": "self.ts.count_nans(x, period)",
     "native": true,
-    "data": "日线 OHLCV",
+    "data": "逐证券历史输入表达式",
     "brain": "官方行为待核验",
     "source": "FactorPool native extension",
     "syntax_support": "supported",
@@ -600,13 +1941,57 @@
     "catalog_source": "BRAIN",
     "brain_category": "时序",
     "source_path": "src/native/brain_temporal.cpp",
-    "contract": "统计窗口NaN槽数；Inf不计作NaN并使该次结果不可用"
+    "contract": "统计窗口NaN槽数；Inf不计作NaN并使该次结果不可用",
+    "category": "ts",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "统计窗口NaN槽数；Inf不计作NaN并使该次结果不可用",
+    "reference": {
+      "title": "窗口缺失值个数",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "输入表达式。数学算子接受有限标量或同轴向量；时序算子逐股计算，截面算子使用同一日的证券轴。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "period",
+          "description": "正整数窗口或滞后期数，可以使用构造参数；窗口时间轴由clock决定。",
+          "type": "整数",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "clock",
+          "description": "valid_observations按有效观测推进；trading_days保留完整输入交易日槽。省略与显式默认值走同一合同。",
+          "type": "enum: valid_observations / trading_days",
+          "default": "trading_days",
+          "optional": true,
+          "advanced": true
+        }
+      ],
+      "example": {
+        "expression": "self.ts.count_nans(x, 3)",
+        "input": "最近三帧 x = [1, NaN, NaN]",
+        "output": "当前输出 2",
+        "direction": "同一证券，观测从旧到新；通常只列当前输出。"
+      },
+      "notes": [
+        "默认交易日槽，完整窗口内统计NaN槽数量。Inf不是NaN，会使该窗口结果不可用；当前无Bar不会发布伪造观测。"
+      ],
+      "execution_dependencies": [
+        "逐证券时序窗口或状态"
+      ]
+    }
   },
   {
     "name": "ts_covariance",
-    "frontend": "self.ts.covariance(x,y,period)",
+    "frontend": "self.ts.covariance(x, y, period)",
     "native": true,
-    "data": "日线 OHLCV",
+    "data": "逐证券历史输入表达式",
     "brain": "官方行为待核验",
     "source": "FactorPool native extension",
     "syntax_support": "supported",
@@ -618,13 +2003,66 @@
     "catalog_source": "BRAIN",
     "brain_category": "时序",
     "source_path": "src/native/brain_temporal.cpp",
-    "contract": "成对有限样本的总体协方差，分母为有效配对数N；没有配对不可用"
+    "contract": "成对有限样本的总体协方差，分母为有效配对数N；没有配对不可用",
+    "category": "ts",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "成对有限样本的总体协方差，分母为有效配对数N；没有配对不可用",
+    "reference": {
+      "title": "窗口总体协方差",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "输入表达式。数学算子接受有限标量或同轴向量；时序算子逐股计算，截面算子使用同一日的证券轴。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "y",
+          "description": "第二个输入表达式；可为有限常数，也可为与 x 同轴的向量。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "period",
+          "description": "正整数窗口或滞后期数，可以使用构造参数；窗口时间轴由clock决定。",
+          "type": "整数",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "clock",
+          "description": "valid_observations按有效观测推进；trading_days保留完整输入交易日槽。省略与显式默认值走同一合同。",
+          "type": "enum: valid_observations / trading_days",
+          "default": "trading_days",
+          "optional": true,
+          "advanced": true
+        }
+      ],
+      "example": {
+        "expression": "self.ts.covariance(x, y, 3)",
+        "input": "最近三帧 x = [1, 2, 3]；y = [2, 4, 6]",
+        "output": "当前输出 4/3 ≈ 1.333333",
+        "direction": "同一证券，观测从旧到新；通常只列当前输出。"
+      },
+      "notes": [
+        "默认交易日槽；使用成对有限样本，分母为实际有效配对数N，不是N-1。至少1对样本；单对样本协方差为有效零。",
+        "没有有效配对或任一输入列出现Inf时不可用。"
+      ],
+      "execution_dependencies": [
+        "逐证券时序窗口或状态"
+      ]
+    }
   },
   {
     "name": "ts_decay_linear",
-    "frontend": "self.ts.decay_linear",
+    "frontend": "self.ts.decay_linear(x, period, dense=False)",
     "native": true,
-    "data": "日线 OHLCV",
+    "data": "逐证券历史输入表达式",
     "brain": "官方行为待核验",
     "source": "固定 LEAN LinearWeightedMovingAverage / FT 有效样本窗口",
     "syntax_support": "supported",
@@ -635,13 +2073,70 @@
     "official_parity": "not_verified",
     "clock_contract": "Default valid observations; explicit clock='trading_days' uses full calendar window and propagates NaN; absent bars occupy calendar slots; no BRAIN dense=False claim",
     "catalog_source": "BRAIN",
-    "brain_category": "时序"
+    "brain_category": "时序",
+    "category": "ts",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "历史窗口线性加权；clock控制时间轴，交易日槽下dense选择严格缺失或有限分量权重重归一。",
+    "reference": {
+      "title": "线性加权窗口",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "输入表达式。数学算子接受有限标量或同轴向量；时序算子逐股计算，截面算子使用同一日的证券轴。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "period",
+          "description": "正整数窗口或滞后期数，可以使用构造参数；窗口时间轴由clock决定。",
+          "type": "整数",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "dense",
+          "description": "不改变clock。有效观察时钟先跳过缺失；交易日槽下False严格传播缺失，True按有限分量权重重归一。",
+          "type": "bool",
+          "default": false,
+          "optional": true,
+          "advanced": true
+        },
+        {
+          "name": "clock",
+          "description": "valid_observations按有效观测推进；trading_days保留完整输入交易日槽。省略与显式默认值走同一合同。",
+          "type": "enum: valid_observations / trading_days",
+          "default": "valid_observations",
+          "optional": true,
+          "advanced": true
+        }
+      ],
+      "example": {
+        "expression": "self.ts.decay_linear(x, 3)",
+        "input": "最近三个有效观测 x = [1, 2, 3]，当前值为 3",
+        "output": "当前输出 (1×1 + 2×2 + 3×3) / (1+2+3) = 7/3",
+        "direction": "同一证券，观测从旧到新；通常只列当前输出。"
+      },
+      "notes": [
+        "按从旧到新的线性权重计算，最近观测权重更大。默认clock=\"valid_observations\"先跳过缺失，再积累所需有效观察；dense布尔值不改变时钟。",
+        "显式clock=\"trading_days\"时，dense=False要求完整有限窗口，任何NaN使当前输出不可用；dense=True只用有限分量及其原位置权重归一。Inf与未ready不被当作可补值的NaN。",
+        "需要把已观测NaN明确替为0时，先写0 if self.is_nan(x) else x，再传入窗口。没有隐含的自动零填路径。",
+        "三帧[1, NaN, 3]：默认有效观察时钟只有2个有效值，仍未ready；交易日槽dense=False结果不可用但ready=True，dense=True输出2.5；先显式零填后输出10/6。",
+        "以上是FactorPool当前合同，省略参数与显式同默认值一致，不代表BRAIN官方数值一致性。"
+      ],
+      "execution_dependencies": [
+        "逐证券时序窗口或状态"
+      ],
+      "advanced_syntax": "self.ts.decay_linear(x, period, clock=\"trading_days\", dense=True)\nself.ts.decay_linear(0 if self.is_nan(x) else x, period, clock=\"trading_days\")"
+    }
   },
   {
     "name": "ts_delay",
-    "frontend": "self.ts.delay(x,period)",
+    "frontend": "self.ts.delay(x, period)",
     "native": true,
-    "data": "日线 OHLCV",
+    "data": "逐证券历史输入表达式",
     "brain": "官方行为待核验",
     "source": "LEAN 窗口 / FT 扩展",
     "syntax_support": "supported",
@@ -652,13 +2147,59 @@
     "official_parity": "not_verified",
     "clock_contract": "Default valid observations; explicit clock='trading_days' uses full calendar window and propagates NaN; absent bars occupy calendar slots; no BRAIN dense=False claim",
     "catalog_source": "BRAIN",
-    "brain_category": "时序"
+    "brain_category": "时序",
+    "category": "ts",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "取该股票 period 期前的值。",
+    "reference": {
+      "title": "滞后值",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "输入表达式。数学算子接受有限标量或同轴向量；时序算子逐股计算，截面算子使用同一日的证券轴。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "period",
+          "description": "正整数窗口或滞后期数，可以使用构造参数；窗口时间轴由clock决定。",
+          "type": "整数",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "clock",
+          "description": "valid_observations按有效观测推进；trading_days保留完整输入交易日槽。省略与显式默认值走同一合同。",
+          "type": "enum: valid_observations / trading_days",
+          "default": "valid_observations",
+          "optional": true,
+          "advanced": true
+        }
+      ],
+      "example": {
+        "expression": "self.ts.delay(x, 2)",
+        "input": "有效观测 x = [10, 11, 12, 13]，当前值为 13",
+        "output": "当前输出 11",
+        "direction": "同一证券，观测从旧到新；通常只列当前输出。"
+      },
+      "notes": [
+        "时序示例只展示已得到完整窗口时的当前输出，输入按从旧到新的顺序排列；窗口完成与结果有效应分别检查。",
+        "默认使用有效观测窗口；可显式传 clock=\"trading_days\" 使用交易日槽。缺失会占据日历槽而不压缩时间；统计窗口检查完整窗口，delay/delta 则取指定槽。",
+        "取 period 个观测以前的值，因此通常需要当前点及此前 period 个观测。"
+      ],
+      "execution_dependencies": [
+        "逐证券时序窗口或状态"
+      ]
+    }
   },
   {
     "name": "ts_delta",
-    "frontend": "self.ts.delta(x,period)",
+    "frontend": "self.ts.delta(x, period)",
     "native": true,
-    "data": "日线 OHLCV",
+    "data": "逐证券历史输入表达式",
     "brain": "官方行为待核验",
     "source": "LEAN 窗口 / FT 扩展",
     "syntax_support": "supported",
@@ -669,13 +2210,58 @@
     "official_parity": "not_verified",
     "clock_contract": "Default valid observations; explicit clock='trading_days' uses full calendar window and propagates NaN; absent bars occupy calendar slots; no BRAIN dense=False claim",
     "catalog_source": "BRAIN",
-    "brain_category": "时序"
+    "brain_category": "时序",
+    "category": "ts",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "当前值减 period 期前的值。",
+    "reference": {
+      "title": "滞后差值",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "输入表达式。数学算子接受有限标量或同轴向量；时序算子逐股计算，截面算子使用同一日的证券轴。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "period",
+          "description": "正整数窗口或滞后期数，可以使用构造参数；窗口时间轴由clock决定。",
+          "type": "整数",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "clock",
+          "description": "valid_observations按有效观测推进；trading_days保留完整输入交易日槽。省略与显式默认值走同一合同。",
+          "type": "enum: valid_observations / trading_days",
+          "default": "valid_observations",
+          "optional": true,
+          "advanced": true
+        }
+      ],
+      "example": {
+        "expression": "self.ts.delta(x, 2)",
+        "input": "有效观测 x = [10, 11, 12, 13]，当前值为 13",
+        "output": "当前输出 13 - 11 = 2",
+        "direction": "同一证券，观测从旧到新；通常只列当前输出。"
+      },
+      "notes": [
+        "时序示例只展示已得到完整窗口时的当前输出，输入按从旧到新的顺序排列；窗口完成与结果有效应分别检查。",
+        "默认使用有效观测窗口；可显式传 clock=\"trading_days\" 使用交易日槽。缺失会占据日历槽而不压缩时间；统计窗口检查完整窗口，delay/delta 则取指定槽。"
+      ],
+      "execution_dependencies": [
+        "逐证券时序窗口或状态"
+      ]
+    }
   },
   {
     "name": "ts_mean",
-    "frontend": "self.ts.mean(x,period)",
+    "frontend": "self.ts.mean(x, period)",
     "native": true,
-    "data": "日线 OHLCV",
+    "data": "逐证券历史输入表达式",
     "brain": "官方行为待核验",
     "source": "LEAN 窗口 / FT 扩展",
     "syntax_support": "supported",
@@ -686,13 +2272,58 @@
     "official_parity": "not_verified",
     "clock_contract": "Default valid observations; explicit clock='trading_days' uses full calendar window and propagates NaN; absent bars occupy calendar slots; no BRAIN dense=False claim",
     "catalog_source": "BRAIN",
-    "brain_category": "时序"
+    "brain_category": "时序",
+    "category": "ts",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "单只股票的窗口算术均值。",
+    "reference": {
+      "title": "窗口均值",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "输入表达式。数学算子接受有限标量或同轴向量；时序算子逐股计算，截面算子使用同一日的证券轴。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "period",
+          "description": "正整数窗口或滞后期数，可以使用构造参数；窗口时间轴由clock决定。",
+          "type": "整数",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "clock",
+          "description": "valid_observations按有效观测推进；trading_days保留完整输入交易日槽。省略与显式默认值走同一合同。",
+          "type": "enum: valid_observations / trading_days",
+          "default": "valid_observations",
+          "optional": true,
+          "advanced": true
+        }
+      ],
+      "example": {
+        "expression": "self.ts.mean(x, 3)",
+        "input": "最近三个有效观测 x = [1, 2, 3]，当前值为 3",
+        "output": "当前输出 2",
+        "direction": "同一证券，观测从旧到新；通常只列当前输出。"
+      },
+      "notes": [
+        "时序示例只展示已得到完整窗口时的当前输出，输入按从旧到新的顺序排列；窗口完成与结果有效应分别检查。",
+        "默认使用有效观测窗口；可显式传 clock=\"trading_days\" 使用交易日槽。缺失会占据日历槽而不压缩时间；统计窗口检查完整窗口，delay/delta 则取指定槽。"
+      ],
+      "execution_dependencies": [
+        "逐证券时序窗口或状态"
+      ]
+    }
   },
   {
     "name": "ts_product",
-    "frontend": "self.ts.product(x,period)",
+    "frontend": "self.ts.product(x, period)",
     "native": true,
-    "data": "日线 OHLCV",
+    "data": "逐证券历史输入表达式",
     "brain": "官方行为待核验",
     "source": "FactorPool native extension",
     "syntax_support": "supported",
@@ -704,13 +2335,57 @@
     "catalog_source": "BRAIN",
     "brain_category": "时序",
     "source_path": "src/native/brain_temporal.cpp",
-    "contract": "要求窗口所有值有限后相乘；NaN、Inf或乘积溢出不可用"
+    "contract": "要求窗口所有值有限后相乘；NaN、Inf或乘积溢出不可用",
+    "category": "ts",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "要求窗口所有值有限后相乘；NaN、Inf或乘积溢出不可用",
+    "reference": {
+      "title": "窗口乘积",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "输入表达式。数学算子接受有限标量或同轴向量；时序算子逐股计算，截面算子使用同一日的证券轴。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "period",
+          "description": "正整数窗口或滞后期数，可以使用构造参数；窗口时间轴由clock决定。",
+          "type": "整数",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "clock",
+          "description": "valid_observations按有效观测推进；trading_days保留完整输入交易日槽。省略与显式默认值走同一合同。",
+          "type": "enum: valid_observations / trading_days",
+          "default": "trading_days",
+          "optional": true,
+          "advanced": true
+        }
+      ],
+      "example": {
+        "expression": "self.ts.product(x, 3)",
+        "input": "最近三帧 x = [2, 3, 4]",
+        "output": "当前输出 24",
+        "direction": "同一证券，观测从旧到新；通常只列当前输出。"
+      },
+      "notes": [
+        "默认交易日槽，要求窗口全部值有限后相乘。NaN、Inf或乘积溢出会使结果不可用；真实零则产生有效零乘积。"
+      ],
+      "execution_dependencies": [
+        "逐证券时序窗口或状态"
+      ]
+    }
   },
   {
     "name": "ts_quantile",
-    "frontend": "self.ts.quantile(x,period,driver=\"gaussian\")",
+    "frontend": "self.ts.quantile(x, period, driver=\"gaussian\")",
     "native": true,
-    "data": "日线 OHLCV",
+    "data": "逐证券历史输入表达式",
     "brain": "官方行为待核验",
     "source": "FactorPool native extension",
     "syntax_support": "supported",
@@ -722,13 +2397,66 @@
     "catalog_source": "BRAIN",
     "brain_category": "时序",
     "source_path": "src/native/brain_temporal.cpp",
-    "contract": "p=(当前值之前的较小样本数+相等样本数/2)/有效N，再按driver逆分布映射"
+    "contract": "p=(当前值之前的较小样本数+相等样本数/2)/有效N，再按driver逆分布映射",
+    "category": "ts",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "p=(当前值之前的较小样本数+相等样本数/2)/有效N，再按driver逆分布映射",
+    "reference": {
+      "title": "时序排名分布映射",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "输入表达式。数学算子接受有限标量或同轴向量；时序算子逐股计算，截面算子使用同一日的证券轴。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "period",
+          "description": "正整数窗口或滞后期数，可以使用构造参数；窗口时间轴由clock决定。",
+          "type": "整数",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "driver",
+          "description": "逆分布类型：gaussian（默认标准正态）、uniform（返回概率）、cauchy。",
+          "type": "字符串",
+          "default": "gaussian",
+          "optional": true,
+          "advanced": true
+        },
+        {
+          "name": "clock",
+          "description": "valid_observations按有效观测推进；trading_days保留完整输入交易日槽。省略与显式默认值走同一合同。",
+          "type": "enum: valid_observations / trading_days",
+          "default": "trading_days",
+          "optional": true,
+          "advanced": true
+        }
+      ],
+      "example": {
+        "expression": "self.ts.quantile(x, 3, driver=\"uniform\")",
+        "input": "最近三帧 x = [1, 2, 3]，当前值为3",
+        "output": "当前输出 (2+0.5)/3 = 5/6",
+        "direction": "同一证券，观测从旧到新；通常只列当前输出。"
+      },
+      "notes": [
+        "默认交易日槽。对有限样本计较小数L、相等数E，概率p=(L+E/2)/N，再作driver逆分布；此处用的是中间名次概率。",
+        "同一输入用gaussian时约0.967422。当前值缺失、没有有限样本或窗口含Inf时不可用。"
+      ],
+      "execution_dependencies": [
+        "逐证券时序窗口或状态"
+      ]
+    }
   },
   {
     "name": "ts_rank",
-    "frontend": "self.ts.rank(x,period,constant=0)",
+    "frontend": "self.ts.rank(x, period, constant=0)",
     "native": true,
-    "data": "日线 OHLCV",
+    "data": "逐证券历史输入表达式",
     "brain": "官方行为待核验",
     "source": "FactorPool native extension",
     "syntax_support": "supported",
@@ -740,13 +2468,66 @@
     "catalog_source": "BRAIN",
     "brain_category": "时序",
     "source_path": "src/native/brain_temporal.cpp",
-    "contract": "当前值的窗口端点排名，平均并列名次映射0..1后加constant；单样本为0.5+constant"
+    "contract": "当前值的窗口端点排名，平均并列名次映射0..1后加constant；单样本为0.5+constant",
+    "category": "ts",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "当前值的窗口端点排名，平均并列名次映射0..1后加constant；单样本为0.5+constant",
+    "reference": {
+      "title": "当前值的窗口排名",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "输入表达式。数学算子接受有限标量或同轴向量；时序算子逐股计算，截面算子使用同一日的证券轴。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "period",
+          "description": "正整数窗口或滞后期数，可以使用构造参数；窗口时间轴由clock决定。",
+          "type": "整数",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "constant",
+          "description": "排名完成后加上的有限常数，默认为0；加常数后可能超出0..1。",
+          "type": "有限数值",
+          "default": 0,
+          "optional": true,
+          "advanced": true
+        },
+        {
+          "name": "clock",
+          "description": "valid_observations按有效观测推进；trading_days保留完整输入交易日槽。省略与显式默认值走同一合同。",
+          "type": "enum: valid_observations / trading_days",
+          "default": "trading_days",
+          "optional": true,
+          "advanced": true
+        }
+      ],
+      "example": {
+        "expression": "self.ts.rank(x, 3)",
+        "input": "最近三帧 x = [1, 2, 3]，当前值为3",
+        "output": "当前输出 1",
+        "direction": "同一证券，观测从旧到新；通常只列当前输出。"
+      },
+      "notes": [
+        "默认交易日槽，有限窗口样本的平均并列名次映射到0..1，再加constant。单个有限样本得到0.5+constant。",
+        "当前值缺失或窗口含Inf时不可用；它与同日截面rank处理的轴不同。"
+      ],
+      "execution_dependencies": [
+        "逐证券时序窗口或状态"
+      ]
+    }
   },
   {
     "name": "ts_regression",
-    "frontend": "self.ts.regression(y,x,period,lag=0,rettype=0)",
+    "frontend": "self.ts.regression(y, x, period, lag=0, rettype=0)",
     "native": true,
-    "data": "日线 OHLCV",
+    "data": "逐证券历史输入表达式",
     "brain": "官方行为待核验",
     "source": "FactorPool native extension",
     "syntax_support": "supported",
@@ -758,13 +2539,83 @@
     "catalog_source": "BRAIN",
     "brain_category": "时序",
     "source_path": "src/native/brain_temporal.cpp",
-    "contract": "输入顺序为y,x；正lag配对当前y与过去x。rettype0..9；MSE分母N-2，需N>2"
+    "contract": "输入顺序为y,x；正lag配对当前y与过去x。rettype0..9；MSE分母N-2，需N>2",
+    "category": "ts",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "输入顺序为y,x；正lag配对当前y与过去x。rettype0..9；MSE分母N-2，需N>2",
+    "reference": {
+      "title": "窗口线性回归",
+      "parameters": [
+        {
+          "name": "y",
+          "description": "被解释变量表达式，必须放第一个数据参数。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "x",
+          "description": "解释变量表达式，与y同证券轴；拟合包含截距。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "period",
+          "description": "正整数窗口或滞后期数，可以使用构造参数；窗口时间轴由clock决定。",
+          "type": "整数",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "lag",
+          "description": "非负滞后帧数；正lag将当前y与更早的x配对，窗口保存period+lag帧。",
+          "type": "整数",
+          "default": 0,
+          "optional": true,
+          "advanced": true
+        },
+        {
+          "name": "rettype",
+          "description": "0残差；1截距；2斜率；3当前拟合值；4残差平方和SSE；5总平方和SST；6 R²；7 MSE；8斜率标准误；9截距标准误。默认0。",
+          "type": "整数",
+          "default": 0,
+          "optional": true,
+          "advanced": true
+        },
+        {
+          "name": "clock",
+          "description": "valid_observations按有效观测推进；trading_days保留完整输入交易日槽。省略与显式默认值走同一合同。",
+          "type": "enum: valid_observations / trading_days",
+          "default": "trading_days",
+          "optional": true,
+          "advanced": true
+        }
+      ],
+      "example": {
+        "expression": "self.ts.regression(y, x, 4, lag=0, rettype=2)",
+        "input": "y = [3, 5, 7, 9]；x = [1, 2, 3, 4]",
+        "output": "当前斜率输出 2（截距为1）",
+        "direction": "同一证券，观测从旧到新；通常只列当前输出。"
+      },
+      "notes": [
+        "默认交易日槽，只保留滞后对齐后成对有限样本。解释变量须有正方差，至少2对样本；任何输入Inf使本次不可用。",
+        "MSE=SSE/(N-2)，标准误也使用该分母，因此rettype=7、8、9要求有效N>2。R²在y零方差时不可用。",
+        "rettype=0、3还要求对应当前y/x或拟合输入有效。这些为本地明确定义的结果，不宣称与官方oracle逐位一致。"
+      ],
+      "execution_dependencies": [
+        "逐证券时序窗口或状态"
+      ]
+    }
   },
   {
     "name": "ts_scale",
-    "frontend": "self.ts.scale(x,period)",
+    "frontend": "self.ts.scale(x, period, constant=0)",
     "native": true,
-    "data": "日线 OHLCV",
+    "data": "逐证券历史输入表达式",
     "brain": "官方行为待核验",
     "source": "LEAN 窗口 / FT 扩展",
     "syntax_support": "supported",
@@ -774,13 +2625,65 @@
     "contract_version": "shared-6bb147e6",
     "official_parity": "not_verified",
     "catalog_source": "BRAIN",
-    "brain_category": "时序"
+    "brain_category": "时序",
+    "category": "ts",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "窗口极差缩放后可加constant；常量窗口不可用。",
+    "reference": {
+      "title": "窗口极差缩放",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "输入表达式。数学算子接受有限标量或同轴向量；时序算子逐股计算，截面算子使用同一日的证券轴。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "period",
+          "description": "正整数窗口或滞后期数，可以使用构造参数；窗口时间轴由clock决定。",
+          "type": "整数",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "constant",
+          "description": "在极差缩放后加的有限常数，默认0；显式constant选择支持该参数的新时序入口。",
+          "type": "有限数值",
+          "default": 0,
+          "optional": true,
+          "advanced": true
+        },
+        {
+          "name": "clock",
+          "description": "valid_observations按有效观测推进；trading_days保留完整输入交易日槽。省略与显式默认值走同一合同。",
+          "type": "enum: valid_observations / trading_days",
+          "default": "valid_observations",
+          "optional": true,
+          "advanced": true
+        }
+      ],
+      "example": {
+        "expression": "self.ts.scale(x, 3)",
+        "input": "最近三个有效观测 x = [1, 2, 3]，当前值为 3",
+        "output": "当前输出 (3 - 1) / (3 - 1) = 1",
+        "direction": "同一证券，观测从旧到新；通常只列当前输出。"
+      },
+      "notes": [
+        "以窗口内的min/max将当前值映射到0..1，再加constant；常量窗口不可用。"
+      ],
+      "execution_dependencies": [
+        "逐证券时序窗口或状态"
+      ]
+    }
   },
   {
     "name": "ts_std_dev",
-    "frontend": "self.ts.std(x,period,ddof=0)",
+    "frontend": "self.ts.std(x, period, ddof=0)",
     "native": true,
-    "data": "日线 OHLCV",
+    "data": "逐证券历史输入表达式",
     "brain": "官方行为待核验",
     "source": "LEAN 窗口 / FT 扩展",
     "syntax_support": "supported",
@@ -791,13 +2694,67 @@
     "official_parity": "not_verified",
     "clock_contract": "Default valid observations; explicit clock='trading_days' uses full calendar window and propagates NaN; absent bars occupy calendar slots; no BRAIN dense=False claim",
     "catalog_source": "BRAIN",
-    "brain_category": "时序"
+    "brain_category": "时序",
+    "category": "ts",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "单只股票的窗口标准差；ddof=0 为总体口径。",
+    "reference": {
+      "title": "窗口标准差",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "输入表达式。数学算子接受有限标量或同轴向量；时序算子逐股计算，截面算子使用同一日的证券轴。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "period",
+          "description": "正整数窗口或滞后期数，可以使用构造参数；窗口时间轴由clock决定。",
+          "type": "整数",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "ddof",
+          "description": "标准差的自由度修正，默认为 0；有效观测模式要求整数且 0 ≤ ddof < period。",
+          "type": "整数",
+          "default": 0,
+          "optional": true,
+          "advanced": true
+        },
+        {
+          "name": "clock",
+          "description": "valid_observations按有效观测推进；trading_days保留完整输入交易日槽。省略与显式默认值走同一合同。",
+          "type": "enum: valid_observations / trading_days",
+          "default": "valid_observations",
+          "optional": true,
+          "advanced": true
+        }
+      ],
+      "example": {
+        "expression": "self.ts.std(x, 3)",
+        "input": "最近三个有效观测 x = [1, 2, 3]，当前值为 3",
+        "output": "当前输出 √(2/3) ≈ 0.816497",
+        "direction": "同一证券，观测从旧到新；通常只列当前输出。"
+      },
+      "notes": [
+        "时序示例只展示已得到完整窗口时的当前输出，输入按从旧到新的顺序排列；窗口完成与结果有效应分别检查。",
+        "ddof=0 时除以窗口样本数；ddof=1 使用样本标准差。常量完整窗口的标准差为 0。",
+        "支持 clock=\"trading_days\"；日历模式 ddof 只接受 0 或 1，分母不足时结果不可用。"
+      ],
+      "execution_dependencies": [
+        "逐证券时序窗口或状态"
+      ]
+    }
   },
   {
     "name": "ts_step",
-    "frontend": "self.ts.step(1)",
+    "frontend": "self.ts.step(period=1)",
     "native": true,
-    "data": "日线 OHLCV",
+    "data": "逐证券历史输入表达式",
     "brain": "官方行为待核验",
     "source": "FactorPool native extension",
     "syntax_support": "supported",
@@ -809,13 +2766,49 @@
     "catalog_source": "BRAIN",
     "brain_category": "时序",
     "source_path": "src/native/brain_temporal.cpp",
-    "contract": "按程序收到的帧数输出步长倍数，从第一帧的step值开始，不是自然日期编号"
+    "contract": "按程序收到的帧数输出步长倍数，从第一帧的step值开始，不是自然日期编号",
+    "category": "ts",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "按程序收到的帧数输出步长倍数，从第一帧的step值开始，不是自然日期编号",
+    "reference": {
+      "title": "计算帧计数",
+      "parameters": [
+        {
+          "name": "period",
+          "description": "每个输入帧增加的正整数步长，默认1；不是回看窗口。",
+          "type": "整数",
+          "default": 1,
+          "optional": true,
+          "advanced": false
+        },
+        {
+          "name": "clock",
+          "description": "计数按程序收到的完整输入帧推进；时钟选项不把它改为证券上市天数或自然日期编号。",
+          "type": "enum: valid_observations / trading_days",
+          "default": "trading_days",
+          "optional": true,
+          "advanced": true
+        }
+      ],
+      "example": {
+        "expression": "self.ts.step(2)",
+        "input": "程序依次收到第1、2、3个输入帧",
+        "output": "逐帧输出 [2, 4, 6]",
+        "direction": "同一证券，观测从旧到新；通常只列当前输出。"
+      },
+      "notes": [
+        "计数从第一帧开始，随整个输入帧时钟推进。它不是证券上市天数，也不是自然日期编号；无当前Bar不发布该证券的值。"
+      ],
+      "execution_dependencies": [
+        "逐证券时序窗口或状态"
+      ]
+    }
   },
   {
     "name": "ts_sum",
-    "frontend": "self.ts.sum(x,period)",
+    "frontend": "self.ts.sum(x, period)",
     "native": true,
-    "data": "日线 OHLCV",
+    "data": "逐证券历史输入表达式",
     "brain": "官方行为待核验",
     "source": "LEAN 窗口 / FT 扩展",
     "syntax_support": "supported",
@@ -826,13 +2819,58 @@
     "official_parity": "not_verified",
     "clock_contract": "Default valid observations; explicit clock='trading_days' uses full calendar window and propagates NaN; absent bars occupy calendar slots; no BRAIN dense=False claim",
     "catalog_source": "BRAIN",
-    "brain_category": "时序"
+    "brain_category": "时序",
+    "category": "ts",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "单只股票的窗口求和。",
+    "reference": {
+      "title": "窗口求和",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "输入表达式。数学算子接受有限标量或同轴向量；时序算子逐股计算，截面算子使用同一日的证券轴。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "period",
+          "description": "正整数窗口或滞后期数，可以使用构造参数；窗口时间轴由clock决定。",
+          "type": "整数",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "clock",
+          "description": "valid_observations按有效观测推进；trading_days保留完整输入交易日槽。省略与显式默认值走同一合同。",
+          "type": "enum: valid_observations / trading_days",
+          "default": "valid_observations",
+          "optional": true,
+          "advanced": true
+        }
+      ],
+      "example": {
+        "expression": "self.ts.sum(x, 3)",
+        "input": "最近三个有效观测 x = [1, 2, 3]，当前值为 3",
+        "output": "当前输出 6",
+        "direction": "同一证券，观测从旧到新；通常只列当前输出。"
+      },
+      "notes": [
+        "时序示例只展示已得到完整窗口时的当前输出，输入按从旧到新的顺序排列；窗口完成与结果有效应分别检查。",
+        "默认使用有效观测窗口；可显式传 clock=\"trading_days\" 使用交易日槽。缺失会占据日历槽而不压缩时间；统计窗口检查完整窗口，delay/delta 则取指定槽。"
+      ],
+      "execution_dependencies": [
+        "逐证券时序窗口或状态"
+      ]
+    }
   },
   {
     "name": "ts_zscore",
-    "frontend": "self.ts.zscore(x,period)",
+    "frontend": "self.ts.zscore(x, period, ddof=0)",
     "native": true,
-    "data": "日线 OHLCV",
+    "data": "逐证券历史输入表达式",
     "brain": "官方行为待核验",
     "source": "LEAN 窗口 / FT 扩展",
     "syntax_support": "supported",
@@ -842,13 +2880,66 @@
     "contract_version": "shared-6bb147e6",
     "official_parity": "not_verified",
     "catalog_source": "BRAIN",
-    "brain_category": "时序"
+    "brain_category": "时序",
+    "category": "ts",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "当前值减窗口均值，再除窗口标准差；零标准差不可用。",
+    "reference": {
+      "title": "时序标准分",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "输入表达式。数学算子接受有限标量或同轴向量；时序算子逐股计算，截面算子使用同一日的证券轴。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "period",
+          "description": "正整数窗口或滞后期数，可以使用构造参数；窗口时间轴由clock决定。",
+          "type": "整数",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "ddof",
+          "description": "标准差的自由度修正，默认为 0；有效观测模式要求整数且 0 ≤ ddof < period。",
+          "type": "整数",
+          "default": 0,
+          "optional": true,
+          "advanced": true
+        },
+        {
+          "name": "clock",
+          "description": "valid_observations按有效观测推进；trading_days保留完整输入交易日槽。省略与显式默认值走同一合同。",
+          "type": "enum: valid_observations / trading_days",
+          "default": "valid_observations",
+          "optional": true,
+          "advanced": true
+        }
+      ],
+      "example": {
+        "expression": "self.ts.zscore(x, 3)",
+        "input": "最近三个有效观测 x = [1, 2, 3]，当前值为 3",
+        "output": "当前输出 (3 - 2) / √(2/3) ≈ 1.224745",
+        "direction": "同一证券，观测从旧到新；通常只列当前输出。"
+      },
+      "notes": [
+        "时序示例只展示已得到完整窗口时的当前输出，输入按从旧到新的顺序排列；窗口完成与结果有效应分别检查。",
+        "以当前值减窗口均值，再除窗口标准差；零标准差时不可用。显式 clock 可选择完整交易日槽或有效观测时钟。"
+      ],
+      "execution_dependencies": [
+        "逐证券时序窗口或状态"
+      ]
+    }
   },
   {
     "name": "normalize",
-    "frontend": "self.cs.normalize(x)",
+    "frontend": "self.cs.normalize(x, useStd=False, limit=0)",
     "native": true,
-    "data": "日线 OHLCV",
+    "data": "同日证券数值与当期证券池",
     "brain": "官方行为待核验",
     "source": "FT 截面扩展",
     "syntax_support": "supported",
@@ -858,13 +2949,57 @@
     "contract_version": "shared-6bb147e6",
     "official_parity": "not_verified",
     "catalog_source": "BRAIN",
-    "brain_category": "截面"
+    "brain_category": "截面",
+    "category": "cs",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "截面减均值；useStd可再标准化，正limit裁剪结果。",
+    "reference": {
+      "title": "截面减均值",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "同一时点的证券数值表达式。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "useStd",
+          "description": "True在减均值后再除总体标准差；零标准差不可用。",
+          "type": "bool",
+          "default": false,
+          "optional": true,
+          "advanced": true
+        },
+        {
+          "name": "limit",
+          "description": "正数将变换后结果裁剪到[-limit,limit]；0不裁剪。",
+          "type": "有限数值",
+          "default": 0,
+          "optional": true,
+          "advanced": true
+        }
+      ],
+      "example": {
+        "expression": "self.cs.normalize(x)",
+        "input": "同日 x = [1, 2, 3]",
+        "output": "[-1, 0, 1]",
+        "direction": "同一时点，输入和输出均按原证券顺序排列。"
+      },
+      "notes": [
+        "默认只减截面均值；useStd=True可进行标准化，limit可进一步裁剪。缺失保持不可用。"
+      ],
+      "execution_dependencies": [
+        "当时实际证券池的同日截面"
+      ]
+    }
   },
   {
     "name": "quantile",
-    "frontend": "self.cs.quantile(x,driver=\"gaussian\",sigma=1)",
+    "frontend": "self.cs.quantile(x, driver=\"gaussian\", sigma=1)",
     "native": true,
-    "data": "日线 OHLCV",
+    "data": "同日证券数值与当期证券池",
     "brain": "官方行为待核验",
     "source": "FactorPool native extension",
     "syntax_support": "supported",
@@ -876,13 +3011,58 @@
     "catalog_source": "BRAIN",
     "brain_category": "截面",
     "source_path": "src/native/brain_cross.cpp",
-    "contract": "截面端点rank r映射p=1/N+r*(1-2/N)，再取driver逆分布并乘sigma"
+    "contract": "截面端点rank r映射p=1/N+r*(1-2/N)，再取driver逆分布并乘sigma",
+    "category": "cs",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "截面端点rank r映射p=1/N+r*(1-2/N)，再取driver逆分布并乘sigma",
+    "reference": {
+      "title": "截面排名分布映射",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "输入表达式。数学算子接受有限标量或同轴向量；时序算子逐股计算，截面算子使用同一日的证券轴。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "driver",
+          "description": "gaussian、uniform或cauchy，默认gaussian。",
+          "type": "字符串",
+          "default": "gaussian",
+          "optional": true,
+          "advanced": true
+        },
+        {
+          "name": "sigma",
+          "description": "逆分布结果的非负缩放系数，默认1。",
+          "type": "有限数值",
+          "default": 1,
+          "optional": true,
+          "advanced": true
+        }
+      ],
+      "example": {
+        "expression": "self.cs.quantile(x, driver=\"uniform\")",
+        "input": "同日 x = [1, 2, 3]",
+        "output": "[1/3, 1/2, 2/3]",
+        "direction": "同一时点，输入和输出均按原证券顺序排列。"
+      },
+      "notes": [
+        "有效样本数为N，先取端点排名r，再按p=1/N+r×(1-2/N)构造概率并作逆分布，最后乘sigma。",
+        "单样本或N=2的gaussian结果均为0；这与时序quantile的中间名次概率规则不同。缺失仍不可用。"
+      ],
+      "execution_dependencies": [
+        "当时实际证券池的同日截面"
+      ]
+    }
   },
   {
     "name": "rank",
-    "frontend": "self.cs.rank / self.cs.rank_unit",
+    "frontend": "self.cs.rank_unit(x, normalization=\"unit\", ascending=True, rate=2)",
     "native": true,
-    "data": "日线 OHLCV",
+    "data": "同日证券数值与当期证券池",
     "brain": "官方行为待核验",
     "source": "FT 截面扩展",
     "syntax_support": "supported",
@@ -893,13 +3073,66 @@
     "official_parity": "not_verified",
     "contract": "rank pct=True: average 1-based ranks/N; rank_unit: (average_rank-1)/(N-1), singleton/all equal=0.5; BRAIN-style examples use rank_unit",
     "catalog_source": "BRAIN",
-    "brain_category": "截面"
+    "brain_category": "截面",
+    "category": "cs",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "同日截面排名。默认端点映射0..1、并列取平均名次；其他排名尺度通过normalization明确选择。",
+    "reference": {
+      "title": "截面排名",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "同一时点待排名的证券数值表达式。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "normalization",
+          "description": "unit映射0..1；percentile为平均并列名次/N；ordinal为1基平均并列名次。",
+          "type": "enum: unit / percentile / ordinal",
+          "default": "unit",
+          "optional": true,
+          "advanced": true
+        },
+        {
+          "name": "ascending",
+          "description": "True时数值越大名次越高，False反向排列。",
+          "type": "bool",
+          "default": true,
+          "optional": true,
+          "advanced": true
+        },
+        {
+          "name": "rate",
+          "description": "当前精确排序已核验0和2；percentile/ordinal只接受默认值2。",
+          "type": "整数",
+          "default": 2,
+          "optional": true,
+          "advanced": true
+        }
+      ],
+      "example": {
+        "expression": "self.cs.rank_unit(x)",
+        "input": "同日 x = [10, 20, 20, 40]",
+        "output": "[0, 0.5, 0.5, 1]",
+        "direction": "同一时点，输入和输出均按原证券顺序排列。"
+      },
+      "notes": [
+        "默认unit使用平均并列名次映射0..1；单样本或全相等截面为0.5。缺失样本不参与排名，结果仍按原证券顺序返回。",
+        "不同排名尺度通过normalization显式选择，不能混为同一数值合同；示例输入的percentile输出为[0.25,0.625,0.625,1]，ordinal输出为[1,2.5,2.5,4]。"
+      ],
+      "execution_dependencies": [
+        "当时实际证券池的同日截面"
+      ]
+    }
   },
   {
     "name": "scale",
-    "frontend": "self.cs.scale(x)",
+    "frontend": "self.cs.scale(x, scale=1)",
     "native": true,
-    "data": "日线 OHLCV",
+    "data": "同日证券数值与当期证券池",
     "brain": "官方行为待核验",
     "source": "FT 截面扩展",
     "syntax_support": "supported",
@@ -909,13 +3142,68 @@
     "contract_version": "shared-6bb147e6",
     "official_parity": "not_verified",
     "catalog_source": "BRAIN",
-    "brain_category": "截面"
+    "brain_category": "截面",
+    "category": "cs",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "按L1缩放；可用scale总系数，或longscale/shortscale分别控制正负两侧。",
+    "reference": {
+      "title": "截面 L1 缩放",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "同一时点的证券数值表达式。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "scale",
+          "description": "全截面L1缩放的总系数。",
+          "type": "有限数值",
+          "default": 1,
+          "optional": true,
+          "advanced": true
+        },
+        {
+          "name": "longscale",
+          "description": "指定分侧缩放时的正侧系数；未单独指定时为1。",
+          "type": "有限数值",
+          "default": 1,
+          "optional": true,
+          "advanced": true
+        },
+        {
+          "name": "shortscale",
+          "description": "指定分侧缩放时的负侧系数；未单独指定时为1。",
+          "type": "有限数值",
+          "default": 1,
+          "optional": true,
+          "advanced": true
+        }
+      ],
+      "example": {
+        "expression": "self.cs.scale(x)",
+        "input": "同日 x = [-1, 1, 2]",
+        "output": "[-0.25, 0.25, 0.5]",
+        "direction": "同一时点，输入和输出均按原证券顺序排列。"
+      },
+      "notes": [
+        "不指定longscale/shortscale时，先除以有效截面L1范数，再乘scale；总L1为零时始终不可用。",
+        "指定longscale或shortscale后，分别按正负侧绝对值和缩放；该分侧功能对全零截面保留有效零。没有有效数据的证券仍不可用。",
+        "这里只改变表达式的尺度，不创建交易账户。"
+      ],
+      "advanced_syntax": "self.cs.scale(x, scale=1, longscale=1, shortscale=1)",
+      "execution_dependencies": [
+        "当时实际证券池的同日截面"
+      ]
+    }
   },
   {
     "name": "winsorize",
-    "frontend": "self.cs.winsorize(x,std=4)",
+    "frontend": "self.cs.winsorize(x, std=4)",
     "native": true,
-    "data": "日线 OHLCV",
+    "data": "同日证券数值与当期证券池",
     "brain": "官方行为待核验",
     "source": "FactorPool native extension",
     "syntax_support": "supported",
@@ -927,13 +3215,49 @@
     "catalog_source": "BRAIN",
     "brain_category": "截面",
     "source_path": "src/native/brain_cross.cpp",
-    "contract": "按有效截面总体均值和标准差将数值裁剪到mean±std*sd，保留原证券轴"
+    "contract": "按有效截面总体均值和标准差将数值裁剪到mean±std*sd，保留原证券轴",
+    "category": "cs",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "按有效截面总体均值和标准差将数值裁剪到mean±std*sd，保留原证券轴",
+    "reference": {
+      "title": "截面缩尾",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "输入表达式。数学算子接受有限标量或同轴向量；时序算子逐股计算，截面算子使用同一日的证券轴。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "std",
+          "description": "非负总体标准差倍数，默认4；值为0时所有有限样本变为截面均值。",
+          "type": "有限数值",
+          "default": 4,
+          "optional": true,
+          "advanced": true
+        }
+      ],
+      "example": {
+        "expression": "self.cs.winsorize(x, std=1)",
+        "input": "同日 x = [1, 2, 3]，均值2，总体标准差√(2/3)",
+        "output": "[1.183503, 2, 2.816497]（约）",
+        "direction": "同一时点，输入和输出均按原证券顺序排列。"
+      },
+      "notes": [
+        "将有限值裁剪到均值±std×总体标准差，不删除证券、不进行排序替换。缺失保持不可用。"
+      ],
+      "execution_dependencies": [
+        "当时实际证券池的同日截面"
+      ]
+    }
   },
   {
     "name": "zscore",
     "frontend": "self.cs.zscore(x)",
     "native": true,
-    "data": "日线 OHLCV",
+    "data": "同日证券数值与当期证券池",
     "brain": "官方行为待核验",
     "source": "FT 截面扩展",
     "syntax_support": "supported",
@@ -944,13 +3268,43 @@
     "official_parity": "not_verified",
     "contract": "self.cs path uses shared batch_program population SD; constant/singleton is invalid; separate low-level batch_ops constant-zero entry is not the Pool facade",
     "catalog_source": "BRAIN",
-    "brain_category": "截面"
+    "brain_category": "截面",
+    "category": "cs",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "同日截面减均值后除总体标准差；常量或单样本截面不可用。",
+    "reference": {
+      "title": "截面标准分",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "输入表达式。数学算子接受有限标量或同轴向量；时序算子逐股计算，截面算子使用同一日的证券轴。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        }
+      ],
+      "example": {
+        "expression": "self.cs.zscore(x)",
+        "input": "同日 x = [1, 2, 3]",
+        "output": "[-1.224745, 0, 1.224745]（约）",
+        "direction": "同一时点，输入和输出均按原证券顺序排列。"
+      },
+      "notes": [
+        "输入和输出均按同一天的原证券顺序列出；只用该截面的有效、有限样本计算。",
+        "使用总体标准差：先减当日有效截面均值，再除以标准差；这个入口没有 ddof 参数。",
+        "常量或单样本截面的标准差为零，输出不可用，而不是零。"
+      ],
+      "execution_dependencies": [
+        "当时实际证券池的同日截面"
+      ]
+    }
   },
   {
     "name": "vec_avg",
-    "frontend": "self.cs.vec_avg((x,y))",
+    "frontend": "self.vc.avg((x, y))",
     "native": true,
-    "data": "同一证券的多个可用分量表达式（tuple/list）；未新增财务向量数据源",
+    "data": "同一证券内部的分量表达式",
     "brain": "官方行为待核验",
     "source": "FactorPool native extension",
     "syntax_support": "supported",
@@ -962,13 +3316,42 @@
     "catalog_source": "BRAIN",
     "brain_category": "向量",
     "source_path": "src/native/brain_cross.cpp",
-    "contract": "逐证券对分量表达式求均值，跳过NaN分量；没有有限分量或含Inf则不可用，不沿股票轴求均值"
+    "contract": "逐证券对分量表达式求均值，跳过NaN分量；没有有限分量或含Inf则不可用，不沿股票轴求均值",
+    "category": "vector",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "逐证券对分量表达式求均值，跳过NaN分量；没有有限分量或含Inf则不可用，不沿股票轴求均值",
+    "reference": {
+      "title": "证券内分量均值",
+      "parameters": [
+        {
+          "name": "components",
+          "description": "一个非空tuple/list，内部是同一证券的多个分量表达式；也支持逐个位置传入。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        }
+      ],
+      "example": {
+        "expression": "self.vc.avg((input.close, input.high))",
+        "input": "证券A的(close,high)=(1,3)；证券B=(10,14)",
+        "output": "按证券输出 [2, 12]",
+        "direction": "每只证券内部的分量；输出仍按原证券顺序列出。"
+      },
+      "notes": [
+        "分量是在每只证券内部汇聚，绝不能把其他股票的横截面当成该证券的向量。NaN分量跳过；全部缺失或含Inf时不可用。",
+        "可由已有行情列构造分量，但没有因此自动接入财务向量或其他外部数据。"
+      ],
+      "execution_dependencies": [
+        "逐证券分量表达式，不自动跨证券聚合"
+      ]
+    }
   },
   {
     "name": "vec_sum",
-    "frontend": "self.cs.vec_sum([x,y])",
+    "frontend": "self.vc.sum((x, y))",
     "native": true,
-    "data": "同一证券的多个可用分量表达式（tuple/list）；未新增财务向量数据源",
+    "data": "同一证券内部的分量表达式",
     "brain": "官方行为待核验",
     "source": "FactorPool native extension",
     "syntax_support": "supported",
@@ -980,13 +3363,41 @@
     "catalog_source": "BRAIN",
     "brain_category": "向量",
     "source_path": "src/native/brain_cross.cpp",
-    "contract": "逐证券对分量表达式求和，跳过NaN分量；没有有限分量或含Inf则不可用，不沿股票轴求和"
+    "contract": "逐证券对分量表达式求和，跳过NaN分量；没有有限分量或含Inf则不可用，不沿股票轴求和",
+    "category": "vector",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "逐证券对分量表达式求和，跳过NaN分量；没有有限分量或含Inf则不可用，不沿股票轴求和",
+    "reference": {
+      "title": "证券内分量求和",
+      "parameters": [
+        {
+          "name": "components",
+          "description": "一个非空tuple/list，内部是同一证券的分量表达式；不是证券清单。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        }
+      ],
+      "example": {
+        "expression": "self.vc.sum([input.close, input.high])",
+        "input": "证券A的(close,high)=(1,3)；证券B=(10,14)",
+        "output": "按证券输出 [4, 24]",
+        "direction": "每只证券内部的分量；输出仍按原证券顺序列出。"
+      },
+      "notes": [
+        "逐证券对有限分量相加，NaN分量跳过；全部缺失或含Inf时不可用。不会沿股票轴归约，也没有新增数据源。"
+      ],
+      "execution_dependencies": [
+        "逐证券分量表达式，不自动跨证券聚合"
+      ]
+    }
   },
   {
     "name": "bucket",
-    "frontend": "self.cs.bucket(x,range=\"0,1,0.1\") / self.cs.bucket(x,buckets=\"5,10,20\")",
+    "frontend": "self.tf.bucket(x, buckets=\"0.2,0.5,0.7\")",
     "native": true,
-    "data": "日线 OHLCV",
+    "data": "数值及条件表达式",
     "brain": "官方行为待核验",
     "source": "FactorPool native extension",
     "syntax_support": "supported",
@@ -998,13 +3409,91 @@
     "catalog_source": "BRAIN",
     "brain_category": "转换",
     "source_path": "src/native/brain_cross.cpp",
-    "contract": "buckets阈值右闭；range模式默认隐藏区间外桶且右闭，起点保留为首桶。NaNGroup可输出独立缺失桶"
+    "contract": "buckets阈值右闭；range模式默认隐藏区间外桶且右闭，起点保留为首桶。NaNGroup可输出独立缺失桶",
+    "category": "transform",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "buckets阈值右闭；range模式默认隐藏区间外桶且右闭，起点保留为首桶。NaNGroup可输出独立缺失桶",
+    "reference": {
+      "title": "数值分桶",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "待分桶的数值表达式。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "buckets",
+          "description": "严格递增显式边界，与range必须且只能指定一个。",
+          "type": "边界字符串",
+          "default": null,
+          "optional": "二选一",
+          "advanced": false
+        },
+        {
+          "name": "range",
+          "description": "start,end,step形式等距边界；与buckets二选一。",
+          "type": "范围字符串",
+          "default": null,
+          "optional": "二选一",
+          "advanced": true
+        },
+        {
+          "name": "skipBegin",
+          "description": "是否隐藏首个外桶；range模式默认True，buckets模式默认False。",
+          "type": "bool",
+          "default": "按边界模式",
+          "optional": true,
+          "advanced": true
+        },
+        {
+          "name": "skipEnd",
+          "description": "是否隐藏最后外桶；默认值规则同skipBegin。",
+          "type": "bool",
+          "default": "按边界模式",
+          "optional": true,
+          "advanced": true
+        },
+        {
+          "name": "skipBoth",
+          "description": "同时隐藏两端外桶。",
+          "type": "bool",
+          "default": false,
+          "optional": true,
+          "advanced": true
+        },
+        {
+          "name": "NaNGroup",
+          "description": "是否为已观测NaN分配单独分组编号。",
+          "type": "bool",
+          "default": false,
+          "optional": true,
+          "advanced": true
+        }
+      ],
+      "example": {
+        "expression": "self.tf.bucket(x, buckets=\"0.2,0.5,0.7\")",
+        "input": "同日 x = [0.1, 0.3, 0.6, 0.8]",
+        "output": "[0, 1, 2, 3]",
+        "direction": "同一时点，输入和输出均按原证券顺序排列。"
+      },
+      "notes": [
+        "range模式默认隐藏外桶并使用右闭区间，例如0.9归入(0.8,0.9]的编号8；这些是项目对齐参考算例的明确边界。",
+        "显式buckets=\".2,.5,.7\"时，输入[.1,.3,.6,.8]得到[0,1,2,3]。NaNGroup编号位于保留的有限桶之后。"
+      ],
+      "advanced_syntax": "self.tf.bucket(x, range=\"0,1,0.1\")",
+      "execution_dependencies": [
+        "逐项计算；仅继承上游表达式已有依赖"
+      ]
+    }
   },
   {
     "name": "trade_when",
-    "frontend": "self.cs.trade_when(trigger,value,exit)",
+    "frontend": "self.tf.trade_when(trigger, value, exit)",
     "native": true,
-    "data": "日线 OHLCV",
+    "data": "数值及条件表达式",
     "brain": "官方行为待核验",
     "source": "FactorPool native extension",
     "syntax_support": "supported",
@@ -1016,13 +3505,58 @@
     "catalog_source": "BRAIN",
     "brain_category": "转换",
     "source_path": "src/native/brain_cross.cpp",
-    "contract": "exit>0优先清空；否则trigger>0更新为value，其余保持上次输出；首次无触发保持不可用"
+    "contract": "exit>0优先清空；否则trigger>0更新为value，其余保持上次输出；首次无触发保持不可用",
+    "category": "transform",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "exit>0优先清空；否则trigger>0更新为value，其余保持上次输出；首次无触发保持不可用",
+    "reference": {
+      "title": "条件更新与保持",
+      "parameters": [
+        {
+          "name": "trigger",
+          "description": "有限值>0时更新为value，否则保留上一输出。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "value",
+          "description": "触发更新时写入的表达式；未选中时不阻塞已有状态。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "exit",
+          "description": "有限值>0时优先清空为不可用；其优先级高于trigger。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        }
+      ],
+      "example": {
+        "expression": "self.tf.trade_when(trigger, value, exit)",
+        "input": "单股逐帧(trigger,value,exit) = [(1,4,-1),(0,5,-1),(1,6,1),(0,7,-1)]",
+        "output": "逐帧输出 [4, 4, null, null]",
+        "direction": "同一证券，输入和输出均从旧到新逐期排列。"
+      },
+      "notes": [
+        "按股票保存因子输出；首次没有触发时不可用。证券退出再入从空状态开始，不能等同于实际开平仓或成交。",
+        "退出条件无效时当前结果不可用；非退出路径还要求触发条件有效，仅更新时才要求value准备好。"
+      ],
+      "execution_dependencies": [
+        "逐证券的上一输出状态"
+      ]
+    }
   },
   {
     "name": "group_backfill",
-    "frontend": "self.cs.group_backfill(x,g,period,std=4)",
+    "frontend": "self.gp.backfill(x, g, period, std=4)",
     "native": true,
-    "data": "同轴真实分组表达式；group_mean另需非负权重，group_backfill另需历史输入。未新增行业或财务数据源",
+    "data": "同日数值与同轴真实分组标签，可由表达式构造",
     "brain": "官方行为待核验",
     "source": "FactorPool native extension",
     "syntax_support": "supported",
@@ -1034,13 +3568,67 @@
     "catalog_source": "BRAIN",
     "brain_category": "分组",
     "source_path": "src/native/brain_cross.cpp",
-    "contract": "当前值有限则保留；缺失时用当前分组对应的历史窗口有限样本作winsorized算术均值补全"
+    "contract": "当前值有限则保留；缺失时用当前分组对应的历史窗口有限样本作winsorized算术均值补全",
+    "category": "group",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "当前值有限则保留；缺失时用当前分组对应的历史窗口有限样本作winsorized算术均值补全",
+    "reference": {
+      "title": "组内历史补值",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "输入表达式。数学算子接受有限标量或同轴向量；时序算子逐股计算，截面算子使用同一日的证券轴。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "g",
+          "description": "与 x 同日、同证券轴的有限数值分组表达式，可来自实际分类或可用字段的分桶。当前基础行情没有行业分类字段，不可冒充行业数据。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "period",
+          "description": "正整数窗口或滞后期数，可以使用构造参数；窗口时间轴由clock决定。",
+          "type": "整数",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "std",
+          "description": "对候选历史样本进行缩尾的非负总体标准差倍数，默认4。",
+          "type": "有限数值",
+          "default": 4,
+          "optional": true,
+          "advanced": true
+        }
+      ],
+      "example": {
+        "expression": "self.gp.backfill(x, g, 2, std=4)",
+        "input": "g两日均为[0,0,1]；前日x=[2,10,100]，当日x=[NaN,20,NaN]",
+        "output": "当日输出 [32/3, 20, 100]",
+        "direction": "同日证券轴，g与x逐项对齐；历史补值另标向前窗口。"
+      },
+      "notes": [
+        "当前x有限则直接保留；仅缺失项使用其当前分组对应的历史窗口样本。候选跨证券与时间取值，但保留每个历史样本当时的分组。",
+        "候选按均值±std×总体标准差缩尾后取算术均值；无有效候选或当前分组缺失时不可用。行业分类没有自动接入。"
+      ],
+      "execution_dependencies": [
+        "同日标签与证券轴对齐的组内计算",
+        "组内历史样本窗口"
+      ]
+    }
   },
   {
     "name": "group_mean",
-    "frontend": "self.cs.group_mean(x,weight,g)",
+    "frontend": "self.gp.mean(x, g, weight=1)",
     "native": true,
-    "data": "同轴真实分组表达式；group_mean另需非负权重，group_backfill另需历史输入。未新增行业或财务数据源",
+    "data": "同日数值与同轴真实分组标签，可由表达式构造",
     "brain": "官方行为待核验",
     "source": "FactorPool native extension",
     "syntax_support": "supported",
@@ -1052,13 +3640,59 @@
     "catalog_source": "BRAIN",
     "brain_category": "分组",
     "source_path": "src/native/brain_cross.cpp",
-    "contract": "按非负有效权重计算组内加权算术均值；有效权重和须为正，不是调和均值"
+    "contract": "按非负有效权重计算组内加权算术均值；有效权重和须为正，不是调和均值",
+    "category": "group",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "按非负有效权重计算组内加权算术均值；有效权重和须为正，不是调和均值",
+    "reference": {
+      "title": "组内加权算术均值",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "组内待处理数值；有效组均值可广播到同组缺失x的位置。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "g",
+          "description": "与x同日、同证券轴的真实分组标签表达式。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "weight",
+          "description": "非负有效权重，可用常数1广播；组内有效权重和必须为正。仅接受关键字。",
+          "type": "数值表达式 / 常数",
+          "default": 1,
+          "optional": true,
+          "advanced": true
+        }
+      ],
+      "example": {
+        "expression": "self.gp.mean(x, g, weight=w)",
+        "input": "同日 x = [10, 20, 30]；w = [1, 3, 2]；g = [0, 0, 1]",
+        "output": "[17.5, 17.5, 30]",
+        "direction": "同日证券轴，g与x逐项对齐；历史补值另标向前窗口。"
+      },
+      "notes": [
+        "计算sum(x×weight)/sum(weight)，是加权算术均值，不是调和均值。有效组均值可广播到同组的缺失值位置。",
+        "负权重不参与统计；有效权重和为0或组标签缺失时不可用。g可由真实列或分桶表达式构造，不表示已有行业Provider。",
+        "等权写self.gp.mean(x, g)，加权写self.gp.mean(x, g, weight=w)；第三个位置参数不接受。"
+      ],
+      "execution_dependencies": [
+        "同日标签与证券轴对齐的组内计算"
+      ]
+    }
   },
   {
     "name": "group_neutralize",
-    "frontend": "self.cs.group_neutralize(x,g)",
+    "frontend": "self.gp.neutralize(x, g)",
     "native": true,
-    "data": "同轴真实分组表达式；group_mean另需非负权重，group_backfill另需历史输入。未新增行业或财务数据源",
+    "data": "同日数值与同轴真实分组标签，可由表达式构造",
     "brain": "官方行为待核验",
     "source": "FT 截面扩展",
     "syntax_support": "supported",
@@ -1068,13 +3702,51 @@
     "contract_version": "shared-6bb147e6",
     "official_parity": "not_verified",
     "catalog_source": "BRAIN",
-    "brain_category": "分组"
+    "brain_category": "分组",
+    "category": "group",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "减去各自组内均值。",
+    "reference": {
+      "title": "组内减均值",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "输入表达式。数学算子接受有限标量或同轴向量；时序算子逐股计算，截面算子使用同一日的证券轴。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "g",
+          "description": "与 x 同日、同证券轴的有限数值分组表达式，可来自实际分类或可用字段的分桶。当前基础行情没有行业分类字段，不可冒充行业数据。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        }
+      ],
+      "example": {
+        "expression": "self.gp.neutralize(x, g)",
+        "input": "同日 x = [1, 3, 10, 14]；g = [0, 0, 1, 1]",
+        "output": "[-1, 1, -2, 2]",
+        "direction": "同日证券轴，g与x逐项对齐；历史补值另标向前窗口。"
+      },
+      "notes": [
+        "分组示例中的 g 是数学演示标签，不是内置行业字段。真实研究须提供同轴标签，不能编造 input.industry。",
+        "值或标签缺失的证券不参加组内统计，其输出仍不可用；输出广播回各组原证券位置。",
+        "每个值减去所属组内的有效均值，不自动缩放。"
+      ],
+      "execution_dependencies": [
+        "同日标签与证券轴对齐的组内计算"
+      ]
+    }
   },
   {
     "name": "group_rank",
-    "frontend": "self.cs.group_rank(x,g)",
+    "frontend": "self.gp.rank(x, g)",
     "native": true,
-    "data": "同轴真实分组表达式；group_mean另需非负权重，group_backfill另需历史输入。未新增行业或财务数据源",
+    "data": "同日数值与同轴真实分组标签，可由表达式构造",
     "brain": "官方行为待核验",
     "source": "FT 截面扩展",
     "syntax_support": "supported",
@@ -1084,13 +3756,51 @@
     "contract_version": "shared-6bb147e6",
     "official_parity": "not_verified",
     "catalog_source": "BRAIN",
-    "brain_category": "分组"
+    "brain_category": "分组",
+    "category": "group",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "按同轴分组标签计算组内 0..1 排名；并列取平均名次，单样本为 0.5。",
+    "reference": {
+      "title": "组内排名",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "输入表达式。数学算子接受有限标量或同轴向量；时序算子逐股计算，截面算子使用同一日的证券轴。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "g",
+          "description": "与 x 同日、同证券轴的有限数值分组表达式，可来自实际分类或可用字段的分桶。当前基础行情没有行业分类字段，不可冒充行业数据。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        }
+      ],
+      "example": {
+        "expression": "self.gp.rank(x, g)",
+        "input": "同日 x = [1, 3, 10, 14]；g = [0, 0, 1, 1]",
+        "output": "[0, 1, 0, 1]",
+        "direction": "同日证券轴，g与x逐项对齐；历史补值另标向前窗口。"
+      },
+      "notes": [
+        "分组示例中的 g 是数学演示标签，不是内置行业字段。真实研究须提供同轴标签，不能编造 input.industry。",
+        "值或标签缺失的证券不参加组内统计，其输出仍不可用；输出广播回各组原证券位置。",
+        "各组独立做 0..1 端点排名，并列取平均名次；单样本组为 0.5。"
+      ],
+      "execution_dependencies": [
+        "同日标签与证券轴对齐的组内计算"
+      ]
+    }
   },
   {
     "name": "group_scale",
-    "frontend": "self.cs.group_scale(x,g)",
+    "frontend": "self.gp.scale(x, g)",
     "native": true,
-    "data": "同轴真实分组表达式；group_mean另需非负权重，group_backfill另需历史输入。未新增行业或财务数据源",
+    "data": "同日数值与同轴真实分组标签，可由表达式构造",
     "brain": "官方行为待核验",
     "source": "FactorPool native extension",
     "syntax_support": "supported",
@@ -1102,13 +3812,50 @@
     "catalog_source": "BRAIN",
     "brain_category": "分组",
     "source_path": "src/native/brain_cross.cpp",
-    "contract": "组内按(min,max)极差映射0..1；常量和单样本组不可用"
+    "contract": "组内按(min,max)极差映射0..1；常量和单样本组不可用",
+    "category": "group",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "组内按(min,max)极差映射0..1；常量和单样本组不可用",
+    "reference": {
+      "title": "组内极差缩放",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "输入表达式。数学算子接受有限标量或同轴向量；时序算子逐股计算，截面算子使用同一日的证券轴。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "g",
+          "description": "与 x 同日、同证券轴的有限数值分组表达式，可来自实际分类或可用字段的分桶。当前基础行情没有行业分类字段，不可冒充行业数据。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        }
+      ],
+      "example": {
+        "expression": "self.gp.scale(x, g)",
+        "input": "同日x=[10,20,30,99]；g=[0,0,0,1]",
+        "output": "[0, 0.5, 1, null]",
+        "direction": "同日证券轴，g与x逐项对齐；历史补值另标向前窗口。"
+      },
+      "notes": [
+        "各组独立按(x-min)/(max-min)缩放。常量或单样本组的分母为0，输出不可用。",
+        "分组示例中的 g 是数学演示标签，不是内置行业字段。真实研究须提供同轴标签，不能编造 input.industry。"
+      ],
+      "execution_dependencies": [
+        "同日标签与证券轴对齐的组内计算"
+      ]
+    }
   },
   {
     "name": "group_zscore",
-    "frontend": "self.cs.group_zscore(x,g)",
+    "frontend": "self.gp.zscore(x, g)",
     "native": true,
-    "data": "同轴真实分组表达式；group_mean另需非负权重，group_backfill另需历史输入。未新增行业或财务数据源",
+    "data": "同日数值与同轴真实分组标签，可由表达式构造",
     "brain": "官方行为待核验",
     "source": "FactorPool native extension",
     "syntax_support": "supported",
@@ -1120,6 +3867,43 @@
     "catalog_source": "BRAIN",
     "brain_category": "分组",
     "source_path": "src/native/brain_cross.cpp",
-    "contract": "组内使用总体标准差做标准分；常量和单样本组不可用"
+    "contract": "组内使用总体标准差做标准分；常量和单样本组不可用",
+    "category": "group",
+    "frontend_contract": "pool-operator-front-1",
+    "summary": "组内使用总体标准差做标准分；常量和单样本组不可用",
+    "reference": {
+      "title": "组内标准分",
+      "parameters": [
+        {
+          "name": "x",
+          "description": "输入表达式。数学算子接受有限标量或同轴向量；时序算子逐股计算，截面算子使用同一日的证券轴。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        },
+        {
+          "name": "g",
+          "description": "与 x 同日、同证券轴的有限数值分组表达式，可来自实际分类或可用字段的分桶。当前基础行情没有行业分类字段，不可冒充行业数据。",
+          "type": "表达式 / 可广播数值",
+          "default": null,
+          "optional": false,
+          "advanced": false
+        }
+      ],
+      "example": {
+        "expression": "self.gp.zscore(x, g)",
+        "input": "同日x=[10,20,30,99]；g=[0,0,0,1]",
+        "output": "[-1.224745, 0, 1.224745, null]（约）",
+        "direction": "同日证券轴，g与x逐项对齐；历史补值另标向前窗口。"
+      },
+      "notes": [
+        "每组减均值后除以总体标准差；常量或单样本组不可用，不用0代替。",
+        "分组示例中的 g 是数学演示标签，不是内置行业字段。真实研究须提供同轴标签，不能编造 input.industry。"
+      ],
+      "execution_dependencies": [
+        "同日标签与证券轴对齐的组内计算"
+      ]
+    }
   }
 ]

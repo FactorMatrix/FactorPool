@@ -71,33 +71,63 @@ class BrainCrossTests(unittest.TestCase):
         self.assert_values(self.evaluate("self.cs.scale(input.close, longscale=2, shortscale=3)", [2, -3, 5]), [4/7, -3, 10/7])
 
     def test_variadic_filter_math_distinguishes_nan_and_real_zero(self):
-        self.assert_values(self.evaluate("self.cs.add(input.close, input.volume, 3, filter=True)", [0, np.nan, 2], volume=[2, 4, np.nan]), [5, 7, 5])
-        self.assert_values(self.evaluate("self.cs.multiply(input.close, input.volume, 2, filter=True)", [0, np.nan, 3], volume=[4, 5, np.nan]), [0, 10, 6])
-        self.assert_values(self.evaluate("self.cs.subtract(input.close, input.volume, 2, filter=True)", [10, np.nan], volume=[3, 5]), [5, -7])
-        self.assert_values(self.evaluate("self.cs.max(input.close, input.volume, 4)", [2, 10], volume=[6, 3]), [6, 10])
+        self.assert_values(self.evaluate("self.add(input.close, input.volume, 3, filter=True)", [0, np.nan, 2], volume=[2, 4, np.nan]), [5, 7, 5])
+        self.assert_values(self.evaluate("self.multiply(input.close, input.volume, 2, filter=True)", [0, np.nan, 3], volume=[4, 5, np.nan]), [0, 10, 6])
+        self.assert_values(self.evaluate("self.subtract(input.close, input.volume, 2, filter=True)", [10, np.nan], volume=[3, 5]), [5, -7])
+        self.assert_values(self.evaluate("self.max(input.close, input.volume, 4)", [2, 10], volume=[6, 3]), [6, 10])
 
     def test_vector_components_aggregate_within_each_security(self):
-        expression = "self.cs.vec_avg((input.close, input.volume, input.open))"
+        expression = "self.vc.avg((input.close, input.volume, input.open))"
         self.assert_values(self.evaluate(expression, [1, 10, np.nan], volume=[2, 20, np.nan], opening=[3, 30, np.nan]), [2, 20, None])
-        self.assert_values(self.evaluate("self.cs.vec_sum([input.close, input.volume])", [1, 10, np.nan], volume=[2, 20, 3]), [3, 30, 3])
-        with self.assertRaises(ValueError): self.adapter("self.cs.vec_avg(())")
+        self.assert_values(self.evaluate("self.vc.sum([input.close, input.volume])", [1, 10, np.nan], volume=[2, 20, 3]), [3, 30, 3])
+        with self.assertRaises(ValueError): self.adapter("self.vc.avg(())")
 
     def test_bucket_reference_examples_explicit_edges_and_missing_group(self):
-        self.assert_values(self.evaluate("self.cs.bucket(input.close, range='0,1,0.1')", [.05, .45, .9]), [0, 4, 8])
-        self.assert_values(self.evaluate("self.cs.bucket(input.close, buckets='.2,.5,.7')", [.1, .3, .6, .8]), [0, 1, 2, 3])
-        self.assert_values(self.evaluate("self.cs.bucket(input.close, range='0,1,.5', NaNGroup=True)", [-.1, 0, .5, 1, 1.1, np.nan]), [None, 0, 0, 1, None, 2])
-        self.assert_values(self.evaluate("self.cs.bucket(input.close, buckets='.2,.5', skipBoth=True, NaNGroup=True)", [.1, .3, .8, np.nan]), [None, 0, None, 1])
+        self.assert_values(self.evaluate("self.tf.bucket(input.close, range='0,1,0.1')", [.05, .45, .9]), [0, 4, 8])
+        self.assert_values(self.evaluate("self.tf.bucket(input.close, buckets='.2,.5,.7')", [.1, .3, .6, .8]), [0, 1, 2, 3])
+        self.assert_values(self.evaluate("self.tf.bucket(input.close, range='0,1,.5', NaNGroup=True)", [-.1, 0, .5, 1, 1.1, np.nan]), [None, 0, 0, 1, None, 2])
+        self.assert_values(self.evaluate("self.tf.bucket(input.close, buckets='.2,.5', skipBoth=True, NaNGroup=True)", [.1, .3, .8, np.nan]), [None, 0, None, 1])
 
     def test_groups_use_real_aligned_labels_and_weighted_arithmetic_mean(self):
-        actual = self.evaluate("self.cs.group_mean(input.close, input.open, input.volume)", [10, 20, 1, np.nan], opening=[1, 3, 2, 2], volume=[0, 0, 1, 1])
+        actual = self.evaluate('self.gp.mean(input.close, input.volume, weight=input.open)', [10, 20, 1, np.nan], opening=[1, 3, 2, 2], volume=[0, 0, 1, 1])
         self.assert_values(actual, [17.5, 17.5, 1, 1])
-        actual = self.evaluate("self.cs.group_zscore(input.close, input.volume)", [10, 20, 30, 99], volume=[0, 0, 0, 1])
+        actual = self.evaluate("self.gp.zscore(input.close, input.volume)", [10, 20, 30, 99], volume=[0, 0, 0, 1])
         self.assert_values(actual, [-np.sqrt(1.5), 0, np.sqrt(1.5), None])
-        actual = self.evaluate("self.cs.group_scale(input.close, input.volume)", [10, 20, 30, 99], volume=[0, 0, 0, 1])
+        actual = self.evaluate("self.gp.scale(input.close, input.volume)", [10, 20, 30, 99], volume=[0, 0, 0, 1])
         self.assert_values(actual, [0, .5, 1, None])
 
+    def test_group_mean_equal_weight_default_and_keyword_weight_are_explicit(self):
+        source, labels = [10, 20, 1, np.nan], [0, 0, 1, 1]
+        plain = self.evaluate("self.gp.mean(input.close, input.volume)", source, volume=labels)
+        explicit = self.evaluate("self.gp.mean(input.close, input.volume, weight=1)", source, volume=labels)
+        self.assert_values(plain, [15, 15, 1, 1])
+        self.assertEqual(plain, explicit)
+        for expression in ("self.gp.mean(input.close, input.open, input.volume)",
+                           "self.gp.mean(input.close, input.volume, weight='invalid')"):
+            with self.subTest(expression=expression), self.assertRaises(ValueError):
+                self.adapter(expression)
+
+    def test_group_labels_and_unavailable_standard_deviation_remain_distinct(self):
+        actual = self.evaluate("self.gp.zscore(input.close, input.volume)",
+                               [1, 3, 10, 14, 0, np.nan], volume=[0, 0, 1, 1, np.nan, 2])
+        self.assert_values(actual, [-1, 1, -1, 1, None, None])
+        self.assert_values(self.evaluate("self.gp.zscore(input.close, input.volume)",
+                                         [4, 4, 9], volume=[0, 0, 1]), [None, None, None])
+
+    def test_vector_nonfinite_components_and_symbol_order_have_native_results(self):
+        source, second = [1, np.nan, np.inf, np.nan], [3, 7, 9, np.nan]
+        expected_sum, expected_mean = [4, 7, None, None], [2, 7, None, None]
+        for expression, expected in (("self.vc.sum((input.close, input.volume))", expected_sum),
+                                     ("self.vc.avg((input.close, input.volume))", expected_mean)):
+            with self.subTest(expression=expression):
+                self.assert_values(self.evaluate(expression, source, volume=second,
+                                                  names=['D', 'B', 'A', 'C']),
+                                   [expected[2], expected[1], expected[3], expected[0]])
+        with self.assertRaises(ValueError):
+            self.adapter("self.vc.sum(())")
+
     def test_group_backfill_uses_bounded_point_in_time_group_history(self):
-        adapter, factory = self.adapter("self.cs.group_backfill(input.close, input.volume, 2, std=100)")
+        adapter, factory = self.adapter("self.gp.backfill(input.close, input.volume, 2, std=100)")
         self.frame(adapter, factory, [2, 10, 100], volume=[0, 0, 1])
         result = self.frame(adapter, factory, [np.nan, 20, np.nan], volume=[0, 0, 1], date=3)
         self.assert_values([row["value"] for row in result], [32/3, 20, 100])
@@ -105,7 +135,7 @@ class BrainCrossTests(unittest.TestCase):
         self.assert_values([row["value"] for row in result], [None, 30, None])
 
     def test_trade_when_exit_priority_hold_and_axis_reentry(self):
-        adapter, factory = self.adapter("self.cs.trade_when(input.volume, input.close, input.open)")
+        adapter, factory = self.adapter("self.tf.trade_when(input.volume, input.close, input.open)")
         expected = ([4, 8], [4, 8], [None, 8], [None, 8], [10, 8])
         for n, (close, volume, opening) in enumerate((([4, 8], [1, 1], [-1, -1]), ([5, 9], [0, 0], [-1, -1]), ([6, 10], [1, 0], [1, -1]), ([7, 11], [0, 0], [-1, -1]), ([10, 12], [1, 0], [-1, -1]))):
             result = self.frame(adapter, factory, close, volume=volume, opening=opening, date=n+2, names=['A', 'B'])
@@ -115,7 +145,7 @@ class BrainCrossTests(unittest.TestCase):
         self.assert_values([row['value'] for row in result], [None, 8])
 
     def test_trade_when_unselected_unready_value_does_not_block_holding(self):
-        adapter, factory = self.adapter("self.cs.trade_when(input.volume, self.ts.mean(input.close, 3), -1)")
+        adapter, factory = self.adapter("self.tf.trade_when(input.volume, self.ts.mean(input.close, 3), -1)")
         first = self.frame(adapter, factory, [1], volume=[0])[0]
         self.assertTrue(first['ready']); self.assertIsNone(first['value'])
         second = self.frame(adapter, factory, [2], volume=[1], date=3)[0]

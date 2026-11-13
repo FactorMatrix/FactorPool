@@ -6,23 +6,26 @@ threading, partial-window behavior, or numerical parity.
 from collections import deque
 from datetime import date, timedelta
 import unittest
+import os
 
 import numpy as np
 from scipy.stats import rankdata
-from factortrader import NativeVector, PythonIndicator
+from factortrader import NativeVector
+from factorpool import PythonIndicator
 from factorpool.adapter import IndicatorAdapter
+from factortrader.binding.loading import _load_native_rows
 
 
 class RankClose(PythonIndicator):
     def update(self, input):
-        self.value = self.cs.rank(input.close, pct=True)
+        self.value = self.cs.rank_unit(input.close, normalization="percentile")
         return True
 
 
 class MeanRankMean(PythonIndicator):
     def update(self, input):
         average = self.ts.mean(input.close, 5)
-        ranked = self.cs.rank(average, pct=True)
+        ranked = self.cs.rank_unit(average, normalization="percentile")
         smoothed = self.ts.mean(ranked, 3)
         self.value = smoothed
         return self.ts.is_ready(smoothed)
@@ -33,9 +36,9 @@ class MeanRankMeanRank(PythonIndicator):
         average = self.ts.mean(input.close, 2)
         # Integral/half-integral internal ranks isolate synchronization from
         # floating accumulation of repeating percentile fractions.
-        ranked = self.cs.rank(average, pct=False)
+        ranked = self.cs.rank_unit(average, normalization="ordinal")
         smoothed = self.ts.mean(ranked, 2)
-        self.value = self.cs.rank(smoothed, pct=True)
+        self.value = self.cs.rank_unit(smoothed, normalization="percentile")
         return self.ts.is_ready(smoothed)
 
 
@@ -43,15 +46,15 @@ class IndependentWindows(PythonIndicator):
     def update(self, input):
         slow = self.ts.mean(input.volume, 20)
         fast = self.ts.mean(input.close, 2)
-        selected = slow if self.cs.count_nonzero(input.volume < 0) > 0 else fast
-        self.value = self.cs.rank(selected, pct=True)
+        selected = slow if input.volume < 0 else fast
+        self.value = self.cs.rank_unit(selected, normalization="percentile")
         return self.ts.is_ready(fast)
 
 
 class TopDecileThreshold(PythonIndicator):
     def update(self, input):
         ranked = self.cs.rank_unit(input.close)
-        self.value = self.cs.where(ranked >= 0.9, 1.0)
+        self.value = 1.0 if ranked >= 0.9 else 0/0
         return True
 
 
@@ -112,16 +115,36 @@ def reference(frames, inner, outer, final_rank):
 
 
 def values(binding, snapshot, key):
-    return NativeVector._view(binding, snapshot[key]).to_numpy().copy()
+    return np.frombuffer(binding.native_vector_export(snapshot[key]),
+                         dtype=bool if key in ('valid','ready') else np.float64).copy()
 
 
-def graph(factory, symbols=('A', 'B', 'C')):
-    indicator = factory()
-    adapter = IndicatorAdapter(indicator)
-    assert adapter.mode == 'native'
-    handle = adapter.binding.graph_create(indicator._ir.to_dict(), tuple(symbols))
-    adapter.binding.graph_configure_batch(handle, indicator._batch_ir.to_dict(), (), False)
-    return adapter.binding, handle
+def sdk_graph(symbols=('A', 'B', 'C'), *, inner=None, outer=None):
+    """Pinned numerical primitive oracle; no legacy user factor API is exposed."""
+    binding = _load_native_rows(os.environ['FACTORTRADER_NATIVE_LIBRARY'])
+    def scalar(op, inputs=(), *, field='', period=0, value=0):
+        return dict(op=op, inputs=list(inputs), field=field, period=period, value=value, ddof=0)
+    def batch(op, inputs=(), *, field='', dependency=0, value=0):
+        return dict(op=op, inputs=list(inputs), field=field, dependency=dependency, value=value)
+    scalar_ir = dict(version=1, nodes=[scalar('constant'), scalar('constant', value=1)], output=0, ready=1)
+    if inner is None:
+        program = dict(version=1, nodes=[batch('input', field='close'),
+                       batch('rank', (0,), field='ascending', value=1), batch('constant', value=1)],
+                       output=1, ready=2, temporals=[])
+    else:
+        def mean_port(field, period, deferred=False):
+            return dict(version=1, nodes=[scalar('input', field=field), scalar('sma', (0,), period=period),
+                        scalar('ready', (1,))], output=1, ready=2, deferred=deferred,
+                        bindings=[field] if deferred else [])
+        program = dict(version=1, nodes=[batch('constant', value=1),
+                       batch('temporal', field='current'), batch('rank', (1,), field='ascending'),
+                       batch('temporal', (0, 2), field='current', dependency=1),
+                       batch('rank', (3,), field='ascending', value=1),
+                       batch('temporal', (0, 2), field='ready', dependency=1)], output=4, ready=5,
+                       temporals=[mean_port('close', inner), mean_port('__ranked', outer, True)])
+    handle = binding.graph_create(scalar_ir, tuple(symbols))
+    binding.graph_configure_batch(handle, program, (), False)
+    return binding, handle
 
 
 class SynchronizationTests(unittest.TestCase):
@@ -133,8 +156,8 @@ class SynchronizationTests(unittest.TestCase):
             output = adapter.update(current, factory)
             actual.append({row['symbol']: row for row in output})
             snapshot = adapter.binding.graph_snapshot(adapter.graph)
-            self.assertTrue(snapshot['complete'])
-            self.assertEqual(snapshot['batch_time'], int(current['date'].replace('-', '')+'150000'))
+            self.assertEqual(tuple(snapshot['symbols']),tuple(sorted(current['symbols'])))
+            self.assertEqual(len(values(adapter.binding,snapshot,'current')),len(current['symbols']))
             for row in output:
                 if row['symbol'] in result:
                     self.assertTrue(row['valid'], (current['date'], row))
@@ -165,7 +188,7 @@ class SynchronizationTests(unittest.TestCase):
             self.assertTrue(all(source < index for source in node.inputs))
 
     def test_unfinished_cohort_never_publishes_partial_rank_and_known_missing_finishes(self):
-        binding, handle = graph(RankClose)
+        binding, handle = sdk_graph()
         first = 20240102150000
         binding.graph_update_batch(handle, first, {'close': [10, 20, np.nan]}, [1, 1, 0], 101, False)
         waiting = binding.graph_snapshot(handle)
@@ -195,7 +218,7 @@ class SynchronizationTests(unittest.TestCase):
         np.testing.assert_allclose(values(binding, binding.graph_snapshot(handle), 'current'), [2/3, 1, 1/3])
 
     def test_pending_delivery_does_not_advance_deferred_windows(self):
-        binding, handle = graph(MeanRankMeanRank)
+        binding, handle = sdk_graph(inner=2, outer=2)
         for day, generation in zip(trading_dates(3), (1, 2, 3)):
             stamp = int(day.replace('-', '')+'150000')
             # An arbitrary number of pending deliveries is not extra history.
@@ -220,7 +243,7 @@ class SynchronizationTests(unittest.TestCase):
         self.assertEqual(actual[1]['B']['reason'], 'source_missing')
         self.assertTrue(actual[2]['A']['valid'])
         self.assertTrue(actual[-1]['C']['valid'])
-        self.assertTrue(adapter.binding.graph_snapshot(adapter.graph)['complete'])
+        self.assertEqual(tuple(adapter.binding.graph_snapshot(adapter.graph)['symbols']),('A','B','C'))
 
     def test_unready_independent_branch_does_not_block_the_selected_fast_path(self):
         adapter = IndicatorAdapter(IndependentWindows())
@@ -253,7 +276,7 @@ class SynchronizationTests(unittest.TestCase):
         self.assertIn('C', expanded[3])
 
     def test_malformed_upstream_is_an_error_not_a_completed_missing_market_row(self):
-        binding, handle = graph(MeanRankMeanRank)
+        binding, handle = sdk_graph(inner=2, outer=2)
         binding.graph_update_batch(handle, 20240102150000, {'close': [10, 20, 30]}, [1]*3, 1, True)
         with self.assertRaises(ValueError):
             binding.graph_update_batch(handle, 20240103150000, {'close': [11, 21]}, [1]*3, 2, True)

@@ -32,6 +32,14 @@ class ScriptResolverTest {
   }
 
   @Test
+  void classDefinitionsUseTheSameBoundedFrontendValidator() {
+    assertDoesNotThrow(() -> resolver("success", 5000).validateFrontend("class Factor: pass"));
+    var error = assertThrows(IllegalArgumentException.class,
+        () -> resolver("invalid", 5000).validateFrontend("old operator"));
+    assertEquals("line 7: config must be a literal dictionary", error.getMessage());
+  }
+
+  @Test
   void blockedInputAndSleepingParserHaveAFiniteDeadline() {
     var error = assertThrows(IllegalArgumentException.class,
         () -> resolver("sleep", 500).resolve("x".repeat(131072)));
@@ -72,6 +80,10 @@ class ScriptResolverTest {
       }
       var json = new ObjectMapper();
       var input = json.readTree(new String(System.in.readAllBytes(), StandardCharsets.UTF_8));
+      if (input.path("frontend_only").asBoolean(false)) {
+        System.out.println(json.createObjectNode().put("valid", true));
+        return;
+      }
       var out = json.createObjectNode().put("source_mode", "script").put("factor_class", "MyFactor");
       out.putObject("factor_params"); out.putObject("data"); out.putObject("analysis");
       out.putObject("source_config").put("received_source", input.path("source_code").asText());
