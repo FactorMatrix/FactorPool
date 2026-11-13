@@ -4,7 +4,8 @@ from datetime import date
 import os
 from pathlib import Path
 import numpy as np
-from .data_client.contract import FIELDS, FORMAT, PRESENT_FIELD, MEMBERSHIP_FIELD
+from .data_client.contract import (FIELDS, FORMAT, PRESENT_FIELD, MEMBERSHIP_FIELD,
+                                   ADJUSTMENT_FIELDS, FIELD_BLOCK_FORMAT, field_catalog)
 
 _ROW_FIELDS = tuple(field for field in FIELDS if field not in ("member", "return"))
 _ROW_COLUMNS = np.array([FIELDS.index(field) for field in _ROW_FIELDS])
@@ -75,16 +76,28 @@ def _check_memory(history, total, calculation, research, field_count, *, matrix_
                          f"input memory budget is {budget / 1024**2:.1f} MiB. Narrow dates/universe or configure task memory.")
 
 
-def _projection_fields(fields):
+def _projection_fields(fields, *, catalog=None, stored_adjustment=False):
     if not isinstance(fields, (tuple, list, set, frozenset)) or any(not isinstance(field, str) for field in fields):
         raise ValueError("fields must contain supported input field names")
     requested = {"close" if field == "value" else field for field in fields}
-    missing = requested - set(_ROW_FIELDS)
+    available = set(_ROW_FIELDS)
+    if catalog is not None:
+        available.update(field for field, record in catalog.items()
+                         if record.get('table') == 'cn_stock_factor_input')
+    missing = requested - available
     if missing:
         raise ValueError(f"Provider has no point-in-time fields: {sorted(missing)}")
-    if requested & {"open", "high", "low", "close", "prev_close", "volume"}:
-        requested.update(("close", "prev_close", "volume", "total_turnover"))
-    return tuple(field for field in FIELDS if field in requested)
+    if not stored_adjustment and requested & {"open", "high", "low", "close", "prev_close", "volume"}:
+        requested.update(("close", "prev_close", "volume", "total_turnover", "is_suspended"))
+    return (*tuple(field for field in FIELDS if field in requested), *tuple(sorted(requested - set(FIELDS))))
+
+
+def _selected_columns(source, snapshot, initial, stop, columns, fields):
+    if hasattr(source, 'selected_columns'):
+        yield from source.selected_columns(snapshot, initial, stop, columns, fields=fields)
+    else:
+        for start, count, values in source.selected_blocks(snapshot, initial, stop, columns, fields=fields):
+            yield start, count, dict(zip(fields, values))
 
 
 def load(data, warmup, future, *, source=None, pasteurization="ON", matrix_only=False, fields=None):
@@ -98,8 +111,8 @@ def load(data, warmup, future, *, source=None, pasteurization="ON", matrix_only=
         raise ValueError("matrix_only must be bool")
     if pasteurization not in ("ON", "OFF"):
         raise ValueError("pasteurization must be ON or OFF")
-    projected_fields = None if fields is None else _projection_fields(fields)
-    if projected_fields is not None and not matrix_only:
+    requested_fields = fields
+    if requested_fields is not None and not matrix_only:
         raise ValueError("Field projection requires matrix_only=True")
     snapshot_id = data.get("snapshot_id")
     if not isinstance(snapshot_id, str) or not snapshot_id:
@@ -119,6 +132,9 @@ def load(data, warmup, future, *, source=None, pasteurization="ON", matrix_only=
         manifest, all_symbols, dates, fields = (snapshot[key] for key in ("manifest", "symbols", "dates", "fields"))
         if (manifest.get("format") != FORMAT or tuple(fields) != FIELDS):
             raise ValueError("Unsupported market snapshot format")
+        projected_fields = (None if requested_fields is None else _projection_fields(
+            requested_fields, catalog=field_catalog(snapshot),
+            stored_adjustment=manifest.get('storage_format') == FIELD_BLOCK_FORMAT))
         return_policy = manifest.get("return_policy", dict(version="legacy-price-ratio-v1", formula="close/prev_close-1"))
         if not isinstance(return_policy, dict):
             raise ValueError("Market snapshot return_policy must be an object")
@@ -311,30 +327,40 @@ def _load_projected(source, snapshot, snapshot_id, manifest, all_symbols, dates,
         raise ValueError("Pasteurization OFF has no active market instruments")
     calculation_symbols = [all_symbols[int(column)] for column in calculation_columns]
     history, total = finish-initial, stop-initial
-    _check_memory(history, total, len(calculation_columns), len(columns), len(quote_fields),
+    stored_adjustment = (manifest.get('storage_format') == FIELD_BLOCK_FORMAT
+                         and bool(set(quote_fields) & {'open', 'high', 'low', 'close', 'prev_close', 'volume'}))
+    _check_memory(history, total, len(calculation_columns), len(columns), len(quote_fields)+(4 if stored_adjustment else 0),
                   matrix_only=True, projected=True)
     values = np.empty((len(quote_fields), history, len(calculation_columns)), dtype="<f8")
     present = np.empty((history, len(calculation_columns)), dtype=bool)
     calculation_members = np.empty(present.shape, dtype=bool)
+    adjustment = ({'q': np.empty(present.shape, dtype='<f8'),
+                   'segment': np.empty(present.shape, dtype='<i8'),
+                   'factor': np.empty(present.shape, dtype='<f8'),
+                   'known': np.empty(present.shape, dtype='|u1')}
+                  if stored_adjustment else None)
     returns = np.empty((total, len(columns)), dtype="<f8")
     read_columns = np.union1d(calculation_columns, columns)
     input_columns = np.searchsorted(read_columns, calculation_columns)
     return_columns = np.searchsorted(read_columns, columns)
-    historical_fields = (*quote_fields, MEMBERSHIP_FIELD, PRESENT_FIELD, "return")
-    positions = {field: n for n, field in enumerate(historical_fields)}
+    historical_fields = (*quote_fields, MEMBERSHIP_FIELD, PRESENT_FIELD, "return",
+                         *(ADJUSTMENT_FIELDS if stored_adjustment else ()))
     covered, seen = initial, False
-    for start, count, block in source.selected_blocks(snapshot, initial, finish, read_columns,
-                                                       fields=historical_fields):
+    for start, count, block in _selected_columns(source, snapshot, initial, finish, read_columns, historical_fields):
         end = start+count
         if (start < 0 or count < 1 or end > len(dates)
                 or (start != covered if seen else not start <= covered < end)):
             raise ValueError("Market matrix blocks overlap or have missing dates")
         left, right = max(initial, start), min(finish, end)
         target, current = slice(left-initial, right-initial), slice(left-start, right-start)
-        values[:, target] = block[:len(quote_fields), current][:, :, input_columns]
-        present[target] = block[positions[PRESENT_FIELD], current][:, input_columns] > 0
-        calculation_members[target] = block[positions[MEMBERSHIP_FIELD], current][:, input_columns] > 0
-        returns[target] = block[positions["return"], current][:, return_columns]
+        for index, field in enumerate(quote_fields):
+            values[index, target] = block[field][current][:, input_columns]
+        present[target] = block[PRESENT_FIELD][current][:, input_columns]
+        calculation_members[target] = block[MEMBERSHIP_FIELD][current][:, input_columns]
+        returns[target] = block["return"][current][:, return_columns]
+        if adjustment is not None:
+            for key, field in zip(('q', 'segment', 'factor', 'known'), ADJUSTMENT_FIELDS):
+                adjustment[key][target] = block[field][current][:, input_columns]
         covered, seen = right, True
     if covered != finish:
         raise ValueError("Market matrix snapshot has missing blocks")
@@ -342,13 +368,13 @@ def _load_projected(source, snapshot, snapshot_id, manifest, all_symbols, dates,
     # columns enters the Indicator view. Future requests ask only for returns.
     if finish < stop:
         covered, seen = finish, False
-        for start, count, block in source.selected_blocks(snapshot, finish, stop, columns, fields=("return",)):
+        for start, count, block in _selected_columns(source, snapshot, finish, stop, columns, ("return",)):
             end = start+count
             if (start < 0 or count < 1 or end > len(dates)
                     or (start != covered if seen else not start <= covered < end)):
                 raise ValueError("Market matrix blocks overlap or have missing dates")
             left, right = max(finish, start), min(stop, end)
-            returns[left-initial:right-initial] = block[0, left-start:right-start]
+            returns[left-initial:right-initial] = block["return"][left-start:right-start]
             covered, seen = right, True
         if covered != stop:
             raise ValueError("Market matrix snapshot has missing blocks")
@@ -365,6 +391,8 @@ def _load_projected(source, snapshot, snapshot_id, manifest, all_symbols, dates,
             values = np.ascontiguousarray(values[:, :, mask])
             present = np.ascontiguousarray(present[:, mask])
             calculation_members = np.ascontiguousarray(calculation_members[:, mask])
+            if adjustment is not None:
+                adjustment = {key: np.ascontiguousarray(array[:, mask]) for key, array in adjustment.items()}
             calculation_symbols = selected.copy()
             research_columns = np.arange(len(selected), dtype=np.intp)
     membership = np.zeros((total, len(selected)), dtype=bool)
@@ -392,9 +420,16 @@ def _load_projected(source, snapshot, snapshot_id, manifest, all_symbols, dates,
                            research_symbols=research_axis, symbol_columns=active_columns))
     for matrix in (values, present, calculation_members):
         matrix.setflags(write=False)
+    quotes = dict(fields=quote_fields, values=values, present=present, membership=calculation_members,
+                  source_member=calculation_members,
+                  dates=list(dates[initial:finish]), symbols=calculation_symbols,
+                  research_columns=research_columns)
+    if adjustment is not None:
+        for array in adjustment.values():
+            array.setflags(write=False)
+        adjustment['policy'] = deepcopy(manifest.get('adjustment_policy', {}))
+        quotes['adjustment'] = adjustment
     return dict(provider="market_matrix", adjustment="raw", symbols=selected, frames=frames,
                 returns=np.ascontiguousarray(returns), snapshot_id=snapshot_id, synthetic=False,
                 return_policy=deepcopy(return_policy), membership=membership,
-                quotes=dict(fields=quote_fields, values=values, present=present, membership=calculation_members,
-                            dates=list(dates[initial:finish]), symbols=calculation_symbols,
-                            research_columns=research_columns))
+                quotes=quotes)

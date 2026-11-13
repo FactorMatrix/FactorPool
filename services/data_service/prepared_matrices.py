@@ -17,7 +17,7 @@ import uuid
 
 import numpy as np
 
-from factorpool.data_client.contract import (BOOLEAN_FIELDS, SERVED_FIELDS, axis_digest,
+from factorpool.data_client.contract import (BOOLEAN_FIELDS, axis_digest, field_catalog, field_dtype,
     json_bytes, market_field, tile_key, tile_width, validate_snapshot)
 
 
@@ -28,10 +28,6 @@ _FLUSH_BYTES = 32 * 1024**2
 
 def _signature(info):
     return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
-
-
-def _dtype(field):
-    return np.dtype("|u1" if field in BOOLEAN_FIELDS else "<f8")
 
 
 class PreparedMatrices:
@@ -81,9 +77,9 @@ class PreparedMatrices:
         return value
 
     def _read(self, snapshot, block, field, descriptor, starts=None):
-        if (field not in SERVED_FIELDS or not isinstance(descriptor, dict)
+        if (field not in field_catalog(snapshot) or not isinstance(descriptor, dict)
                 or descriptor.get("file") != field + ".npy"
-                or descriptor.get("dtype") != _dtype(field).str
+                or descriptor.get("dtype") != field_dtype(snapshot, field).str
                 or not isinstance(descriptor.get("blocks"), dict)):
             raise ValueError("Invalid prepared field description")
         record = descriptor["blocks"].get(str(block["start_index"]))
@@ -108,7 +104,7 @@ class PreparedMatrices:
                 else:
                     raise ValueError("Unsupported prepared array format")
                 expected_shape = (len(snapshot["dates"]), len(snapshot["symbols"]))
-                if (tuple(shape) != expected_shape or fortran or dtype != _dtype(field)
+                if (tuple(shape) != expected_shape or fortran or dtype != field_dtype(snapshot, field)
                         or before.st_size != source.tell() + int(np.prod(shape)) * dtype.itemsize):
                     raise ValueError("Prepared field shape, dtype or length mismatch")
                 mapped = mmap.mmap(source.fileno(), 0, access=mmap.ACCESS_READ)
@@ -119,7 +115,7 @@ class PreparedMatrices:
                 section = np.array(values[start:start+count], copy=True, order="C")
                 if hashlib.sha256(memoryview(section)).hexdigest() != record["sha256"]:
                     raise ValueError("Prepared field block checksum mismatch")
-                if field in BOOLEAN_FIELDS and np.any(section > 1):
+                if dtype == np.dtype('|u1') and np.any(section > 1):
                     raise ValueError("Prepared status block is not boolean")
                 self.stats["field_reads"] += 1
                 if starts is None:
@@ -191,7 +187,7 @@ class PreparedMatrices:
         if first > last:
             raise ValueError("Prepared start must not follow end")
         requested = tuple(dict.fromkeys(fields))
-        if not requested or any(field not in SERVED_FIELDS for field in requested):
+        if not requested or any(field not in field_catalog(snapshot) for field in requested):
             raise ValueError("Specify supported prepared fields")
         targets = [block for block in snapshot["blocks"]
                    if snapshot["dates"][block["start_index"]] <= last
@@ -224,10 +220,10 @@ class PreparedMatrices:
                         continue
                     pending[field] = set(missing)
                     path = directory / ("." + field + "." + uuid.uuid4().hex + ".npy.tmp")
-                    matrices[field] = np.lib.format.open_memmap(path, mode="w+", dtype=_dtype(field), shape=shape)
+                    matrices[field] = np.lib.format.open_memmap(path, mode="w+", dtype=field_dtype(snapshot, field), shape=shape)
                     os.chmod(path, 0o600)
                     paths[field] = path
-                    descriptor = dict(file=field+".npy", dtype=_dtype(field).str, blocks={})
+                    descriptor = dict(file=field+".npy", dtype=field_dtype(snapshot, field).str, blocks={})
                     publication["fields"][field] = descriptor
                     # Copy only checksum-verified old coverage. Unprepared file
                     # holes are never advertised by the publication marker.
@@ -250,11 +246,15 @@ class PreparedMatrices:
                     wanted = [field for field, missing in pending.items() if block["start_index"] in missing]
                     if not wanted:
                         continue
-                    original = source.original_block(snapshot, block)
+                    if hasattr(source, 'read_fields'):
+                        original = source.read_fields(snapshot, block, wanted)
+                    else:
+                        original = source.original_block(snapshot, block)
                     stats["pg_block_reads"] += 1
                     row, count = block["start_index"], block["row_count"]
                     for field in wanted:
-                        values = np.ascontiguousarray(market_field(original, field), dtype=_dtype(field))
+                        column = original[field] if isinstance(original, dict) else market_field(original, field)
+                        values = np.ascontiguousarray(column, dtype=field_dtype(snapshot, field))
                         matrices[field][row:row+count] = values
                         publication["fields"][field]["blocks"][str(row)] = dict(
                             row_count=count, source_sha256=block["sha256"],
@@ -302,7 +302,7 @@ def main():
     parser.add_argument("--snapshot-id", required=True)
     parser.add_argument("--start", required=True)
     parser.add_argument("--end", required=True)
-    parser.add_argument("--fields", nargs="+", required=True, choices=SERVED_FIELDS)
+    parser.add_argument("--fields", nargs="+", required=True)
     parser.add_argument("--root", default=None)
     args = parser.parse_args()
     from .postgres.market import PostgresMarketSource

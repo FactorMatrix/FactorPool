@@ -11,7 +11,7 @@ import uuid
 import grpc
 
 from factorpool.data_client.contract import (FIELDS, market_field, decode_tile, encode_tile, json_bytes, metadata_key,
-    pack_metadata, tile_key, tile_width, pack_value_page, unpack_value_page, axis_digest)
+    pack_metadata, tile_key, tile_width, pack_value_page, unpack_value_page, axis_digest, field_dtype, FIELD_BLOCK_FORMAT)
 from factorpool.data_client.generated import data_pb2 as pb, data_pb2_grpc
 from ..postgres import transaction
 from ..postgres.market import PostgresMarketSource, MarketSnapshotNotFound
@@ -126,14 +126,17 @@ class DataService(data_pb2_grpc.DataServiceServicer):
             missing = [(key, field, start) for key, field, start in missing if key not in result]
             if not missing:
                 return result
-            values = self.source.original_block(snapshot, block)
+            fields = tuple(dict.fromkeys(field for _, field, _ in missing))
+            if hasattr(self.source, "read_fields"):
+                projected = self.source.read_fields(snapshot, block, fields)
+            else:
+                # In-memory fixture/legacy adapters can expose the old full block.
+                original = self.source.original_block(snapshot, block)
+                projected = {field: market_field(original, field) for field in fields}
             self.stats["pg_block_reads"] += 1
-            self.stats["decoded_bytes"] += values.nbytes
+            self.stats["decoded_bytes"] += sum(value.nbytes for value in projected.values())
             width = tile_width(snapshot, block)
-            projected = {}
             def column(field, start):
-                if field not in projected:
-                    projected[field] = market_field(values, field)
                 return projected[field][:, start:start+width]
             def entries():
                 for key, field, start in missing:
@@ -183,7 +186,8 @@ class DataService(data_pb2_grpc.DataServiceServicer):
                     raise ValueError("Duplicate requested market tile")
                 seen.add(key)
                 width = tile_width(snapshot, block)
-                estimate += block["row_count"] * min(width, len(snapshot["symbols"])-tile.symbol_start) * 8 + 4096
+                estimate += (block["row_count"] * min(width, len(snapshot["symbols"])-tile.symbol_start)
+                             * field_dtype(snapshot, tile.field).itemsize + 4096)
                 if estimate > self.max_batch:
                     raise ValueError("Market request exceeds bounded batch bytes")
                 grouped.setdefault(tile.start_index, []).append((key, tile.field, tile.symbol_start))

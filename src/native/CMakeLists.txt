@@ -1,9 +1,12 @@
 cmake_minimum_required(VERSION 3.28)
 project(factorpool_research LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+enable_testing()
 find_package(Python3 REQUIRED COMPONENTS Interpreter Development.Module)
 find_package(Threads REQUIRED)
-Python3_add_library(_factorpool_native MODULE module.cpp analysis.cpp statistics.cpp portfolios.cpp decay.cpp research_input.cpp)
+add_subdirectory(market)
+Python3_add_library(_factorpool_native MODULE module.cpp analysis.cpp statistics.cpp portfolios.cpp decay.cpp research_input.cpp alpha_targets.cpp series_transforms.cpp)
 target_link_libraries(_factorpool_native PRIVATE Threads::Threads)
 target_compile_options(_factorpool_native PRIVATE -Wall -Wextra -Wpedantic)
 

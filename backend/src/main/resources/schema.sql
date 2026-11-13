@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS research_tasks (
 CREATE TABLE IF NOT EXISTS research_results (
   task_id uuid PRIMARY KEY REFERENCES research_tasks(id), result jsonb NOT NULL
 );
+ALTER TABLE research_results ALTER COLUMN result SET COMPRESSION lz4;
 CREATE TABLE IF NOT EXISTS factor_values (
   task_id uuid NOT NULL REFERENCES research_tasks(id), ordinal bigint NOT NULL, trading_date date NOT NULL,
   symbol text NOT NULL, value double precision, valid boolean NOT NULL, ready boolean NOT NULL, reason text NOT NULL,
@@ -40,6 +41,39 @@ CREATE TABLE IF NOT EXISTS market_matrix_blocks (
   PRIMARY KEY(snapshot_id,start_index)
 );
 CREATE INDEX IF NOT EXISTS market_snapshots_created_idx ON market_snapshots(created_at DESC,id);
+
+-- Each immutable market dataset shares one date/security axis. Numeric fields
+-- are stored separately so readers fetch only the columns a factor requires.
+CREATE TABLE IF NOT EXISTS cn_stock_daily_bar (
+  snapshot_id text NOT NULL REFERENCES market_snapshots(id),
+  field text NOT NULL,
+  start_index integer NOT NULL CHECK (start_index >= 0),
+  row_count integer NOT NULL CHECK (row_count > 0),
+  dtype text NOT NULL CHECK (dtype IN ('<f8','<i8','|u1')),
+  payload bytea NOT NULL,
+  sha256 text NOT NULL CHECK (sha256 ~ '^[0-9a-f]{64}$'),
+  PRIMARY KEY(snapshot_id,field,start_index)
+);
+CREATE TABLE IF NOT EXISTS cn_stock_daily_return (
+  LIKE cn_stock_daily_bar INCLUDING ALL,
+  FOREIGN KEY(snapshot_id) REFERENCES market_snapshots(id)
+);
+CREATE TABLE IF NOT EXISTS cn_stock_daily_adj_factor (
+  LIKE cn_stock_daily_bar INCLUDING ALL,
+  FOREIGN KEY(snapshot_id) REFERENCES market_snapshots(id)
+);
+CREATE TABLE IF NOT EXISTS cn_stock_factor_input (
+  LIKE cn_stock_daily_bar INCLUDING ALL,
+  FOREIGN KEY(snapshot_id) REFERENCES market_snapshots(id)
+);
+ALTER TABLE cn_stock_daily_bar ALTER COLUMN payload SET STORAGE EXTENDED;
+ALTER TABLE cn_stock_daily_bar ALTER COLUMN payload SET COMPRESSION lz4;
+ALTER TABLE cn_stock_daily_return ALTER COLUMN payload SET STORAGE EXTENDED;
+ALTER TABLE cn_stock_daily_return ALTER COLUMN payload SET COMPRESSION lz4;
+ALTER TABLE cn_stock_daily_adj_factor ALTER COLUMN payload SET STORAGE EXTENDED;
+ALTER TABLE cn_stock_daily_adj_factor ALTER COLUMN payload SET COMPRESSION lz4;
+ALTER TABLE cn_stock_factor_input ALTER COLUMN payload SET STORAGE EXTENDED;
+ALTER TABLE cn_stock_factor_input ALTER COLUMN payload SET COMPRESSION lz4;
 
 -- Idempotent service split migration. Existing snapshots/results remain unchanged.
 ALTER TABLE research_tasks ADD COLUMN IF NOT EXISTS execution_attempt integer NOT NULL DEFAULT 0;

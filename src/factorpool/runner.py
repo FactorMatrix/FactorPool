@@ -56,17 +56,13 @@ def validate(request):
 
 def returns_matrix(frames, symbols):
     """Build daily returns from each bar's own close and previous close."""
+    import _factorpool_native as native
     closes = np.asarray([[frame["rows"].get(symbol, {}).get("close") for symbol in symbols]
                          for frame in frames], dtype=np.float64)
     previous = np.asarray([[frame["rows"].get(symbol, {}).get("prev_close") for symbol in symbols]
                            for frame in frames], dtype=np.float64)
-    valid = np.isfinite(closes) & np.isfinite(previous) & (previous > 0) & (closes >= 0)
-    returns = np.full(closes.shape, np.nan, dtype=np.float64, order="C")
-    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
-        np.divide(closes, previous, out=returns, where=valid)
-        np.subtract(returns, 1, out=returns, where=valid)
-    returns[~np.isfinite(returns)] = np.nan
-    return returns
+    return native.price_returns(closes.reshape(len(frames), len(symbols)),
+                                previous.reshape(len(frames), len(symbols)))
 
 
 def return_contract(payload):

@@ -8,7 +8,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .contract import (FIELDS, SERVED_FIELDS, decode_tile, metadata_key, tile_key, tile_width,
+from .contract import (FIELDS, field_catalog, field_dtype, decode_tile, metadata_key, tile_key, tile_width,
                        unpack_metadata, validate_snapshot, json_bytes, axis_digest)
 
 
@@ -131,14 +131,19 @@ class DataClient:
                 raise ValueError("Data service returned incomplete market blocks")
         return arrays
 
-    def selected_blocks(self, metadata, initial, stop, columns, *, fields=None):
+    def selected_columns(self, metadata, initial, stop, columns, *, fields=None):
+        """Yield typed columns, avoiding a float64 copy of status and segment data."""
         fields = FIELDS if fields is None else tuple(fields)
-        if not fields or len(set(fields)) != len(fields) or any(field not in SERVED_FIELDS for field in fields):
+        catalog = field_catalog(metadata)
+        if not fields or len(set(fields)) != len(fields) or any(field not in catalog for field in fields):
             raise ValueError("Invalid requested market fields")
         columns = np.asarray(columns, dtype=np.intp)
         if (columns.ndim != 1 or not len(columns) or np.any(columns < 0)
                 or np.any(columns >= len(metadata["symbols"]))):
             raise ValueError("Invalid requested market columns")
+        if (type(initial) is not int or type(stop) is not int
+                or not 0 <= initial <= stop <= len(metadata["dates"])):
+            raise ValueError("Invalid requested market date bounds")
         for block in metadata["blocks"]:
             if not block["start_index"] < stop or block["start_index"] + block["row_count"] <= initial:
                 continue
@@ -153,20 +158,18 @@ class DataClient:
                 origin = (slice(int(offsets[0]), int(offsets[-1])+1)
                           if len(offsets) == 1 or np.all(np.diff(offsets) == 1) else offsets)
                 locations[start] = target, origin
-            result = np.empty((len(fields), block["row_count"], len(columns)), dtype="<f8")
+            result = {field: np.empty((block["row_count"], len(columns)), dtype=field_dtype(metadata, field))
+                      for field in fields}
             batch, size = [], 0
             def consume(batch):
                 arrays = self._tiles(metadata, batch)
                 for descriptor, field, start in batch:
                     target, origin = locations[start]
-                    cells = arrays[tile_key(metadata, descriptor, field, start)][:, origin]
-                    if isinstance(target, slice):
-                        result[fields.index(field), :, target] = cells
-                    else:
-                        result[fields.index(field), :, target] = cells.T
+                    result[field][:, target] = arrays[tile_key(metadata, descriptor, field, start)][:, origin]
             for field in fields:
                 for start in starts:
-                    tile_bytes = block["row_count"] * min(width, len(metadata["symbols"])-start) * 8 + 4096
+                    tile_bytes = (block["row_count"] * min(width, len(metadata["symbols"])-start)
+                                  * result[field].dtype.itemsize + 4096)
                     if batch and size + tile_bytes > self.batch_bytes:
                         consume(batch)
                         batch, size = [], 0
@@ -174,7 +177,15 @@ class DataClient:
                     size += tile_bytes
             if batch:
                 consume(batch)
+            for array in result.values():
+                array.setflags(write=False)
             yield block["start_index"], block["row_count"], result
+
+    def selected_blocks(self, metadata, initial, stop, columns, *, fields=None):
+        """Compatibility view for callers requiring the original float matrix."""
+        fields = FIELDS if fields is None else tuple(fields)
+        for start, count, values in self.selected_columns(metadata, initial, stop, columns, fields=fields):
+            yield start, count, np.stack([values[field] for field in fields])
 
     def upload_values(self, task_id, attempt, lease_token, path, expected_count, *, cancelled=None):
         """Stream bounded columnar chunks, or explicit legacy JSONL test artifacts."""

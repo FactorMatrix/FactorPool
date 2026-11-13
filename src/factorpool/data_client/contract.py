@@ -14,9 +14,73 @@ PRESENT_FIELD = "__present__"
 MEMBERSHIP_FIELD = "__member__"
 BOOLEAN_FIELDS = (PRESENT_FIELD, MEMBERSHIP_FIELD)
 SERVED_FIELDS = FIELDS + BOOLEAN_FIELDS
+ADJUSTMENT_FIELDS = ("__q__", "__segment__", "__adj_factor__", "__adj_known__")
+FIELD_BLOCK_FORMAT = "field-blocks-v1"
+_TYPED_FIELDS = {**{field: "<f8" for field in FIELDS},
+                 PRESENT_FIELD: "|u1", MEMBERSHIP_FIELD: "|u1",
+                 "__q__": "<f8", "__segment__": "<i8", "__adj_factor__": "<f8", "__adj_known__": "|u1"}
+_MARKET_TABLES = {"cn_stock_daily_bar", "cn_stock_daily_return", "cn_stock_daily_adj_factor", "cn_stock_factor_input"}
 FORMAT = "factorpool-market-matrix-v1"
 CACHE_VERSION = "matrix-v2"
 PREFIX = b"FPC2"
+
+
+def field_catalog(metadata):
+    """Only published fields are addressable; old snapshots keep their contract."""
+    manifest = metadata.get("manifest", {})
+    if manifest.get("storage_format") != FIELD_BLOCK_FORMAT:
+        return {field: {"dtype": _TYPED_FIELDS[field]} for field in SERVED_FIELDS}
+    catalog = manifest.get("field_catalog")
+    if not isinstance(catalog, dict) or not catalog:
+        raise ValueError("Invalid market field catalog")
+    return catalog
+
+
+def field_dtype(metadata, field):
+    descriptor = field_catalog(metadata).get(field)
+    if not isinstance(descriptor, dict) or descriptor.get("dtype") not in ("<f8", "<i8", "|u1"):
+        raise ValueError("Unknown market field or unsupported dtype")
+    return np.dtype(descriptor["dtype"])
+
+
+def _validate_field_catalog(value):
+    manifest = value["manifest"]
+    storage = manifest.get("storage_format")
+    if storage is None:
+        return
+    if storage != FIELD_BLOCK_FORMAT:
+        raise ValueError("Unsupported market storage format")
+    catalog = field_catalog(value)
+    if value.get("field_catalog", catalog) != catalog:
+        raise ValueError("Market field catalog metadata mismatch")
+    if not set(SERVED_FIELDS + ADJUSTMENT_FIELDS) <= set(catalog):
+        raise ValueError("Market field catalog is incomplete")
+    for field, descriptor in catalog.items():
+        table = ('cn_stock_daily_return' if field == 'return' else
+                 'cn_stock_daily_adj_factor' if field in ADJUSTMENT_FIELDS else
+                 'cn_stock_daily_bar' if field in SERVED_FIELDS else 'cn_stock_factor_input')
+        if (not isinstance(field, str) or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,63}", field)
+                or field not in _TYPED_FIELDS and not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,63}", field)
+                or not isinstance(descriptor, dict) or descriptor.get("table") != table
+                or descriptor.get("dtype") != _TYPED_FIELDS.get(field, "<f8")):
+            raise ValueError("Invalid market field catalog descriptor")
+    indexed = manifest.get("field_blocks")
+    if not isinstance(indexed, list) or len(indexed) != len(value["blocks"]):
+        raise ValueError("Invalid market field block index")
+    if value.get("field_blocks", indexed) != indexed:
+        raise ValueError("Market field block metadata mismatch")
+    for block, entry in zip(value["blocks"], indexed):
+        if (not isinstance(entry, dict)
+                or any(entry.get(key) != block[key] for key in ("start_index", "row_count", "sha256"))
+                or not isinstance(entry.get("fields"), dict) or set(entry["fields"]) != set(catalog)):
+            raise ValueError("Market field block metadata mismatch")
+        for field, descriptor in entry["fields"].items():
+            if (not isinstance(descriptor, dict) or descriptor.get("dtype") != catalog[field]["dtype"]
+                    or not re.fullmatch(r"[0-9a-f]{64}", descriptor.get("sha256", ""))):
+                raise ValueError("Invalid market field checksum or dtype")
+        digest = hashlib.sha256(json_bytes({key: entry[key] for key in ('start_index', 'row_count', 'fields')})).hexdigest()
+        if digest != entry['sha256']:
+            raise ValueError("Market field block aggregate checksum mismatch")
 
 
 def market_field(values, field):
@@ -89,6 +153,7 @@ def validate_snapshot(value, requested=None):
         covered += count
     if covered != len(value["dates"]):
         raise ValueError("Market matrix snapshot has missing blocks")
+    _validate_field_catalog(value)
     cache = value.get("cache", {})
     if not isinstance(cache, dict):
         raise ValueError("Invalid cache metadata object")
@@ -106,8 +171,7 @@ def tile_width(metadata, block):
 
 
 def tile_key(metadata, block, field, symbol_start):
-    if field not in SERVED_FIELDS:
-        raise ValueError("Unknown market field")
+    field_dtype(metadata, field)
     snapshot = metadata["snapshot_id"]
     if not isinstance(snapshot, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", snapshot):
         raise ValueError("Invalid snapshot identifier")
@@ -119,12 +183,15 @@ def tile_key(metadata, block, field, symbol_start):
 
 
 def encode_tile(metadata, block, field, symbol_start, values, *, axes=None):
-    if field not in SERVED_FIELDS:
-        raise ValueError("Unknown market field")
-    dtype = "|u1" if field in BOOLEAN_FIELDS else "<f8"
-    if field in BOOLEAN_FIELDS and not np.all((np.asarray(values) == 0) | (np.asarray(values) == 1)):
+    dtype = field_dtype(metadata, field).str
+    if dtype == '<i8' and np.asarray(values).dtype.kind != 'i':
+        raise ValueError("Market segment cells must be signed integers")
+    if dtype == "|u1" and not np.all((np.asarray(values) == 0) | (np.asarray(values) == 1)):
         raise ValueError("Market status cells must be boolean")
     array = np.ascontiguousarray(values, dtype=dtype)
+    expected_shape = (block["row_count"], min(tile_width(metadata, block), len(metadata["symbols"])-symbol_start))
+    if array.shape != expected_shape:
+        raise ValueError("Market tile shape mismatch")
     raw = array.tobytes()
     if len(raw) > max(metadata["cache"]["chunk_max_bytes"], block["row_count"] * 8):
         raise ValueError("Market cache chunk exceeds configured size")
@@ -153,7 +220,7 @@ def decode_tile(payload, metadata, block, field, symbol_start, *, axes=None):
         raise ValueError("Invalid market cache header object")
     width = tile_width(metadata, block)
     symbols = min(width, len(metadata["symbols"]) - symbol_start)
-    dtype = "|u1" if field in BOOLEAN_FIELDS else "<f8"
+    dtype = field_dtype(metadata, field).str
     expected = dict(version=CACHE_VERSION, snapshot_id=metadata["snapshot_id"], axes=axes or axis_digest(metadata),
                     field=field, start_index=block["start_index"], row_count=block["row_count"],
                     symbol_start=symbol_start, symbol_count=symbols, dtype=dtype,
@@ -167,7 +234,7 @@ def decode_tile(payload, metadata, block, field, symbol_start, *, axes=None):
     if len(raw) != expected_bytes or hashlib.sha256(raw).hexdigest() != header.get("sha256"):
         raise ValueError("Market cache block integrity check failed")
     result = np.frombuffer(raw, dtype=dtype).reshape(block["row_count"], symbols)
-    if field in BOOLEAN_FIELDS and np.any(result > 1):
+    if dtype == "|u1" and np.any(result > 1):
         raise ValueError("Market status cells must be boolean")
     return result
 

@@ -100,7 +100,7 @@ class FieldProjectionTests(unittest.TestCase):
         source = RecordingSource(self.matrix)
         payload = store.load(dict(self.data, universe=['A']), 3, 2, source=source,
                              matrix_only=True, fields=['value', 'open', 'volume'])
-        self.assertEqual(payload['quotes']['fields'], ('open', 'close', 'prev_close', 'volume', 'total_turnover'))
+        self.assertEqual(payload['quotes']['fields'], ('open', 'close', 'prev_close', 'volume', 'total_turnover', 'is_suspended'))
         self.assertEqual(source.requests[-1], (7, 9, ('return',)))
         self.assertEqual(payload['quotes']['values'].shape[1], 7)
         self.assertEqual(payload['returns'].shape[0], 9)

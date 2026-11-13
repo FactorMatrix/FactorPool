@@ -2,8 +2,7 @@
 from collections import defaultdict
 import math
 import _factorpool_native as native
-from scipy.stats import t as student_t
-from scipy.stats import norm
+from scipy.special import stdtr, ndtr
 
 
 def options(analysis):
@@ -27,7 +26,7 @@ def inference(values, ddof, lag):
         value = result[f"t_{method}"]
         p = None
         if value is not None:
-            p = float(2 * (student_t.sf(abs(value), result["n"]-1) if method == "iid" else norm.sf(abs(value))))
+            p = float(2 * (stdtr(result["n"]-1, -abs(value)) if method == "iid" else ndtr(-abs(value))))
             if p == 0:
                 p = None
                 result[f"p_{method}_status"] = "underflow"
@@ -55,14 +54,7 @@ def rolling_mean(values, window=30):
 
 def cumulative_sum(values):
     # A prefix with missing observations has no complete cumulative IC.
-    total, out = 0.0, []
-    for value in values:
-        if total is None or value is None:
-            total = None
-        else:
-            total += value
-        out.append(total)
-    return out
+    return native.prefix_ic_sum(values)
 
 
 def portfolio_calendar(dates, returns, width=7):

@@ -39,21 +39,24 @@ def _decayed(factors, members, period):
     adapter = IndicatorAdapter(factory())
     if adapter.mode != "native":
         raise ValueError("Alpha decay requires the shared native ts.decay_linear operator")
-    output = np.full(factors.shape, np.nan, dtype=np.float64)
-    symbols = [f"factor-{n}" for n in range(factors.shape[1])]
-    lookup = {symbol: n for n, symbol in enumerate(symbols)}
+    # Axes and buffers are prepared once. The pinned shared Graph owns the
+    # observation clock and performs the complete chronological date loop.
+    width = len(str(max(0, factors.shape[1]-1)))
+    symbols = tuple(f"factor-{n:0{width}d}" for n in range(factors.shape[1]))
+    graph = adapter.binding.graph_create(adapter.indicator._ir.to_dict(), ())
+    if adapter.indicator._batch_ir is not None:
+        adapter.binding.graph_configure_batch(graph, adapter.indicator._batch_ir.to_dict(), (), False)
+    present = np.ascontiguousarray(members & np.isfinite(factors), dtype=bool)
+    axes = [np.flatnonzero(row).astype(np.intp, copy=False) for row in members]
     epoch = date(2000, 1, 1)
-    for t in range(factors.shape[0]):
-        axis = [symbol for n, symbol in enumerate(symbols) if members[t, n]]
-        rows = {symbol: {"value": float(factors[t, n])}
-                for n, symbol in enumerate(symbols)
-                if members[t, n] and np.isfinite(factors[t, n])}
-        # Only ordered observations matter to this count-based shared window.
-        frame = dict(date=(epoch + timedelta(days=t)).isoformat(), symbols=axis, rows=rows)
-        for item in adapter.update(frame, factory):
-            if item["valid"] and item["value"] is not None:
-                output[t, lookup[item["symbol"]]] = item["value"]
-    return output
+    times = [int((epoch+timedelta(days=t)).strftime("%Y%m%d")+"150000")
+             for t in range(factors.shape[0])]
+    state = adapter.binding.graph_evaluate_many(graph, symbols,
+        {"value": np.ascontiguousarray(factors, dtype=np.float64)}, present,
+        list(range(factors.shape[0])), axes, times, True)
+    if state is None:
+        raise ValueError("Alpha decay requires the shared chronological native matrix bridge")
+    return np.frombuffer(state['current'], dtype=np.float64).reshape(factors.shape)
 
 
 def alpha_targets(full_factors, full_membership, settings, *, details=None, trace_indices=()):
@@ -70,45 +73,14 @@ def alpha_targets(full_factors, full_membership, settings, *, details=None, trac
         return None
     members = np.isfinite(membership) & (membership > 0)
     transformed = _decayed(factors, members, period) if period > 1 else factors
-    targets = np.full(factors.shape, np.nan, dtype=np.float64, order="C")
-    traces = set(trace_indices)
+    import _factorpool_native
+    requested = list(dict.fromkeys(int(index) for index in trace_indices)) if details is not None else []
+    result = _factorpool_native.alpha_targets(
+        np.ascontiguousarray(transformed), np.ascontiguousarray(membership),
+        neutralization, cap, requested, details is not None)
     if details is not None:
-        details.update(trace={}, constraints=[])
-    for t in range(factors.shape[0]):
-        valid = members[t] & np.isfinite(transformed[t])
-        values = transformed[t, valid].astype(np.longdouble)
-        if details is not None and t in traces:
-            details["trace"][t] = dict(decayed=transformed[t].copy(),
-                                       neutralized=np.full(factors.shape[1], np.nan))
-        if values.size == 0 or (neutralization == "MARKET" and np.all(values == values[0])):
-            if details is not None and t in traces and values.size:
-                details["trace"][t]["neutralized"][valid] = 0
-            if details is not None and cap > 0:
-                details["constraints"].append(dict(index=t, valid_count=int(values.size),
-                    capacity=float(values.size*cap), full_gross_feasible=bool(values.size*cap >= 1-1e-12),
-                    target_gross=None, target_net=None, unallocated_gross=None, status="no_valid_weights"))
-            continue
-        if neutralization == "MARKET":
-            values -= values.mean(dtype=np.longdouble)
-        if details is not None and t in traces:
-            details["trace"][t]["neutralized"][valid] = values
-        norm = np.abs(values).sum(dtype=np.longdouble)
-        if not np.isfinite(norm) or norm <= 0:
-            if details is not None and cap > 0:
-                details["constraints"].append(dict(index=t, valid_count=int(values.size),
-                    capacity=float(values.size*cap), full_gross_feasible=bool(values.size*cap >= 1-1e-12),
-                    target_gross=None, target_net=None, unallocated_gross=None, status="no_valid_weights"))
-            continue
-        weights = np.asarray(values / norm, dtype=np.float64)
-        if cap > 0:
-            weights = np.clip(weights, -cap, cap)
-        targets[t] = 0
-        targets[t, valid] = weights
-        if details is not None and cap > 0:
-            gross = float(np.abs(weights).sum())
-            feasible = values.size*cap >= 1-1e-12
-            details["constraints"].append(dict(index=t, valid_count=int(values.size),
-                capacity=float(values.size*cap), full_gross_feasible=bool(feasible),
-                target_gross=gross, target_net=float(weights.sum()), unallocated_gross=max(0., 1-gross),
-                status="unit_gross_capacity_infeasible" if not feasible else ("unallocated_gross" if gross < 1-1e-12 else "ok")))
-    return targets
+        details.update(
+            trace={index: dict(decayed=transformed[index].copy(), neutralized=values)
+                   for index, values in result['neutralized'].items()},
+            constraints=result['constraints'])
+    return result['targets']

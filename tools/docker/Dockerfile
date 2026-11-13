@@ -12,6 +12,7 @@ COPY src/native /src/native
 RUN cmake -S /src/native -B /build/research -G Ninja -DCMAKE_BUILD_TYPE=Release \
       -DCMAKE_CXX_COMPILER=g++-14 -DFT_ROOT=/src -DFT_BUILD=/build/shared \
     && cmake --build /build/research --parallel 4 \
+    && /build/research/market/factorpool_market_tests \
     && /build/research/factorpool_brain_temporal_tests
 
 FROM maven:3.9-eclipse-temurin-17 AS java-build
@@ -29,6 +30,8 @@ COPY --from=native-build /build/shared/native/abi/ /opt/factorpool/shared-build/
 COPY --from=native-build /build/shared/language/python/binding/_native_rows.abi3.so /opt/factorpool/shared-build/language/python/binding/
 COPY --from=native-build /build/research/_factorpool_native.so /opt/factorpool/native/
 COPY --from=native-build /build/research/_factorpool_operators.so /opt/factorpool/native/
+COPY --from=native-build /build/research/market/_factorpool_market.so /opt/factorpool/native/
+COPY src/native/NUMPY-LICENSE /opt/factorpool/NUMPY-LICENSE
 COPY shared/factortrader/engine-sdk/language/python /opt/factorpool/shared-python
 COPY src/factorpool /opt/factorpool/src/factorpool
 COPY src/examples /opt/factorpool/src/examples

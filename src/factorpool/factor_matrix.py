@@ -70,6 +70,8 @@ class FactorMatrix:
             or op.startswith(('calendar_', 'brain_ts_')) for op in ops)
         self._bounded = not self.unbounded and not valid_observations
         self._adjustment = self._segments = None
+        self._stored_adjustment = None if quotes is None else quotes.get('adjustment')
+        self._source_member = None if quotes is None else quotes.get('source_member')
         self._adapter, self._last = None, -1
         self._matrix_plan = self._matrix_adapter = None
         self.evaluations = self.input_frames = 0
@@ -77,26 +79,28 @@ class FactorMatrix:
     def _prepare_adjustment(self):
         if self._adjustment is not None:
             return
+        shape = self.values.shape[1:]
+        if self._stored_adjustment is not None:
+            q = np.asarray(self._stored_adjustment['q'])
+            segments = np.asarray(self._stored_adjustment['segment'])
+            if q.shape != shape or segments.shape != shape or q.dtype != np.float64 or segments.dtype != np.int64:
+                raise ValueError('Stored adjustment matrices differ from the historical quote axes or dtypes')
+            self._adjustment, self._segments = q.view(), segments.view()
+            self._adjustment.setflags(write=False)
+            self._segments.setflags(write=False)
+            return
+        from .market_adjustment import derive_adjustment
         close, previous, volume, turnover = (self.values[self.field_positions[field]]
             for field in ('close', 'prev_close', 'volume', 'total_turnover'))
-        shape = close.shape
-        self._adjustment = np.ones(shape)
-        self._segments = np.zeros(shape, dtype=np.int64)
-        for t in range(1, len(close)):
-            valid = (np.isfinite(close[t-1]) & (close[t-1] > 0)
-                     & np.isfinite(close[t]) & (close[t] > 0)
-                     & np.isfinite(previous[t]) & (previous[t] > 0)
-                     & np.isfinite(volume[t-1]) & (volume[t-1] > 0)
-                     & np.isfinite(volume[t]) & (volume[t] > 0))
-            # Absent optional turnover is not a fabricated zero.
-            for row in (turnover[t-1], turnover[t]):
-                valid &= np.isnan(row) | (np.isfinite(row) & (row > 0))
-            with np.errstate(over='ignore', invalid='ignore', divide='ignore'):
-                ratio = previous[t] / close[t-1]
-                product = self._adjustment[t-1] * ratio
-            valid &= np.isfinite(product) & (product > 0)
-            self._adjustment[t] = np.where(valid, product, 1.)
-            self._segments[t] = np.where(valid, self._segments[t-1], t)
+        member = self._source_member
+        if member is None and 'member' in self.field_positions:
+            member = self.values[self.field_positions['member']]
+        suspended = (self.values[self.field_positions['is_suspended']]
+                     if 'is_suspended' in self.field_positions else None)
+        result = derive_adjustment(close, previous, volume, turnover, member, suspended,
+            dates=np.fromiter((int(frame['date'].replace('-', '')) for frame in self.frames),
+                              dtype=np.int64, count=len(self.frames)))
+        self._adjustment, self._segments = result.q, result.segment
 
     def _frame(self, t, basis, *, as_columns=False):
         original = self.frames[t]
@@ -129,12 +133,10 @@ class FactorMatrix:
             columns = np.fromiter((self.columns[s] for s in selected), dtype=np.intp, count=len(selected))
         full_axis = len(columns) == len(self.symbols)
         take = slice(None) if full_axis else columns
-        scale = None
+        adjust = False
         if self.adjusted and t != basis:
             self._prepare_adjustment()
-            with np.errstate(over='ignore', invalid='ignore', divide='ignore'):
-                scale = self._adjustment[basis] / self._adjustment[t]
-            scale = np.where(self._segments[t] == self._segments[basis], scale, np.nan)
+            adjust = True
         fields = sorted(self.fields)
         arrays = []
         for field in fields:
@@ -142,11 +144,11 @@ class FactorMatrix:
             if source not in self.field_positions:
                 raise ValueError(f'Provider has no point-in-time field: {field}')
             row = values[self.field_positions[source]]
-            if scale is not None:
-                if field in PRICE_FIELDS:
-                    row = row * scale
-                elif field == 'volume':
-                    row = row / scale
+            if adjust and (field in PRICE_FIELDS or field == 'volume'):
+                from .market_adjustment import adjust_values
+                row = adjust_values(row, self._adjustment[t], self._adjustment[basis],
+                                    self._segments[t], self._segments[basis],
+                                    inverse=field == 'volume')
             column = np.asarray(row[take], dtype=np.float64)
             if not np.all(np.isfinite(column)):
                 # Quote matrices are immutable. Normalize infinities in a new

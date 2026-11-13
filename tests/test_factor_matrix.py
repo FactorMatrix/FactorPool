@@ -21,25 +21,32 @@ PRICES = frozenset(("open", "high", "low", "close", "prev_close", "value"))
 
 
 def quote_oracle(values):
-    """Scalar cumulative-index reference; never calls FactorMatrix helpers."""
+    """Scalar last-actual-close reference, including confirmed no-trade gaps."""
     count, symbols = values.shape[1:]
-    q = np.ones((count, symbols))
-    segments = np.zeros((count, symbols), dtype=np.int64)
+    q = np.full((count, symbols), np.nan)
+    segments = np.full((count, symbols), -1, dtype=np.int64)
     index = {field: n for n, field in enumerate(FIELDS)}
-    for t in range(1, count):
-        for n in range(symbols):
-            positive = [values[index["close"], t-1, n], values[index["close"], t, n],
-                        values[index["prev_close"], t, n], values[index["volume"], t-1, n],
-                        values[index["volume"], t, n]]
-            good = all(math.isfinite(x) and x > 0 for x in positive)
-            for day in (t-1, t):
-                amount = values[index["total_turnover"], day, n]
-                good &= math.isnan(amount) or math.isfinite(amount) and amount > 0
-            candidate = q[t-1, n] * positive[2] / positive[0] if good else math.nan
-            if good and math.isfinite(candidate) and candidate > 0:
-                q[t, n], segments[t, n] = candidate, segments[t-1, n]
+    positive = lambda x: math.isfinite(x) and x > 0
+    for n in range(symbols):
+        last, cumulative, segment = math.nan, math.nan, -1
+        for t in range(count):
+            row = {field: values[pos, t, n] for field, pos in index.items()}
+            if (math.isfinite(row['volume']) and row['volume'] == 0 and positive(row['member'])
+                    and (row['total_turnover'] == 0 or
+                         positive(row['is_suspended']) and math.isnan(row['total_turnover']))):
+                continue
+            if (not positive(row['volume']) or not math.isfinite(row['close']) or row['close'] < 0
+                    or not (math.isnan(row['total_turnover']) or positive(row['total_turnover']))):
+                last = cumulative = math.nan
+                continue
+            bridge = row['prev_close']/last if positive(last) and positive(row['prev_close']) else math.nan
+            candidate = cumulative*bridge if positive(cumulative) and positive(bridge) else math.nan
+            if positive(candidate):
+                cumulative = candidate
             else:
-                q[t, n], segments[t, n] = 1, t
+                cumulative, segment = 1., segment+1
+            q[t, n], segments[t, n] = cumulative, segment
+            last = row['close']
     return q, segments
 
 
@@ -96,7 +103,8 @@ def asof_frames(payload, basis):
             row = frame["rows"].get(symbol)
             if row is None:
                 continue
-            scale = q[basis, n]/q[t, n] if segments[t, n] == segments[basis, n] else math.nan
+            scale = (1. if t == basis else q[basis, n]/q[t, n]
+                     if segments[t, n] >= 0 and segments[t, n] == segments[basis, n] else math.nan)
             for field in PRICES:
                 if field in row and row[field] is not None:
                     value = row[field]*scale
@@ -185,6 +193,45 @@ class FactorMatrixTests(unittest.TestCase):
         self.assertEqual(evaluator.evaluations, len(signals))
         self.assertEqual(evaluator.input_frames, len(signals))
         self.assertIsNone(evaluator._adjustment)
+
+    def test_persisted_q_is_used_without_rederiving_raw_history(self):
+        payload = split_payload(12)
+        original = payload['quotes']['values']
+        q, segments = quote_oracle(original)
+        payload['quotes']['adjustment'] = dict(q=q, segment=segments)
+        fields = ('close', 'volume')
+        payload['quotes']['values'] = original[[FIELDS.index(field) for field in fields]]
+        payload['quotes']['fields'] = fields
+        payload['quotes']['present'] = np.ones(original.shape[1:], dtype=bool)
+        indicator, factory, _ = self.factor('self.ts.mean(input.close, 3) + self.ts.mean(input.volume, 3)')
+        with patch('factorpool.market_adjustment.derive_adjustment', side_effect=AssertionError('Q must be read')):
+            evaluator = FactorMatrix(payload, indicator, factory, payload['quotes']['dates'][-1])
+            actual = evaluator.evaluate(10)
+        reference = IndicatorAdapter(factory())
+        for frame in asof_frames(split_payload(12), 10):
+            expected = reference.update(frame, factory)
+        self.assert_outputs(actual, expected)
+        self.assertFalse(evaluator._adjustment.flags.writeable)
+
+    def test_confirmed_halt_retains_last_actual_close_for_resumption(self):
+        payload = split_payload(12)
+        values = payload['quotes']['values'].copy()
+        # Filled quotes during a known halt must never advance the actual-close
+        # anchor. A resumed reference contains the whole adjustment once.
+        values[FIELDS.index('volume'), 9:11, 0] = 0
+        values[FIELDS.index('total_turnover'), 9:11, 0] = 0
+        values[FIELDS.index('close'), 9:11, 0] = 888
+        values[FIELDS.index('prev_close'), 9:11, 0] = 444
+        values[FIELDS.index('is_suspended'), 9:11, 0] = 1
+        values[FIELDS.index('prev_close'), 11, 0] = values[FIELDS.index('close'), 8, 0] * .5
+        payload['quotes']['values'] = values
+        indicator, factory, _ = self.factor('self.ts.mean(input.close, 3)')
+        evaluator = FactorMatrix(payload, indicator, factory, payload['quotes']['dates'][-1])
+        evaluator._prepare_adjustment()
+        self.assertTrue(np.isnan(evaluator._adjustment[9:11, 0]).all())
+        self.assertEqual(evaluator._segments[8, 0], evaluator._segments[11, 0])
+        self.assertEqual(evaluator._adjustment[11, 0], .5)
+        self.assertEqual(evaluator._frame(8, 11)['rows']['A']['close'], 54.)
 
     def test_volume_twenty_day_window_is_ready_after_share_basis_adjustment(self):
         payload = split_payload()
