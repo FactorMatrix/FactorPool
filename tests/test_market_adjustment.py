@@ -264,4 +264,3 @@ class MarketAdjustmentTests(unittest.TestCase):
                   & np.isfinite(member) & (member > 0))] = 0
         actual = daily_returns(*fields)
         np.testing.assert_array_equal(actual.view(np.uint64), expected.view(np.uint64))
-

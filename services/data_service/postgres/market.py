@@ -61,8 +61,9 @@ class PostgresMarketSource:
             values = self.read_fields(snapshot, block, FIELDS)
             return np.stack([values[field] for field in FIELDS])
         with transaction(self.connection, readonly=True) as conn:
+            # bytea stays binary on the wire; text mode hex-encodes every byte.
             row = conn.execute("SELECT row_count,payload,sha256 FROM market_matrix_blocks WHERE snapshot_id=%s AND start_index=%s",
-                               (snapshot["snapshot_id"], block["start_index"])).fetchone()
+                               (snapshot["snapshot_id"], block["start_index"]), binary=True).fetchone()
         if row is None or row[0] != block["row_count"] or row[2] != block["sha256"]:
             raise ValueError("Market block index differs from pinned snapshot")
         self.stats["pg_blocks"] += 1
@@ -96,7 +97,7 @@ class PostgresMarketSource:
                 rows = conn.execute(
                     f"SELECT field,row_count,dtype,payload,sha256 FROM {table} "
                     "WHERE snapshot_id=%s AND start_index=%s AND field=ANY(%s)",
-                    (snapshot["snapshot_id"], block["start_index"], requested)).fetchall()
+                    (snapshot["snapshot_id"], block["start_index"], requested), binary=True).fetchall()
                 for field, count, dtype, payload, checksum in rows:
                     descriptor = indexed["fields"].get(field)
                     if (field not in requested or field in found or count != block["row_count"]
