@@ -145,13 +145,20 @@ class TypedMarketBridgeTests(unittest.TestCase):
                                     fields=['open', 'volume'])
         quotes = prices['quotes']
         self.assertEqual(quotes['fields'], ('open', 'volume'))
-        for key, field in zip(('q', 'segment', 'factor', 'known'), ADJUSTMENT_FIELDS):
+        self.assertEqual(set(quotes['adjustment']), {'q', 'segment', 'policy'})
+        for key, field in (('q', '__q__'), ('segment', '__segment__')):
             np.testing.assert_array_equal(quotes['adjustment'][key], source.columns[field][:7, [0, 3]])
             self.assertFalse(quotes['adjustment'][key].flags.writeable)
         self.assertEqual(quotes['adjustment']['segment'].dtype, np.dtype('<i8'))
-        self.assertEqual(quotes['adjustment']['known'].dtype, np.dtype('|u1'))
         fetched = {field for request in source.requests for field in request}
-        self.assertEqual(fetched, {'open', 'volume', *ADJUSTMENT_FIELDS})
+        self.assertEqual(fetched, {'open', 'volume', '__q__', '__segment__'})
+        # These are still available through explicit typed RPC reads; ordinary
+        # Indicator runs do not consume or request the diagnostic columns.
+        client = self.client()
+        explicit = list(client.selected_columns(client.snapshot('typed'), 0, 9,
+            [0, 3], fields=('__adj_factor__', '__adj_known__')))[0][2]
+        for field in ('__adj_factor__', '__adj_known__'):
+            self.assertEqual(explicit[field].tobytes(), source.columns[field][:, [0, 3]].tobytes())
         self.assertEqual(prices['returns'].shape, (9, 2))
         self.assertEqual(quotes['adjustment']['q'].shape, (7, 2))
         self.assertIs(quotes['source_member'], quotes['membership'])

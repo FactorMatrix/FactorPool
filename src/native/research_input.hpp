@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <utility>
 
 namespace fp {
 // Owned, immutable task input. Sorting depends only on factor/membership, so it
@@ -19,6 +20,15 @@ struct ResearchInput {
   std::vector<double> paired_return_ranks(
       int h, std::size_t row, const std::vector<std::size_t> &symbols) const;
   void prepare_return_orders(int h) const;
+  struct CorrelationValues {
+    double ic = missing, rank_ic = missing;
+    std::size_t pairs = 0;
+  };
+  // Allocate on the caller before parallel row work. A row depends on the
+  // immutable paired sample and minimum, not report stride, ddof or HAC lag.
+  void prepare_correlations(int h, int minimum) const;
+  const CorrelationValues &correlation_row(int h, int minimum,
+                                           std::size_t row) const;
   bool eligible(std::size_t t, std::size_t n) const {
     return members.empty() || members[t][n] > 0;
   }
@@ -28,8 +38,13 @@ private:
     std::vector<std::vector<std::size_t>> rows;
     std::vector<unsigned char> ready;
   };
+  struct CorrelationRows {
+    std::vector<CorrelationValues> rows;
+    std::vector<unsigned char> ready;
+  };
   mutable std::map<int, Matrix> forwards_;
   mutable std::map<int, ReturnOrders> return_orders_;
+  mutable std::map<std::pair<int, int>, CorrelationRows> correlations_;
   mutable std::vector<long double> log_prefix_;
   mutable std::vector<std::size_t> missing_prefix_, zero_prefix_;
   void prepare_prefixes() const;

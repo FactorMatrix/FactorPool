@@ -180,7 +180,7 @@ class FactorMatrix:
             raise ValueError('Factor indices must be strictly increasing integers within the history')
         requested = np.array(requested, dtype=np.intp, copy=True)
         requested.setflags(write=False)
-        if self.indicator._ir is None or (self.temporal and self.adjusted):
+        if self.indicator._ir is None:
             return None
         if self.indicator._batch_ir is not None and getattr(self.indicator, '_pool_ir', None) is None:
             return None
@@ -216,8 +216,16 @@ class FactorMatrix:
                                       count=len(selected))
             axes.append(np.ascontiguousarray(columns, dtype=np.intp))
             times.append(int(datetime.fromisoformat(frame['date'] + 'T15:00:00').strftime('%Y%m%d%H%M%S')))
-        state = binding.graph_evaluate_many(graph, self._axis, fields, present,
-                                           requested.tolist(), axes, times, chronological)
+        asof = self.temporal and self.adjusted
+        if asof:
+            self._prepare_adjustment()
+            state = binding.graph_evaluate_asof(graph, self._axis, fields, present,
+                requested.tolist(), axes, times,
+                np.ascontiguousarray(self._adjustment, dtype=np.float64),
+                np.ascontiguousarray(self._segments, dtype=np.int64))
+        else:
+            state = binding.graph_evaluate_many(graph, self._axis, fields, present,
+                                               requested.tolist(), axes, times, chronological)
         if state is None:
             return None
         result = dict(indices=requested, symbols=self._axis)
@@ -227,6 +235,14 @@ class FactorMatrix:
                                           ('reason', 'reason', np.uint8)]:
             result[name] = np.frombuffer(state[native_name], dtype=dtype).reshape(shape)
         self.evaluations += len(requested)
+        if asof:
+            self._cohort_stats = state['cohort_stats']
+            self.input_frames += self._cohort_stats['graph_updates']
+            # Cohorts belong to the batch's numeric worker threads. Ordinary
+            # later calls rebuild their original streaming state, rather than
+            # treating the suffix Program's prepared publications as raw state.
+            self._last, self._adapter = -1, None
+            return result
         self.input_frames += len(history)
         self._last, self._adapter = int(requested[-1]), None
         if chronological:

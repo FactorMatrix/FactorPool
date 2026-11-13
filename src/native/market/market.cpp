@@ -71,24 +71,38 @@ std::vector<double> daily_returns(const Inputs& in) {
   return result;
 }
 
+void adjust_values_into(std::span<double> output,
+                        std::span<const double> values,
+                        std::span<const double> historical_q,
+                        std::span<const double> basis_q,
+                        std::span<const std::int64_t> historical_segment,
+                        std::span<const std::int64_t> basis_segment,
+                        bool inverse) {
+  const auto size = values.size();
+  if (output.size() != size || historical_q.size() != size || basis_q.size() != size ||
+      historical_segment.size() != size || basis_segment.size() != size)
+    throw std::invalid_argument("Adjustment row symbol axes differ");
+  for (std::size_t n = 0; n < size; ++n) {
+    double result = missing;
+    if (historical_segment[n] < 0 || historical_segment[n] != basis_segment[n] ||
+        !positive(historical_q[n]) || !positive(basis_q[n])) {
+      output[n] = result;
+      continue;
+    }
+    const double scale = basis_q[n] / historical_q[n];
+    const double value = inverse ? values[n] / scale : values[n] * scale;
+    if (std::isfinite(value)) result = value;
+    output[n] = result;
+  }
+}
 std::vector<double> adjust_values(std::span<const double> values,
                                  std::span<const double> historical_q,
                                  std::span<const double> basis_q,
                                  std::span<const std::int64_t> historical_segment,
                                  std::span<const std::int64_t> basis_segment,
                                  bool inverse) {
-  const auto size = values.size();
-  if (historical_q.size() != size || basis_q.size() != size ||
-      historical_segment.size() != size || basis_segment.size() != size)
-    throw std::invalid_argument("Adjustment row symbol axes differ");
-  std::vector<double> result(size, missing);
-  for (std::size_t n = 0; n < size; ++n) {
-    if (historical_segment[n] < 0 || historical_segment[n] != basis_segment[n] ||
-        !positive(historical_q[n]) || !positive(basis_q[n])) continue;
-    const double scale = basis_q[n] / historical_q[n];
-    const double value = inverse ? values[n] / scale : values[n] * scale;
-    if (std::isfinite(value)) result[n] = value;
-  }
+  std::vector<double> result(values.size());
+  adjust_values_into(result, values, historical_q, basis_q, historical_segment, basis_segment, inverse);
   return result;
 }
 

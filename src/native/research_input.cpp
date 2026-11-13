@@ -139,6 +139,45 @@ void ResearchInput::prepare_return_orders(int h) const {
     cache.ready.resize(values.size(), 0);
   }
 }
+void ResearchInput::prepare_correlations(int h, int minimum) const {
+  prepare_return_orders(h);
+  auto [entry, inserted] = correlations_.try_emplace(std::pair{h, minimum});
+  if (inserted) {
+    entry->second.rows.resize(factors.size());
+    entry->second.ready.resize(factors.size(), 0);
+  }
+}
+const ResearchInput::CorrelationValues &ResearchInput::correlation_row(
+    int h, int minimum, std::size_t row) const {
+  auto &cache = correlations_.at(std::pair{h, minimum});
+  if (!cache.ready.at(row)) {
+    const auto &values = forward(h);
+    std::vector<double> a, b;
+    std::vector<std::size_t> symbols;
+    a.reserve(factors.columns());
+    b.reserve(factors.columns());
+    symbols.reserve(factors.columns());
+    for (std::size_t n = 0; n < factors.columns(); ++n) {
+      if (std::isfinite(factors[row][n]) && eligible(row, n) &&
+          std::isfinite(values[row][n])) {
+        a.push_back(factors[row][n]);
+        b.push_back(values[row][n]);
+        symbols.push_back(n);
+      }
+    }
+    auto &result = cache.rows[row];
+    result.pairs = symbols.size();
+    result.ic = correlation(a, b, minimum);
+    result.rank_ic = a.size() >= static_cast<std::size_t>(minimum)
+        ? correlation(paired_factor_ranks(*this, row, symbols),
+                      paired_return_ranks(h, row, symbols), minimum)
+        : missing;
+    // Each parallel worker owns a different factor row. Publication and cache
+    // allocation remain on the Python caller, like the return-order cache.
+    cache.ready[row] = 1;
+  }
+  return cache.rows[row];
+}
 std::vector<double> ResearchInput::paired_return_ranks(
     int h, std::size_t row, const std::vector<std::size_t> &symbols) const {
   if (symbols.empty())
@@ -242,27 +281,15 @@ PyObject *ic_series(PyObject *, PyObject *args) {
       throw std::invalid_argument("Invalid correlation options");
     InputRef holder(prepared, Py_None, nullptr);
     const auto &input = *holder.value;
-    const auto &f = input.factors, &forward = input.forward(h);
-    input.prepare_return_orders(h);
+    const auto &f = input.factors;
+    input.prepare_correlations(h, minimum);
     const auto rows = f.size() ? 1 + (f.size() - 1) / signal_stride : 0;
     std::vector<double> ics(rows), rankics(rows);
     parallel_for(rows, f.columns(), [&](std::size_t row) {
       const auto t = row * signal_stride;
-      std::vector<double> a, b;
-      std::vector<std::size_t> symbols;
-      for (std::size_t n = 0; n < f[t].size(); ++n) {
-        const auto r = forward[t][n];
-        if (std::isfinite(f[t][n]) && input.eligible(t, n) && std::isfinite(r)) {
-          a.push_back(f[t][n]);
-          b.push_back(r);
-          symbols.push_back(n);
-        }
-      }
-      ics[row] = correlation(a, b, minimum);
-      rankics[row] = a.size() >= static_cast<std::size_t>(minimum)
-        ? correlation(paired_factor_ranks(input, t, symbols),
-                      input.paired_return_ranks(h, t, symbols), minimum)
-        : missing;
+      const auto &metrics = input.correlation_row(h, minimum, t);
+      ics[row] = metrics.ic;
+      rankics[row] = metrics.rank_ic;
     });
     Owned out{PyDict_New()};
     put(out.p, "ic", list(ics));

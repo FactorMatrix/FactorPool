@@ -5,10 +5,13 @@ import os
 from pathlib import Path
 import numpy as np
 from .data_client.contract import (FIELDS, FORMAT, PRESENT_FIELD, MEMBERSHIP_FIELD,
-                                   ADJUSTMENT_FIELDS, FIELD_BLOCK_FORMAT, field_catalog)
+                                   FIELD_BLOCK_FORMAT, field_catalog)
 
 _ROW_FIELDS = tuple(field for field in FIELDS if field not in ("member", "return"))
 _ROW_COLUMNS = np.array([FIELDS.index(field) for field in _ROW_FIELDS])
+# Indicator input adjustment consumes only these persisted matrices. Daily
+# multipliers and known-status columns remain available through the data API.
+_ADJUSTMENT_INPUTS = (('q', '__q__', '<f8'), ('segment', '__segment__', '<i8'))
 
 
 def _bar_rows(values, symbols):
@@ -305,6 +308,13 @@ def _load_unpasteurized(source, snapshot, snapshot_id, manifest, all_symbols, da
     return result
 
 
+def _column_selection(columns):
+    """Contiguous column positions can be borrowed as a view during assembly."""
+    if len(columns) and (len(columns) == 1 or np.all(np.diff(columns) == 1)):
+        return slice(int(columns[0]), int(columns[-1]) + 1)
+    return columns
+
+
 def _load_projected(source, snapshot, snapshot_id, manifest, all_symbols, dates,
                     selected, columns, dynamic, initial, finish, stop, return_policy,
                     quote_fields, pasteurization):
@@ -329,22 +339,20 @@ def _load_projected(source, snapshot, snapshot_id, manifest, all_symbols, dates,
     history, total = finish-initial, stop-initial
     stored_adjustment = (manifest.get('storage_format') == FIELD_BLOCK_FORMAT
                          and bool(set(quote_fields) & {'open', 'high', 'low', 'close', 'prev_close', 'volume'}))
-    _check_memory(history, total, len(calculation_columns), len(columns), len(quote_fields)+(4 if stored_adjustment else 0),
+    _check_memory(history, total, len(calculation_columns), len(columns), len(quote_fields)+(len(_ADJUSTMENT_INPUTS) if stored_adjustment else 0),
                   matrix_only=True, projected=True)
     values = np.empty((len(quote_fields), history, len(calculation_columns)), dtype="<f8")
     present = np.empty((history, len(calculation_columns)), dtype=bool)
     calculation_members = np.empty(present.shape, dtype=bool)
-    adjustment = ({'q': np.empty(present.shape, dtype='<f8'),
-                   'segment': np.empty(present.shape, dtype='<i8'),
-                   'factor': np.empty(present.shape, dtype='<f8'),
-                   'known': np.empty(present.shape, dtype='|u1')}
+    adjustment = ({key: np.empty(present.shape, dtype=dtype)
+                   for key, _, dtype in _ADJUSTMENT_INPUTS}
                   if stored_adjustment else None)
     returns = np.empty((total, len(columns)), dtype="<f8")
     read_columns = np.union1d(calculation_columns, columns)
-    input_columns = np.searchsorted(read_columns, calculation_columns)
-    return_columns = np.searchsorted(read_columns, columns)
+    input_columns = _column_selection(np.searchsorted(read_columns, calculation_columns))
+    return_columns = _column_selection(np.searchsorted(read_columns, columns))
     historical_fields = (*quote_fields, MEMBERSHIP_FIELD, PRESENT_FIELD, "return",
-                         *(ADJUSTMENT_FIELDS if stored_adjustment else ()))
+                         *(tuple(field for _, field, _ in _ADJUSTMENT_INPUTS) if stored_adjustment else ()))
     covered, seen = initial, False
     for start, count, block in _selected_columns(source, snapshot, initial, finish, read_columns, historical_fields):
         end = start+count
@@ -359,7 +367,7 @@ def _load_projected(source, snapshot, snapshot_id, manifest, all_symbols, dates,
         calculation_members[target] = block[MEMBERSHIP_FIELD][current][:, input_columns]
         returns[target] = block["return"][current][:, return_columns]
         if adjustment is not None:
-            for key, field in zip(('q', 'segment', 'factor', 'known'), ADJUSTMENT_FIELDS):
+            for key, field, _ in _ADJUSTMENT_INPUTS:
                 adjustment[key][target] = block[field][current][:, input_columns]
         covered, seen = right, True
     if covered != finish:
@@ -381,13 +389,15 @@ def _load_projected(source, snapshot, snapshot_id, manifest, all_symbols, dates,
     lookup = {int(column): n for n, column in enumerate(calculation_columns)}
     research_columns = np.array([lookup.get(int(column), -1) for column in columns], dtype=np.intp)
     if dynamic:
-        mask = np.any(calculation_members[:, research_columns], axis=0)
+        mask = np.any(calculation_members[:, _column_selection(research_columns)], axis=0)
         if not np.any(mask):
             raise ValueError("Universe has no instruments in the requested range")
-        returns = np.ascontiguousarray(returns[:, mask])
+        complete = bool(np.all(mask))
+        if not complete:
+            returns = np.ascontiguousarray(returns[:, mask])
         selected = [symbol for symbol, keep in zip(selected, mask) if keep]
         research_columns = research_columns[mask]
-        if pasteurization == "ON" and not np.all(mask):
+        if pasteurization == "ON" and not complete:
             values = np.ascontiguousarray(values[:, :, mask])
             present = np.ascontiguousarray(present[:, mask])
             calculation_members = np.ascontiguousarray(calculation_members[:, mask])
@@ -396,7 +406,7 @@ def _load_projected(source, snapshot, snapshot_id, manifest, all_symbols, dates,
             calculation_symbols = selected.copy()
             research_columns = np.arange(len(selected), dtype=np.intp)
     membership = np.zeros((total, len(selected)), dtype=bool)
-    membership[:history] = calculation_members[:, research_columns] if dynamic else True
+    membership[:history] = calculation_members[:, _column_selection(research_columns)] if dynamic else True
     complete_axis = np.arange(len(calculation_symbols), dtype=np.intp)
     complete_axis.setflags(write=False)
     calculation_objects = np.asarray(calculation_symbols, dtype=object)

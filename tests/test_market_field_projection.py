@@ -131,6 +131,33 @@ class FieldProjectionTests(unittest.TestCase):
         self.assertFalse(payload['membership'][7:].any())
         np.testing.assert_array_equal(payload['returns'], self.matrix[7, :, [0, 3]].T)
 
+    def test_column_views_and_complete_masks_preserve_bits_and_owned_returns(self):
+        for prune in (False, True):
+            matrix = self.matrix.copy()
+            matrix[7, 0, 0] = -0.0
+            matrix.view(np.uint64)[7, 1, 1] = 0x7ff8000000000029
+            if prune:
+                matrix[8, :, 3] = 0
+            matrix.setflags(write=False)
+            original = matrix.tobytes()
+            for pasteurization in ('ON', 'OFF'):
+                for universe in (['B', 'C'], ['D', 'A'], 'all_a_dynamic'):
+                    with self.subTest(prune=prune, pasteurization=pasteurization, universe=universe):
+                        source = _Connection(matrix)
+                        payload = store.load(dict(self.data, universe=universe), 3, 2,
+                            source=source, pasteurization=pasteurization,
+                            matrix_only=True, fields=['total_turnover'])
+                        columns = [source.symbols.index(symbol) for symbol in payload['symbols']]
+                        expected_returns = matrix[7][:, columns]
+                        self.assertEqual(payload['returns'].tobytes(), expected_returns.tobytes())
+                        calculation = [source.symbols.index(symbol) for symbol in payload['quotes']['symbols']]
+                        self.assertEqual(payload['quotes']['values'][0].tobytes(),
+                                         matrix[6, :7][:, calculation].tobytes())
+                        self.assertFalse(payload['quotes']['values'].flags.writeable)
+                        payload['returns'][0, 0] = 17
+                        self.assertEqual(matrix.tobytes(), original)
+                        self.assertFalse(matrix.flags.writeable)
+
     def test_byte_budget_replaces_fixed_cell_count_and_fails_before_block_reads(self):
         with patch.object(store, '_input_budget', return_value=2*1024**3):
             store._check_memory(2500, 2520, 5580, 5580, 1, matrix_only=True, projected=True)

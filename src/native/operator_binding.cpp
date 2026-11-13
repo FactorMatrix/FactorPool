@@ -3,6 +3,7 @@
 #define PY_SSIZE_T_CLEAN
 #include <Python.h>
 #include "operator_program.hpp"
+#include "asof_matrix.hpp"
 #include "parallel.hpp"
 #include "python_values.hpp"
 #include <algorithm>
@@ -515,7 +516,127 @@ PyObject* evaluate_matrix(PyObject*, PyObject* args) {
         return output.release();
     } catch (const std::exception& error) { return failure(error); }
 }
+PyObject* evaluate_asof_matrix(PyObject*, PyObject* args) {
+    try {
+        PyObject *capsule, *symbol_object, *field_objects, *present_object, *requested_object,
+                 *axes_object, *times_object, *q_object, *segment_object;
+        if (!PyArg_ParseTuple(args, "OOOOOOOOO:evaluate_asof_matrix", &capsule, &symbol_object,
+                &field_objects, &present_object, &requested_object, &axes_object, &times_object,
+                &q_object, &segment_object)) return nullptr;
+        const bool pool_mode = PyCapsule_IsValid(capsule, tag);
+        pool::Spec pool_spec; pool::graph::Spec scalar_spec;
+        if (pool_mode) {
+            pool_spec = handle(capsule).spec();
+            if (!pool::independent_temporals(pool_spec)) Py_RETURN_NONE;
+        } else {
+            const auto graph = shared_graph(capsule);
+            if (graph->has_batch_program() || graph->has_temporal_ports()) Py_RETURN_NONE;
+            scalar_spec = graph->spec();
+        }
+        const auto symbols = strings(symbol_object);
+        const auto requested = indices(requested_object);
+        if (!std::is_sorted(symbols.begin(), symbols.end()) || std::adjacent_find(symbols.begin(), symbols.end()) != symbols.end())
+            throw std::invalid_argument("As-of symbols must be sorted and unique");
+        if (std::adjacent_find(requested.begin(), requested.end(), std::greater_equal<>()) != requested.end() ||
+            (!requested.empty() && requested.back() == std::numeric_limits<std::size_t>::max()))
+            throw std::invalid_argument("As-of indices must be strictly increasing within the history");
+        const auto width = symbols.size();
+        std::size_t rows = 0; std::vector<std::uint8_t> present;
+        {
+            Buffer buffer(present_object); const auto& view = buffer.view;
+            const std::string format = view.format ? view.format : "";
+            if (!buffer.acquired || view.ndim != 2 || !view.shape || view.shape[0] < 0 ||
+                view.shape[1] != static_cast<Py_ssize_t>(width) || view.itemsize != 1 ||
+                (format != "?" && format != "B") || !PyBuffer_IsContiguous(&view, 'C'))
+                throw std::invalid_argument("As-of presence requires a contiguous boolean history matrix");
+            rows = static_cast<std::size_t>(view.shape[0]);
+            if (width && rows > present.max_size() / width) throw std::invalid_argument("As-of history is too large");
+            present.resize(rows * width);
+            if (view.len < 0 || static_cast<std::size_t>(view.len) != present.size()) throw std::invalid_argument("As-of presence length differs from its axes");
+            if (!present.empty()) std::memcpy(present.data(), view.buf, present.size());
+            if (std::any_of(present.begin(), present.end(), [](auto value) { return value > 1; })) throw std::invalid_argument("As-of presence must contain boolean values");
+        }
+        if (!requested.empty() && requested.back() >= rows) throw std::invalid_argument("As-of index is outside the history");
+        const auto steps = requested.empty() ? 0 : requested.back() + 1;
+        auto q = fp::matrix(q_object);
+        if (q.size() != rows || q.columns() != width) throw std::invalid_argument("As-of Q differs from the quote history axes");
+        std::vector<std::int64_t> segments(rows * width);
+        {
+            Buffer buffer(segment_object); const auto& view = buffer.view;
+            const std::string format = view.format ? view.format : "";
+            const bool native = format == "q" || format == "=q" || format == "@q" ||
+                ((format == "l" || format == "=l" || format == "@l") && sizeof(long) == sizeof(std::int64_t));
+            if (!buffer.acquired || view.ndim != 2 || !view.shape || view.shape[0] != static_cast<Py_ssize_t>(rows) ||
+                view.shape[1] != static_cast<Py_ssize_t>(width) || view.itemsize != sizeof(std::int64_t) ||
+                !native || !PyBuffer_IsContiguous(&view, 'C') || view.len < 0 ||
+                static_cast<std::size_t>(view.len) != segments.size() * sizeof(std::int64_t))
+                throw std::invalid_argument("As-of segments require a contiguous native int64 history matrix");
+            if (!segments.empty()) std::memcpy(segments.data(), view.buf, view.len);
+        }
+        if (!PyDict_Check(field_objects)) throw std::invalid_argument("As-of fields must be a dictionary");
+        std::vector<std::string> names; std::vector<fp::Matrix> data;
+        Py_ssize_t position = 0; PyObject *key, *value;
+        while (PyDict_Next(field_objects, &position, &key, &value)) {
+            names.push_back(text(key)); data.push_back(fp::matrix(value));
+            if (data.back().size() != rows || data.back().columns() != width) throw std::invalid_argument("As-of field axes differ from the history");
+        }
+        std::vector<pool::AsOfField> fields;
+        for (std::size_t i = 0; i < names.size(); ++i) fields.push_back({names[i], {data[i].data(), rows * width}});
+        std::vector<std::vector<std::size_t>> axes;
+        each(axes_object, [&](auto* object) {
+            Buffer buffer(object); const auto& view = buffer.view;
+            std::string format = view.format ? view.format : "";
+            if (!format.empty() && (format.front() == '@' || format.front() == '=')) format.erase(0, 1);
+            const bool native = format == "n" || (format == "l" && sizeof(long) == sizeof(std::intptr_t)) ||
+                (format == "q" && sizeof(long long) == sizeof(std::intptr_t)) || (format == "i" && sizeof(int) == sizeof(std::intptr_t));
+            if (!buffer.vector() || view.itemsize != sizeof(std::intptr_t) || !native || view.len < 0 ||
+                static_cast<std::size_t>(view.len) != static_cast<std::size_t>(view.shape[0]) * sizeof(std::intptr_t))
+                throw std::invalid_argument("As-of active columns require contiguous native intp vectors");
+            axes.emplace_back(); auto& axis = axes.back();
+            const auto* raw = static_cast<const char*>(view.buf);
+            for (Py_ssize_t slot = 0; slot < view.shape[0]; ++slot) {
+                std::intptr_t n; std::memcpy(&n, raw + slot * sizeof(n), sizeof(n));
+                if (n < 0 || static_cast<std::size_t>(n) >= width || (!axis.empty() && static_cast<std::size_t>(n) <= axis.back()))
+                    throw std::invalid_argument("As-of active columns must be ordered unique history positions");
+                axis.push_back(static_cast<std::size_t>(n));
+            }
+        });
+        std::vector<std::int64_t> times;
+        each(times_object, [&](auto* item) {
+            if (!PyLong_CheckExact(item)) throw std::invalid_argument("As-of times must be integers");
+            const auto time = PyLong_AsLongLong(item);
+            if (PyErr_Occurred()) throw std::invalid_argument("As-of time is out of range");
+            times.push_back(time);
+        });
+        if (axes.size() != steps || times.size() != steps ||
+            std::adjacent_find(times.begin(), times.end(), std::greater_equal<>()) != times.end())
+            throw std::invalid_argument("As-of axes/times must follow the complete chronological history");
+        const auto ports = pool_mode ? pool_spec.temporals.size() : std::size_t{1};
+        // A large independent plan may use the unchanged ordinary path rather
+        // than allocating unbounded temporary port-publication matrices.
+        constexpr std::size_t publication_limit = 512 * 1024 * 1024;
+        if (ports && width && requested.size() > publication_limit / 10 / ports / width) Py_RETURN_NONE;
+        pool::AsOfHistory history{symbols, rows, fields, present, {q.data(), rows * width}, segments,
+                                  requested, axes, times};
+        pool::AsOfResult result;
+        PyThreadState* thread = PyEval_SaveThread();
+        try { result = pool_mode ? pool::evaluate_asof(pool_spec, history) : pool::evaluate_asof(scalar_spec, history); }
+        catch (...) { PyEval_RestoreThread(thread); throw; }
+        PyEval_RestoreThread(thread);
+        Owned output(PyDict_New()), stats(PyDict_New());
+        if (!output.value || !stats.value || !put(output.value, "current", bytes(result.current)) ||
+            !put(output.value, "valid", bytes(result.valid)) || !put(output.value, "ready", bytes(result.ready)) ||
+            !put(output.value, "reason", bytes(result.reason)) ||
+            !put(stats.value, "graph_updates", PyLong_FromSize_t(result.graph_updates)) ||
+            !put(stats.value, "replayed_cells", PyLong_FromSize_t(result.replay_cells)) ||
+            !put(stats.value, "advanced_cells", PyLong_FromSize_t(result.advance_cells)) ||
+            !put(stats.value, "cohorts", PyLong_FromSize_t(result.cohorts)) ||
+            !put(output.value, "cohort_stats", stats.release())) return nullptr;
+        return output.release();
+    } catch (const std::exception& error) { return failure(error); }
+}
 PyMethodDef methods[] = {
+    {"evaluate_asof_matrix", evaluate_asof_matrix, METH_VARARGS, "Independent temporal cohorts on the exact per-signal quote basis, then unchanged full-axis CS."},
     {"evaluate_matrix", evaluate_matrix, METH_VARARGS, "Evaluate actual per-date axes with independent dates or one chronological temporal plan."},
     {"create", create, METH_VARARGS, "Create a Pool native expression plan using pinned shared kernels."},
     {"set_symbols", set_symbols, METH_VARARGS, "Set the active sorted axis; removed temporal state is released."},

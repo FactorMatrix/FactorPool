@@ -94,6 +94,8 @@ def return_contract(payload):
 def run(directory, *, factory=None, values_format="jsonl"):
     import _factorpool_native as native
     directory = Path(directory)
+    values_ready = directory / "values-ready.json"
+    values_ready.unlink(missing_ok=True)
     if values_format not in ("matrix", "jsonl"):
         raise ValueError("values_format must be matrix or jsonl")
     request = json.loads((directory / "request.json").read_text())
@@ -277,6 +279,23 @@ def run(directory, *, factory=None, values_format="jsonl"):
                 else native.prepare_research(factors, returns, members, alpha_weights))
     result = native.analyze(prepared, None, options.get("groups", 3), options.get("min_ic_pairs", 3),
                             options.get("icir_ddof", 1), None, 1, 1, True)
+    # All value columns are complete after primary analysis. Publish only the
+    # closed immutable artifact; the worker still waits for the full report
+    # before making this task successful.
+    export_started = time.perf_counter()
+    forward_returns, groups = result.pop("forward_returns"), result.pop("groups")
+    from .result_matrix import write_result_matrix, write_jsonl
+    value_artifact = write_result_matrix(directory / "values.matrix", dates, symbols, factors,
+                                        valid, ready, reasons, forward_returns, groups,
+                                        signal_indices=rebalance, threads=native.compute_threads())
+    del forward_returns, groups
+    if values_format == "matrix":
+        temporary = values_ready.with_suffix(".tmp")
+        temporary.write_text(json.dumps(dict(version=1, artifact="values.matrix",
+                                             value_count=value_artifact["count"],
+                                             sha256=value_artifact["sha256"]), allow_nan=False))
+        temporary.replace(values_ready)
+    timings["export"] = time.perf_counter() - export_started
     trace_info = dict(indices=trace_indices, symbols=symbols, transforms=transforms,
                       factor_arrays=dict(reason=reasons, valid=valid, ready=ready)) if trace_indices else None
     result["diagnostics"] = build_diagnostics(prepared, None, None, dates, [f["date"] for f in tail], options,
@@ -311,17 +330,12 @@ def run(directory, *, factory=None, values_format="jsonl"):
     add_amounts(result["diagnostics"], options)
     for date, day in zip(dates, result["daily"]):
         day["date"] = date
-    timings["analysis"] = time.perf_counter() - checkpoint
-    export_started = time.perf_counter()
-    forward_returns, groups = result.pop("forward_returns"), result.pop("groups")
+    timings["analysis"] = time.perf_counter() - checkpoint - timings["export"]
     result['daily'] = [day for i, day in enumerate(result['daily']) if i in rebalance]
-    from .result_matrix import write_result_matrix, write_jsonl
-    value_artifact = write_result_matrix(directory / "values.matrix", dates, symbols, factors,
-                                        valid, ready, reasons, forward_returns, groups,
-                                        signal_indices=rebalance, threads=native.compute_threads())
     if values_format == "jsonl":
+        export_started = time.perf_counter()
         write_jsonl(directory / "values.jsonl", directory / "values.matrix")
-    timings["export"] = time.perf_counter() - export_started
+        timings["export"] += time.perf_counter() - export_started
     timings["analysis_export"] = time.perf_counter() - checkpoint
     build_info = json.loads(Path(os.environ.get("FACTORPOOL_BUILD_INFO", "/opt/factorpool/build-info.json")).read_text())
     result["metadata"] = dict(build=build_info, execution_mode=adapter.mode, warm_up_period=warmup,

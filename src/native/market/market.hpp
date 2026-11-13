@@ -24,6 +24,15 @@ struct Inputs {
 
 std::vector<double> daily_returns(const Inputs&);
 
+// Output may be the same complete row as values; partial overlap is unsupported.
+void adjust_values_into(std::span<double> output,
+                        std::span<const double> values,
+                        std::span<const double> historical_q,
+                        std::span<const double> basis_q,
+                        std::span<const std::int64_t> historical_segment,
+                        std::span<const std::int64_t> basis_segment,
+                        bool inverse);
+
 std::vector<double> adjust_values(std::span<const double> values,
                                  std::span<const double> historical_q,
                                  std::span<const double> basis_q,

@@ -1,5 +1,7 @@
 """Independent paired-sample IC checks for reused forward-return ordering."""
+import os
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 from scipy.stats import rankdata
@@ -90,6 +92,66 @@ class ReusedReturnOrderTests(unittest.TestCase):
         returns[4, :4] = [-1., np.inf, -np.inf, -2.]
         members[2, 0] = np.nan
         self.check_case(factors, returns, members, (2, 5, 7, 2), (3, 10, 30))
+
+    def test_report_reuse_keeps_stride_minimum_groups_and_inference_independent(self):
+        rng = np.random.default_rng(14017)
+        factors = rng.integers(-2, 3, (23, 11)).astype(float)
+        returns = rng.normal(0, .03, (39, 11))
+        members = (rng.random(factors.shape) > .2).astype(float)
+        factors[4] = 0
+        factors[7, :5] = np.nan
+        returns[5:9, 2] = np.nan
+        returns[16, 4] = -1
+        prepared = native.prepare_research(factors, returns, members)
+        # Sparse calls populate only some cache rows. Later denser calls, other
+        # minimums, groups and ddof must retain their original complete reports.
+        for h, stride, minimum, groups, ddof in (
+                (2, 3, 2, 3, 1), (2, 1, 8, 4, 0), (5, 2, 3, 2, 1),
+                (2, 2, 2, 4, 0), (2, 1, 2, 3, 1), (5, 1, 12, 3, 0)):
+            with self.subTest(h=h, stride=stride, minimum=minimum, ddof=ddof):
+                expected = paired_correlations(
+                    factors, members, forward_returns(returns, h), 0, minimum)
+                series = native.ic_series(prepared, h, minimum, stride)
+                self.assert_series(series['ic'], expected[0][::stride])
+                self.assert_series(series['rank_ic'], expected[1][::stride])
+                decay = native.ic_decay(prepared, None, None, h, 3, minimum, stride)
+                for k, item in enumerate(decay):
+                    lagged = paired_correlations(
+                        factors, members, forward_returns(returns, h), k*h, minimum)
+                    self.assert_summary(item['ic'], lagged[0][::stride])
+                    self.assert_summary(item['rank_ic'], lagged[1][::stride])
+                fresh = native.prepare_research(factors, returns, members)
+                self.assertEqual(
+                    native.analyze(prepared, None, groups, minimum, ddof, None, h, stride),
+                    native.analyze(fresh, None, groups, minimum, ddof, None, h, stride))
+
+    def test_parallel_cache_rows_survive_sparse_then_dense_block_publication(self):
+        with patch.dict(os.environ, FACTORPOOL_COMPUTE_THREADS='2'):
+            if native.compute_threads() < 2:
+                self.skipTest('Requires two CPUs for parallel cache publication')
+            self.assertEqual(native.compute_threads(), 2)
+            rng = np.random.default_rng(240513)
+            factors = rng.integers(-5, 6, (270, 513)).astype(float)
+            returns = rng.normal(0, .01, (289, 513))
+            members = (rng.random(factors.shape) > .15).astype(float)
+            factors[rng.random(factors.shape) < .03] = np.nan
+            returns[rng.random(returns.shape) < .01] = np.nan
+            factors[256] = 0
+            prepared = native.prepare_research(factors, returns, members)
+            forward = forward_returns(returns, 2)
+            for minimum, stride in ((3, 3), (3, 1), (420, 1), (3, 2)):
+                with self.subTest(minimum=minimum, stride=stride):
+                    expected = paired_correlations(factors, members, forward, 0, minimum)
+                    series = native.ic_series(prepared, 2, minimum, stride)
+                    self.assert_series(series['ic'], expected[0][::stride])
+                    self.assert_series(series['rank_ic'], expected[1][::stride])
+                    decay = native.ic_decay(prepared, None, None, 2, 2, minimum, stride)
+                    self.assert_summary(decay[0]['ic'], expected[0][::stride])
+                    self.assert_summary(decay[0]['rank_ic'], expected[1][::stride])
+                    fresh = native.prepare_research(factors, returns, members)
+                    self.assertEqual(
+                        native.analyze(prepared, None, 4, minimum, 1, None, 2, stride),
+                        native.analyze(fresh, None, 4, minimum, 1, None, 2, stride))
 
 
 if __name__ == '__main__':

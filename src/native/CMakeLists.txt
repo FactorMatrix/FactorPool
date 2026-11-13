@@ -14,13 +14,13 @@ target_compile_options(_factorpool_native PRIVATE -Wall -Wextra -Wpedantic)
 # stays independent; existing Indicator primitives come from the pinned SDK.
 if(FT_ROOT AND FT_BUILD)
   Python3_add_library(_factorpool_operators MODULE
-    operator_binding.cpp operator_program.cpp operator_kernels.cpp
+    operator_binding.cpp operator_program.cpp operator_kernels.cpp asof_matrix.cpp
     calendar_window.cpp brain_temporal.cpp brain_cross.cpp)
   target_include_directories(_factorpool_operators PRIVATE
     "${FT_ROOT}/engine-core-cpp/mods/sys_indicator/include"
     "${FT_ROOT}/engine-core-cpp/mods/sys_indicator/src/batch_program")
   target_link_libraries(_factorpool_operators PRIVATE
-    "${FT_BUILD}/native/abi/libfactortrader_c.so" Threads::Threads)
+    "${FT_BUILD}/native/abi/libfactortrader_c.so" Threads::Threads factorpool_market_core)
   target_compile_options(_factorpool_operators PRIVATE -Wall -Wextra -Wpedantic)
   add_executable(factorpool_brain_temporal_tests
     tests/brain_temporal_test.cpp brain_temporal.cpp)

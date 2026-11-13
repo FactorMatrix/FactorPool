@@ -25,7 +25,7 @@ PyObject *analyze(PyObject *, PyObject *args) {
     InputRef holder(factor, daily_returns, eligible);
     const auto &input = *holder.value;
     const auto &f = input.factors, &forward = input.forward(horizon);
-    input.prepare_return_orders(horizon);
+    input.prepare_correlations(horizon, minimum);
     const auto output_rows = f.size() ? 1 + (f.size() - 1) / signal_stride : 0;
     const auto columns = f.columns();
     if (output_rows && columns > static_cast<std::size_t>(PY_SSIZE_T_MAX) / sizeof(double) / output_rows)
@@ -54,29 +54,21 @@ PyObject *analyze(PyObject *, PyObject *args) {
       parallel_for(length, columns, [&](std::size_t row) {
         const auto ordinal = first + row, t = ordinal * signal_stride;
         auto &value = values[row];
-        std::vector<double> r(f[t].size(), missing), a, b,
+        std::vector<double> r(f[t].size(), missing),
             labels(f[t].size(), missing);
         const auto &order = input.order[t];
-        std::vector<std::size_t> pair_symbols;
         for (std::size_t n = 0; n < f[t].size(); ++n) {
           if (input.eligible(t, n))
             ++value.total;
           r[n] = forward[t][n];
           if (std::isfinite(f[t][n]) && input.eligible(t, n)) {
             ++value.covered;
-            if (std::isfinite(r[n])) {
-              pair_symbols.push_back(n);
-              a.push_back(f[t][n]);
-              b.push_back(r[n]);
-              ++value.pairs;
-            }
           }
         }
-        value.ic = correlation(a, b, minimum);
-        value.ric = a.size() >= static_cast<std::size_t>(minimum)
-                      ? correlation(paired_factor_ranks(input, t, pair_symbols),
-                                    input.paired_return_ranks(horizon, t, pair_symbols), minimum)
-                      : missing;
+        const auto &metrics = input.correlation_row(horizon, minimum, t);
+        value.ic = metrics.ic;
+        value.ric = metrics.rank_ic;
+        value.pairs = metrics.pairs;
         std::vector<double> sums(groups, 0);
         value.counts.assign(groups, 0);
         value.members.assign(groups, 0);

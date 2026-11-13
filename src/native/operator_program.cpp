@@ -50,7 +50,7 @@ void mask_unready(Cell& cell) {
             cell.value.valid[slot] &= cell.ready.at(cell.value.axis[slot]);
 }
 }
-Program::Program(Spec spec, std::vector<std::string> symbols): spec_(std::move(spec)), symbols_(std::move(symbols)) {
+Program::Program(Spec spec, std::vector<std::string> symbols, bool prepared_only): spec_(std::move(spec)), symbols_(std::move(symbols)), prepared_only_(prepared_only) {
     check_symbols(symbols_);
     if (spec_.nodes.empty() || spec_.output >= spec_.nodes.size() || spec_.ready >= spec_.nodes.size())
         throw std::invalid_argument("Pool operator IR requires valid output/readiness nodes");
@@ -97,7 +97,10 @@ Program::Program(Spec spec, std::vector<std::string> symbols): spec_(std::move(s
             if (node.field != "current" && node.field != "ready") throw std::invalid_argument("Unknown Pool temporal projection");
         }
     }
-    for (const auto& port : spec_.temporals) ports_.push_back(std::make_unique<graph::Graph>(port.spec, symbols_));
+    if (prepared_only_ && !independent_temporals(spec_))
+        throw std::invalid_argument("Prepared-only programs require independent temporal ports");
+    if (!prepared_only_)
+        for (const auto& port : spec_.temporals) ports_.push_back(std::make_unique<graph::Graph>(port.spec, symbols_));
     current_.assign(symbols_.size(), shared::missing); valid_.resize(symbols_.size()); ready_.resize(symbols_.size());
 }
 void Program::set_symbols(std::vector<std::string> symbols) {
@@ -116,7 +119,40 @@ bool Program::independent_frames() const {
             return node.op == "brain_cs_trade_when" || node.op == "brain_cs_group_backfill";
         });
 }
+bool independent_temporals(const Spec& spec) {
+    if (std::any_of(spec.temporals.begin(), spec.temporals.end(), [](const auto& port) {
+        return port.deferred || !port.bindings.empty();
+    })) return false;
+    return std::none_of(spec.nodes.begin(), spec.nodes.end(), [](const auto& node) {
+        return node.op.starts_with("calendar_") || node.op.starts_with("brain_ts_") ||
+               node.op == "brain_cs_trade_when" || node.op == "brain_cs_group_backfill";
+    });
+}
 void Program::update(std::int64_t time, std::span<const graph::Column> columns, std::span<const std::uint8_t> present) {
+    if (prepared_only_) throw std::invalid_argument("Prepared-only programs cannot advance raw temporal state");
+    update_impl(time, columns, present, nullptr);
+}
+void Program::update_prepared(std::int64_t time, std::span<const graph::Column> columns,
+                             std::span<const std::uint8_t> present,
+                             std::span<const TemporalFrame> temporals) {
+    if (!independent_temporals(spec_))
+        throw std::invalid_argument("Prepared temporals require independent raw-input temporal ports");
+    if (temporals.size() != spec_.temporals.size())
+        throw std::invalid_argument("Prepared temporal publications differ from the port axis");
+    for (const auto& frame : temporals) {
+        if (frame.current.size() != symbols_.size() || frame.valid.size() != symbols_.size() ||
+            frame.ready.size() != symbols_.size())
+            throw std::invalid_argument("Prepared temporal publication differs from the symbol axis");
+        for (std::size_t row = 0; row < symbols_.size(); ++row)
+            if (frame.valid[row] > 1 || frame.ready[row] > 1 ||
+                (frame.valid[row] && !std::isfinite(frame.current[row])))
+                throw std::invalid_argument("Prepared temporal publication has invalid numerical masks");
+    }
+    update_impl(time, columns, present, &temporals);
+}
+void Program::update_impl(std::int64_t time, std::span<const graph::Column> columns,
+                         std::span<const std::uint8_t> present,
+                         const std::span<const TemporalFrame>* prepared) {
     const auto width = symbols_.size();
     if (time < time_ || (!calendar_.empty() && time <= time_))
         throw std::invalid_argument("Pool operator updates must be chronological; calendar dates must be unique");
@@ -214,16 +250,24 @@ void Program::update(std::int64_t time, std::span<const graph::Column> columns, 
                 cell.value.values[row] = usable; cell.value.valid[row] = 1;
             }
         } else if (op == "temporal") {
-            update_port(node.dependency, cells, node);
-            const auto& state = ports_[node.dependency]->current_snapshot();
+            const graph::Snapshot* snapshot = nullptr;
+            TemporalFrame state;
+            if (prepared) state = (*prepared)[node.dependency];
+            else {
+                update_port(node.dependency, cells, node);
+                snapshot = &ports_[node.dependency]->current_snapshot();
+                state = {snapshot->current, snapshot->valid, snapshot->ready};
+            }
             cell.value = shared::Value::vector(width, node.field == "ready");
             for (std::size_t row = 0; row < width; ++row) {
+                const bool current_valid = state.valid[row] &&
+                    (prepared || snapshot->end_time[row] == time);
                 if (node.field == "ready") {
-                    cell.value.values[row] = state.ready[row] && state.valid[row] && state.end_time[row] == time;
+                    cell.value.values[row] = state.ready[row] && current_valid;
                     cell.value.valid[row] = present[row]; cell.ready[row] = 1;
                 } else {
-                    cell.value.values[row] = state.valid[row] && state.end_time[row] == time ? state.current[row] : shared::missing;
-                    cell.value.valid[row] = present[row] && state.valid[row] && state.ready[row] && state.end_time[row] == time;
+                    cell.value.values[row] = current_valid ? state.current[row] : shared::missing;
+                    cell.value.valid[row] = present[row] && current_valid && state.ready[row];
                     cell.ready[row] = state.ready[row];
                 }
             }

@@ -92,7 +92,43 @@ void price_and_volume_views() {
   assert(price[0] == 50 && price[1] == 0 && volume[0] == 200 && volume[1] == 0);
   for (auto n : {2, 3, 4}) assert(std::isnan(price[n]) && std::isnan(volume[n]));
 }
+void adjustment_destination_and_exact_alias() {
+  const auto infinity = std::numeric_limits<double>::infinity();
+  const auto large = (std::int64_t{1} << 53) + 7;
+  const std::vector<double> values{-0., 1.23456789123, missing, infinity, 1e308, -3., 3., 7., 9., 4.};
+  const std::vector<double> history{1.3, .7, 1, 1, 1e-308, 1e308, 2, 2, 0, missing};
+  const std::vector<double> basis{1.1, .2, 1, 1, 1e308, 1e-308, 1, 1, 1, 1};
+  const std::vector<std::int64_t> hs{large, large, large, large, large, large, large, -1, large, large};
+  const std::vector<std::int64_t> bs{large, large, large, large, large, large, large+1, -1, large, large};
+  for (bool inverse : {false, true}) {
+    // Frozen pre-into row loop: independent destination and exact alias must
+    // retain its division/multiply order, NaN bytes, signed zero and i8 key.
+    std::vector<double> expected(values.size(), missing);
+    for (std::size_t n = 0; n < values.size(); ++n) {
+      if (hs[n] < 0 || hs[n] != bs[n] || !std::isfinite(history[n]) || history[n] <= 0 ||
+          !std::isfinite(basis[n]) || basis[n] <= 0) continue;
+      const double scale = basis[n] / history[n];
+      const double value = inverse ? values[n] / scale : values[n] * scale;
+      if (std::isfinite(value)) expected[n] = value;
+    }
+    std::vector<double> output(values.size(), 42.);
+    const auto frozen = values;
+    m::adjust_values_into(output, values, history, basis, hs, bs, inverse);
+    assert(same(values, frozen) && same(output, expected));
+    auto aliased = values;
+    m::adjust_values_into(aliased, aliased, history, basis, hs, bs, inverse);
+    assert(same(aliased, expected));
+    assert(same(m::adjust_values(values, history, basis, hs, bs, inverse), expected));
+    assert(output[0] == 0 && std::signbit(output[0]));
+    auto mismatch = output; bool rejected = false;
+    try { m::adjust_values_into(std::span(mismatch).first(1), values, history, basis, hs, bs, inverse); }
+    catch (const std::invalid_argument&) { rejected = true; }
+    assert(rejected && same(mismatch, output));
+  }
+  m::adjust_values_into({}, {}, {}, {}, {}, {}, false);
+}
 int main() {
   returns_contract(); suspend_split_dividend_zero(); retries_and_unknowns(); price_and_volume_views();
+  adjustment_destination_and_exact_alias();
   std::cout << "market core: return v1, last-actual Q, suspension, zero, chunk and retry checks passed\n";
 }

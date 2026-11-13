@@ -170,7 +170,7 @@ class DataService(data_pb2_grpc.DataServiceServicer):
             if request.cache_layout:
                 from factorpool.data_client.contract import CACHE_VERSION
                 layout = json.loads(request.cache_layout)
-                if (layout.get("version") != CACHE_VERSION or layout.get("codec") not in ("raw", "zlib")
+                if (layout.get("version") != CACHE_VERSION or layout.get("codec") not in ("raw", "zlib", "lz4")
                         or type(layout.get("chunk_max_bytes")) is not int or not 8192 <= layout["chunk_max_bytes"] <= 16*1024*1024
                         or type(layout.get("tile_symbols")) is not int or not 1 <= layout["tile_symbols"] <= 65536):
                     raise ValueError("Unsupported requested cache layout")

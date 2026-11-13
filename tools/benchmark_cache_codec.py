@@ -1,4 +1,4 @@
-"""Measure raw/zlib contract codecs and actual Redis transfer on one pinned tile."""
+"""Measure typed market contract codecs and Redis transfer on one pinned tile."""
 import argparse
 from copy import deepcopy
 import hashlib
@@ -12,7 +12,7 @@ import uuid
 import numpy as np
 
 from factorpool.data_client import DataClient
-from factorpool.data_client.contract import FIELDS, axis_digest, decode_tile, encode_tile, tile_width
+from factorpool.data_client.contract import axis_digest, decode_tile, encode_tile, field_dtype, tile_width
 
 
 def sample(operation, iterations):
@@ -24,20 +24,22 @@ def sample(operation, iterations):
     return dict(median=statistics.median(durations), minimum=min(durations), samples=durations)
 
 
-def benchmark(metadata, block, values, field, redis, iterations, batch):
+def benchmark(metadata, block, values, field, redis, iterations, batch, codecs=("raw", "zlib", "lz4")):
     """Keys are invocation-local, short-lived and deleted without global invalidation."""
-    raw_sha = hashlib.sha256(np.ascontiguousarray(values, dtype="<f8").tobytes()).hexdigest()
+    dtype = field_dtype(metadata, field)
+    values = np.ascontiguousarray(values, dtype=dtype)
+    raw_sha = hashlib.sha256(values.tobytes()).hexdigest()
     axes = axis_digest(metadata)
     reports = []
     prefix = f"fp:benchmark:codec:{uuid.uuid4().hex}"
     keys = [f"{prefix}:{index}" for index in range(batch)]
     try:
-        for codec in ("raw", "zlib"):
+        for codec in codecs:
             pinned = deepcopy(metadata)
             pinned["cache"]["codec"] = codec
             pinned["cache"]["tile_symbols"] = values.shape[1]
             payload = encode_tile(pinned, block, field, 0, values, axes=axes)
-            if len(payload) * batch > 128 * 1024 * 1024:
+            if max(len(payload), values.nbytes) * batch > 128 * 1024 * 1024:
                 raise ValueError("Codec benchmark batch exceeds 128 MiB")
 
             def decode():
@@ -79,7 +81,7 @@ def benchmark(metadata, block, values, field, redis, iterations, batch):
     finally:
         redis.delete(*keys)
     return dict(snapshot_id=metadata["snapshot_id"], block_start=block["start_index"],
-                field=field, shape=list(values.shape), dtype="<f8", numeric_sha256=raw_sha,
+                field=field, shape=list(values.shape), dtype=dtype.str, numeric_sha256=raw_sha,
                 finite_fraction=float(np.count_nonzero(np.isfinite(values)) / values.size),
                 iterations=iterations, results=reports)
 
@@ -88,7 +90,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--snapshot", help="Immutable snapshot id; omitted selects latest once")
     parser.add_argument("--date", required=True, help="Select the original date block containing/preceding this date")
-    parser.add_argument("--field", choices=FIELDS, default="close")
+    parser.add_argument("--field", default="close", help="Published field, including typed Q, segment and status columns")
+    parser.add_argument("--codecs", choices=("raw", "zlib", "lz4"), nargs="+", default=["raw", "zlib", "lz4"])
     parser.add_argument("--tile-symbols", type=int, default=1024)
     parser.add_argument("--iterations", type=int, default=7)
     parser.add_argument("--batch", type=int, default=8)
@@ -113,10 +116,10 @@ def main():
             target = deepcopy(metadata)
             target["cache"]["tile_symbols"] = args.tile_symbols
             width = min(len(metadata["symbols"]), tile_width(target, block))
-            _, _, matrix = next(source.selected_blocks(metadata, block["start_index"],
-                                block["start_index"] + block["row_count"], np.arange(width)))
-            values = np.ascontiguousarray(matrix[FIELDS.index(args.field)], dtype="<f8")
-        result = benchmark(metadata, block, values, args.field, redis, args.iterations, args.batch)
+            _, _, columns = next(source.selected_columns(metadata, block["start_index"],
+                                block["start_index"] + block["row_count"], np.arange(width), fields=(args.field,)))
+            values = columns[args.field]
+        result = benchmark(metadata, block, values, args.field, redis, args.iterations, args.batch, args.codecs)
     finally:
         redis.close()
     serialized = json.dumps(result, ensure_ascii=False, indent=2, allow_nan=False)

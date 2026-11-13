@@ -119,32 +119,35 @@ class FactorArrayTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'ordered unique quote positions'):
             evaluator.evaluate_arrays(2)
 
-    def assert_batch_matches_daily(self, payload, expression, ready='True'):
+    def assert_batch_matches_daily(self, payload, expression, ready='True', *, indices=None):
         factory = self.factory(expression, ready)
         daily = FactorMatrix(payload, factory(), factory, payload['frames'][-1]['date'])
         count, symbols = len(daily.frames), len(daily.symbols)
-        expected = dict(value=np.full((count, symbols), np.nan),
-                        valid=np.zeros((count, symbols), dtype=bool),
-                        ready=np.zeros((count, symbols), dtype=bool),
-                        reason=np.full((count, symbols), 6, dtype=np.uint8))
-        for day in range(count):
+        indices = list(range(count)) if indices is None else list(indices)
+        shape = (len(indices), symbols)
+        expected = dict(value=np.full(shape, np.nan),
+                        valid=np.zeros(shape, dtype=bool),
+                        ready=np.zeros(shape, dtype=bool),
+                        reason=np.full(shape, 6, dtype=np.uint8))
+        for row, day in enumerate(indices):
             result = daily.evaluate_arrays(day)
             for field in expected:
-                expected[field][day, result['columns']] = result[field]
+                expected[field][row, result['columns']] = result[field]
         for threads in (1, 4):
             with self.subTest(threads=threads), patch.dict(os.environ, FACTORPOOL_COMPUTE_THREADS=str(threads)):
                 batch = FactorMatrix(payload, factory(), factory, payload['frames'][-1]['date'])
-                result = batch.evaluate_many(list(range(count)))
+                result = batch.evaluate_many(indices)
                 self.assertIsNotNone(result)
                 self.assertEqual(result['symbols'], tuple(daily.symbols))
-                np.testing.assert_array_equal(result['indices'], np.arange(count))
+                np.testing.assert_array_equal(result['indices'], indices)
                 for field in expected:
                     np.testing.assert_array_equal(result[field], expected[field])
                     if field == 'value':
                         np.testing.assert_array_equal(result[field].view(np.uint64), expected[field].view(np.uint64))
                     self.assertFalse(result[field].flags.writeable)
-                self.assertEqual(batch.evaluations, count)
-                self.assertEqual(batch.input_frames, count)
+                self.assertEqual(batch.evaluations, len(indices))
+                if not (batch.temporal and batch.adjusted):
+                    self.assertEqual(batch.input_frames, indices[-1]+1 if batch.temporal else len(indices))
                 if not batch.temporal:
                     self.assertEqual(rows_from_arrays(batch.evaluate_arrays(0)),
                                      rows_from_arrays(daily.evaluate_arrays(0)))
@@ -190,7 +193,7 @@ class FactorArrayTests(unittest.TestCase):
             with self.subTest(expression=expression):
                 self.assert_batch_matches_daily(payload, expression)
 
-    def test_batch_indices_empty_subset_and_temporal_fallback(self):
+    def test_batch_indices_empty_subset_and_temporal_capabilities(self):
         payload = split_payload(9)
         factory = self.factory('input.total_turnover')
         matrix = FactorMatrix(payload, factory(), factory, payload['frames'][-1]['date'])
@@ -204,25 +207,34 @@ class FactorArrayTests(unittest.TestCase):
         self.assertEqual(result['value'].shape, (3, 3))
         self.assertEqual(matrix.evaluations, 3)
         self.assertEqual(matrix.input_frames, 3)
-        factory = self.factory('self.ts.mean(input.close,3)')
-        matrix = FactorMatrix(payload, factory(), factory, payload['frames'][-1]['date'])
-        self.assertIsNone(matrix.evaluate_many([0, 1]))
-        self.assertEqual(matrix.evaluations, 0)
-        self.assertEqual(matrix.input_frames, 0)
-        self.assertIsNone(matrix._adapter)
+        self.assert_batch_matches_daily(payload, 'self.ts.mean(input.close,3)', indices=[0, 1, 3, 8])
+        for expression in ('self.ts.mean(self.cs.rank_unit(input.close),3)',
+                           'self.ts.mean(input.close,3,clock="trading_days")'):
+            with self.subTest(fallback=expression):
+                factory = self.factory(expression)
+                matrix = FactorMatrix(payload, factory(), factory, payload['frames'][-1]['date'])
+                self.assertIsNone(matrix.evaluate_many([0, 1]))
+                self.assertEqual(matrix.evaluations, 0)
+                self.assertEqual(matrix.input_frames, 0)
+                self.assertIsNone(matrix._adapter)
 
-    def test_all_core_operator_plans_keep_daily_values_or_explicit_temporal_fallback(self):
+    def test_all_core_operator_plans_keep_exact_values_or_explicit_fallback(self):
         from test_core66 import CORE_EXPRESSIONS
         payload = split_payload(9)
+        asof_temporals = {'ts_av_diff', 'ts_decay_linear', 'ts_delay', 'ts_delta', 'ts_mean',
+                          'ts_scale', 'ts_std_dev', 'ts_sum', 'ts_zscore'}
         for name, expression in CORE_EXPRESSIONS.items():
             with self.subTest(operator=name):
                 factory = self.factory(expression)
                 matrix = FactorMatrix(payload, factory(), factory, payload['frames'][-1]['date'])
-                if matrix.temporal and matrix.adjusted:
+                if matrix.temporal and matrix.adjusted and name not in asof_temporals:
                     self.assertIsNone(matrix.evaluate_many([0, 3, 8]))
                     self.assertEqual(matrix.evaluations, 0)
+                    self.assertEqual(matrix.input_frames, 0)
+                    self.assertIsNone(matrix._adapter)
                 else:
-                    self.assert_batch_matches_daily(payload, expression)
+                    self.assert_batch_matches_daily(payload, expression,
+                        indices=[0, 3, 8] if name in asof_temporals else None)
 
     def test_basic_temporal_batch_keeps_sparse_clock_reentry_and_daily_handoff(self):
         frames = deepcopy(split_payload(40)['frames'])
@@ -236,6 +248,8 @@ class FactorArrayTests(unittest.TestCase):
         for frame in payload['frames']:
             frame['symbol_columns'] = np.array([payload['symbols'].index(s) for s in frame['symbols']], dtype=np.intp)
         expressions = ['self.ts.mean(input.total_turnover,3)',
+                       'self.ts.mean(input.close,3)',
+                       'self.cs.rank_unit(self.ts.mean(input.close,3))',
                        'self.ts.mean(input.total_turnover,3,clock="valid_observations")',
                        'self.cs.rank_unit(self.ts.mean(input.total_turnover,3))',
                        'self.ts.mean(self.cs.rank_unit(input.total_turnover),3)',
@@ -263,7 +277,8 @@ class FactorArrayTests(unittest.TestCase):
                     np.testing.assert_array_equal(actual[field], expected[field])
                 np.testing.assert_array_equal(actual['value'].view(np.uint64), expected['value'].view(np.uint64))
                 self.assertEqual(after.evaluations, len(requested))
-                self.assertEqual(after.input_frames, 26)
+                if not after.adjusted:
+                    self.assertEqual(after.input_frames, 26)
                 for day in (29, 35):
                     self.assertEqual(rows_from_arrays(after.evaluate_arrays(day)),
                                      rows_from_arrays(before.evaluate_arrays(day)))

@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 import signal
 import socket
+import stat
 import tempfile
 import threading
 import time
@@ -19,6 +20,15 @@ from .task_client import LeaseLost, TaskClient
 
 
 LOGGER = logging.getLogger("factorpool.worker")
+
+
+class _ProcessStop:
+    """Task-local aborts must not stop the worker's other executions."""
+    def __init__(self, *events):
+        self.events = events
+
+    def is_set(self):
+        return any(event.is_set() for event in self.events)
 
 
 class LeaseHeartbeat:
@@ -192,41 +202,145 @@ class Worker:
                 if heartbeat.done.wait(min(1, self.poll_seconds)):
                     raise LeaseLost("Worker heartbeat stopped before completion")
 
+    @staticmethod
+    def _values_ready(directory):
+        try:
+            descriptor = os.open(directory / "values-ready.json", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        except FileNotFoundError:
+            return None
+        except OSError as error:
+            raise ValueError("Invalid research values marker file") from error
+        try:
+            if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                raise ValueError("Research values marker must be a regular file")
+            with os.fdopen(descriptor, "rb", closefd=False) as source:
+                raw = source.read(4097)
+        finally:
+            os.close(descriptor)
+        if len(raw) > 4096:
+            raise ValueError("Research values marker exceeds 4 KiB")
+        marker = json.loads(raw)
+        if (not isinstance(marker, dict) or type(marker.get("version")) is not int
+                or marker["version"] != 1 or marker.get("artifact") != "values.matrix"
+                or type(marker.get("value_count")) is not int or marker["value_count"] < 0
+                or not isinstance(marker.get("sha256"), str)
+                or not re.fullmatch(r"[0-9a-f]{64}", marker["sha256"])
+                or (directory / "values.matrix").is_symlink()
+                or not (directory / "values.matrix").is_file()):
+            raise ValueError("Invalid research values marker")
+        return marker
+
     def execute(self, task):
         logs = LogTail()
         heartbeat = LeaseHeartbeat(self.client, task, self.stopping, logs, interval=self.heartbeat_seconds)
         heartbeat.start()
         data = None
+        process_done, process_stop = threading.Event(), threading.Event()
+        process_errors = []
+
+        def check_execution():
+            heartbeat.check()
+            if process_done.is_set() and process_errors:
+                error = process_errors[0]
+                if isinstance(error, (TaskStopped, LeaseLost)):
+                    raise error
+                raise TaskStopped("FAILED", str(error)) from error
+
+        def upload_cancelled():
+            return heartbeat.interrupted() or bool(process_done.is_set() and process_errors)
+
+        def upload(path, count):
+            nonlocal data
+            check_execution()
+            data = self._data_client()
+            started = time.perf_counter()
+            try:
+                receipt = data.upload_values(task["task_id"], task["attempt"], task["lease_token"],
+                                             path, count, cancelled=upload_cancelled)
+            except InterruptedError as error:
+                # Freeze the real interruption before local process cleanup can
+                # introduce its own TaskStopped(INTERRUPTED) into process_errors.
+                check_execution()
+                raise TaskStopped("FAILED", "Result upload was interrupted") from error
+            check_execution()
+            return receipt, time.perf_counter() - started
+
         try:
             with tempfile.TemporaryDirectory(prefix=f"{task['task_id']}-{task['attempt']}-", dir=self.root) as tmp:
                 directory = Path(tmp)
                 (directory / "request.json").write_text(json.dumps(task["snapshot"], ensure_ascii=False, allow_nan=False))
                 heartbeat.check()
-                self.process_manager.run(directory, float(task["timeout_seconds"]), stopping=self.stopping,
-                                         cancelling=heartbeat.cancelling, lost=heartbeat.lost, logs=logs)
-                heartbeat.check()
-                result_path = directory / "result.json"
-                if result_path.stat().st_size > 128 * 1024 * 1024:
-                    raise ValueError("Research summary exceeds 128 MiB")
-                result = json.loads(result_path.read_text())
-                if not all(key in result for key in ("metadata", "summary", "daily")):
-                    raise ValueError("Incomplete research result")
-                count = result["metadata"].get("value_count")
-                if type(count) is not int or count < 0:
-                    raise ValueError("Invalid research factor value count")
-                data = self._data_client()
-                values_path = directory / "values.matrix"
-                if not values_path.exists():
-                    values_path = directory / "values.jsonl"
-                upload_started = time.perf_counter()
-                receipt = data.upload_values(task["task_id"], task["attempt"], task["lease_token"],
-                                             values_path, count,
-                                             cancelled=heartbeat.interrupted)
-                result["metadata"].setdefault("stage_seconds", {})["upload_values"] = time.perf_counter() - upload_started
-                heartbeat.check()
-                self.client.logs(task, logs.text())
-                self._complete(task, result, receipt, heartbeat)
-                LOGGER.info("Task %s attempt %s succeeded", task["task_id"], task["attempt"])
+
+                def run_process():
+                    try:
+                        self.process_manager.run(directory, float(task["timeout_seconds"]),
+                            stopping=_ProcessStop(self.stopping, process_stop, heartbeat.timed_out),
+                            cancelling=heartbeat.cancelling, lost=heartbeat.lost, logs=logs)
+                    except BaseException as error:
+                        process_errors.append(error if isinstance(error, Exception)
+                                              else RuntimeError("Research process control failed"))
+                    finally:
+                        process_done.set()
+
+                process = threading.Thread(target=run_process,
+                    name=f"research-{task['task_id']}-{task['attempt']}")
+                process.start()
+                try:
+                    marker, receipt, upload_seconds = None, None, None
+                    while True:
+                        check_execution()
+                        marker = self._values_ready(directory)
+                        if marker is not None:
+                            receipt, upload_seconds = upload(directory / "values.matrix", marker["value_count"])
+                            if (not isinstance(receipt, dict) or type(receipt.get("count")) is not int
+                                    or receipt["count"] != marker["value_count"]
+                                    or receipt.get("sha256") != marker["sha256"]):
+                                raise ValueError("Uploaded values differ from research marker")
+                            break
+                        if process_done.is_set():
+                            # The marker may have been atomically published
+                            # between the preceding read and process completion.
+                            if self._values_ready(directory) is None:
+                                break
+                            continue
+                        process_done.wait(.02)
+                    # A receipt alone cannot publish success: the full diagnostics
+                    # process must still succeed and bind its report to these bytes.
+                    while not process_done.wait(.02):
+                        check_execution()
+                    check_execution()
+                    result_path = directory / "result.json"
+                    if result_path.stat().st_size > 128 * 1024 * 1024:
+                        raise ValueError("Research summary exceeds 128 MiB")
+                    result = json.loads(result_path.read_text())
+                    if (not isinstance(result, dict)
+                            or not all(key in result for key in ("metadata", "summary", "daily"))
+                            or not isinstance(result["metadata"], dict)):
+                        raise ValueError("Incomplete research result")
+                    count = result["metadata"].get("value_count")
+                    if type(count) is not int or count < 0:
+                        raise ValueError("Invalid research factor value count")
+                    if marker is not None:
+                        artifact = result["metadata"].get("value_artifact")
+                        if (count != marker["value_count"] or not isinstance(artifact, dict)
+                                or type(artifact.get("count")) is not int or artifact["count"] != count
+                                or artifact.get("sha256") != marker["sha256"]):
+                            raise ValueError("Research report differs from uploaded values")
+                    else:
+                        # Legacy/custom processes and explicit JSONL exports have
+                        # no early-ready marker and retain their serial behavior.
+                        values_path = directory / "values.matrix"
+                        if not values_path.exists():
+                            values_path = directory / "values.jsonl"
+                        receipt, upload_seconds = upload(values_path, count)
+                    result["metadata"].setdefault("stage_seconds", {})["upload_values"] = upload_seconds
+                    check_execution()
+                    self.client.logs(task, logs.text())
+                    self._complete(task, result, receipt, heartbeat)
+                    LOGGER.info("Task %s attempt %s succeeded", task["task_id"], task["attempt"])
+                finally:
+                    process_stop.set()
+                    process.join()
         except (LeaseLost, TaskStopped, InterruptedError) as error:
             if isinstance(error, InterruptedError):
                 try:

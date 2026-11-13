@@ -17,13 +17,19 @@ PyObject *ic_decay(PyObject *, PyObject *args) {
     InputRef holder(factor, daily_returns, members);
     const auto &input = *holder.value;
     const auto &f = input.factors, &forward = input.forward(h);
-    input.prepare_return_orders(h);
+    input.prepare_correlations(h, minimum);
     const auto rows = f.size() ? 1 + (f.size() - 1) / signal_stride : 0;
     Owned out{PyList_New(0)};
     for (int k = 0; k < steps; ++k) {
       std::vector<double> ics(rows), rankics(rows);
       parallel_for(rows, f.columns(), [&](std::size_t row) {
         const auto t = row * signal_stride;
+        if (k == 0) {
+          const auto &metrics = input.correlation_row(h, minimum, t);
+          ics[row] = metrics.ic;
+          rankics[row] = metrics.rank_ic;
+          return;
+        }
         const auto signal = t + k * h;
         std::vector<double> a, b;
         std::vector<std::size_t> symbols;

@@ -157,7 +157,7 @@ def validate_snapshot(value, requested=None):
     cache = value.get("cache", {})
     if not isinstance(cache, dict):
         raise ValueError("Invalid cache metadata object")
-    if cache.get("version") != CACHE_VERSION or cache.get("codec") not in ("raw", "zlib"):
+    if cache.get("version") != CACHE_VERSION or cache.get("codec") not in ("raw", "zlib", "lz4"):
         raise ValueError("Unsupported cache format")
     if (type(cache.get("tile_symbols")) is not int or cache["tile_symbols"] < 1
             or type(cache.get("chunk_max_bytes")) is not int or cache["chunk_max_bytes"] < 8):
@@ -200,7 +200,15 @@ def encode_tile(metadata, block, field, symbol_start, values, *, axes=None):
                   symbol_start=symbol_start, symbol_count=array.shape[1], dtype=dtype,
                   source_sha256=block["sha256"], sha256=hashlib.sha256(raw).hexdigest(),
                   codec=metadata["cache"]["codec"])
-    data = raw if header["codec"] == "raw" else zlib.compress(raw, 1)
+    if header["codec"] == "lz4":
+        import lz4.frame
+        data = lz4.frame.compress(raw, compression_level=0, content_checksum=True, store_size=True)
+    elif header["codec"] == "zlib":
+        data = zlib.compress(raw, 1)
+    elif header["codec"] == "raw":
+        data = raw
+    else:
+        raise ValueError("Unsupported market cache codec")
     header = json_bytes(header)
     return PREFIX + struct.pack("!I", len(header)) + header + data
 
@@ -231,6 +239,19 @@ def decode_tile(payload, metadata, block, field, symbol_start, *, axes=None):
     raw = payload[8+size:]
     if header["codec"] == "zlib":
         raw = decompress(raw, expected_bytes)
+    elif header["codec"] == "lz4":
+        import lz4.frame
+        try:
+            if lz4.frame.get_frame_info(raw)["content_size"] != expected_bytes:
+                raise ValueError("Market LZ4 frame size differs from bounded tile")
+            decoder = lz4.frame.LZ4FrameDecompressor()
+            raw = decoder.decompress(raw, max_length=expected_bytes+1)
+            if not decoder.eof or decoder.unused_data:
+                raise ValueError("Market cache block integrity check failed")
+        except RuntimeError as exc:
+            raise ValueError("Market cache block integrity check failed") from exc
+    elif header["codec"] != "raw":
+        raise ValueError("Unsupported market cache codec")
     if len(raw) != expected_bytes or hashlib.sha256(raw).hexdigest() != header.get("sha256"):
         raise ValueError("Market cache block integrity check failed")
     result = np.frombuffer(raw, dtype=dtype).reshape(block["row_count"], symbols)

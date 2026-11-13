@@ -120,7 +120,8 @@ class Factor(PythonIndicator):
             return adapter
         with tempfile.TemporaryDirectory() as directory, patch('factorpool.market_loader.load', return_value=payload) as load, \
                 patch('factorpool.runner.returns_matrix', side_effect=AssertionError('Stored returns must be reused')), \
-                patch('factorpool.factor_matrix.IndicatorAdapter', side_effect=create):
+                patch('factorpool.factor_matrix.IndicatorAdapter', side_effect=create), \
+                patch.object(native, 'prepare_research', wraps=native.prepare_research) as prepare:
             path = Path(directory)
             (path/'request.json').write_text(json.dumps(request))
             run(directory)
@@ -132,10 +133,17 @@ class Factor(PythonIndicator):
             self.assertEqual(result['metadata']['snapshot_id'], 'test-db-snapshot')
             self.assertEqual(result['metadata']['provider'], 'market_matrix')
             self.assertFalse(result['metadata']['synthetic'])
+            np.testing.assert_array_equal(prepare.call_args.args[1], payload['returns'][2:][:, [1, 0, 2]])
+            self.assertEqual(prepare.call_args.args[0].shape, (1, 3))
         adapter = adapters[0]
-        state = adapter.binding.graph_snapshot(adapter.graph)
-        self.assertEqual(adapter.binding.graph_update.call_count, 3)
-        self.assertEqual(adapter.binding.graph_update.call_args.args[1],20240104150000)
+        _, symbols, fields, present, indices, axes, times, q, segment = (
+            adapter.binding.graph_evaluate_asof.call_args.args)
+        self.assertEqual(symbols, ('A', 'B', 'C'))
+        self.assertEqual(indices, [2])
+        self.assertEqual(times, [20240102150000, 20240103150000, 20240104150000])
+        self.assertEqual(len(axes), 3)
+        for matrix in (*fields.values(), present, q, segment):
+            self.assertEqual(matrix.shape, (3, 3))
 
     def test_legacy_mmap_provider_is_rejected_before_factor_or_market_loading(self):
         request = dict(data=dict(provider='ft_daily_mmap', universe=['A'], frequency='1d', adjustment='raw',
@@ -234,10 +242,19 @@ class Factor(PythonIndicator):
             value=IndicatorAdapter(indicator);value.binding=Mock(wraps=value.binding);held.append(value);return value
         with tempfile.TemporaryDirectory() as d,patch('factorpool.factor_matrix.IndicatorAdapter',side_effect=create):
             path=Path(d);(path/'request.json').write_text(json.dumps(request));run(d)
-        binding,graph=held[-1].binding,held[-1].graph
-        state=binding.graph_snapshot(graph)
-        self.assertEqual(binding.graph_update.call_count, 20)
-        self.assertEqual(binding.graph_update.call_args.args[1], 20240129150000)
+            values = [json.loads(line) for line in (path/'values.jsonl').read_text().splitlines()]
+            self.assertEqual(len(values), 3)
+            self.assertTrue(all(row['ready'] and row['valid'] for row in values))
+        binding = held[-1].binding
+        _, _, fields, present, indices, axes, times, q, segment = binding.graph_evaluate_asof.call_args.args
+        self.assertEqual(indices, [19])
+        self.assertEqual(len(times), 20)
+        self.assertEqual(times[-1], 20240129150000)
+        self.assertEqual(times, [int(frame['date'].replace('-', '')+'150000')
+                                 for frame in fixture()['frames'][:20]])
+        self.assertEqual(len(axes), 20)
+        for matrix in (*fields.values(), present, q, segment):
+            self.assertEqual(matrix.shape, (20, 3))
 
     def test_runner_never_constructs_engine_and_future_never_enters_factor(self):
         source=(ROOT/'src/examples/factors/low_volume.py').read_text()

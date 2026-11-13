@@ -172,6 +172,71 @@ class ServiceIntegrationTests(unittest.TestCase):
                          [('2024-01-02', 'C', 2.), ('2024-01-03', 'A', 3.), ('2024-01-03', 'B', 4.)])
         self.assertEqual(self.http(f'/api/tasks/{task_id}/values?offset=6&limit=3'), (200, []))
 
+    def test_worker_upload_overlaps_diagnostics_and_keeps_failed_reports_invisible(self):
+        import psycopg
+        import sys
+        from factorpool.data_client import DataClient
+        from services.worker_service.process_manager import ProcessManager
+        from services.worker_service.worker import Worker
+
+        # The real runner pauses diagnostics until the real gRPC/PG finalize
+        # has completed. A serial worker cannot satisfy this handshake.
+        command = '''import sys,time
+from pathlib import Path
+import factorpool.runner as runner
+directory=Path(sys.argv[1]); fail=sys.argv[2]=='1'
+original=runner.build_diagnostics
+def diagnostics(*args,**kwargs):
+    deadline=time.monotonic()+15
+    while not (directory/'upload-finalized').exists():
+        if time.monotonic()>deadline: raise RuntimeError('upload did not overlap diagnostics')
+        time.sleep(.01)
+    if fail: raise RuntimeError('diagnostics failed after finalized upload')
+    return original(*args,**kwargs)
+runner.build_diagnostics=diagnostics
+runner.run(directory,values_format='matrix')
+'''
+        for fail_after_upload in (False, True):
+            with self.subTest(fail_after_upload=fail_after_upload):
+                task_id = self.enqueue()
+                lease = self.claim('early-publication-worker')
+                observed = []
+                test = self
+
+                class DiagnosticProcess(ProcessManager):
+                    def run(self, directory, timeout, **controls):
+                        return super().run(directory, timeout, **controls,
+                            command=[sys.executable, '-c', command, str(directory), str(int(fail_after_upload))])
+
+                class ObservedData(DataClient):
+                    def upload_values(self, *args, **kwargs):
+                        receipt = super().upload_values(*args, **kwargs)
+                        test.assertEqual(test.http(f'/api/tasks/{task_id}/result')[0], 409)
+                        test.assertEqual(test.http(f'/api/tasks/{task_id}/values')[0], 409)
+                        with psycopg.connect('host=db dbname=factorpool user=factorpool') as connection:
+                            row = connection.execute('SELECT row_count FROM factor_value_publications WHERE task_id=%s',
+                                                     (task_id,)).fetchone()
+                        test.assertEqual(row, (3,))
+                        observed.append(receipt)
+                        (Path(args[3]).parent/'upload-finalized').write_text('ready')
+                        return receipt
+
+                with tempfile.TemporaryDirectory() as temporary:
+                    worker = Worker(root=temporary, concurrency=1, heartbeat_seconds=.1,
+                                    process_manager=DiagnosticProcess(), data_factory=ObservedData)
+                    try:
+                        worker.execute(lease)
+                        self.assertEqual(list(Path(temporary).iterdir()), [])
+                    finally:
+                        worker.executor.shutdown(wait=True)
+                self.assertEqual(len(observed), 1)
+                code, task = self.http(f'/api/tasks/{task_id}')
+                self.assertEqual(code, 200, task)
+                self.assertEqual(task['status'], 'FAILED' if fail_after_upload else 'SUCCEEDED')
+                expected = 409 if fail_after_upload else 200
+                self.assertEqual(self.http(f'/api/tasks/{task_id}/result')[0], expected)
+                self.assertEqual(self.http(f'/api/tasks/{task_id}/values')[0], expected)
+
 
 if __name__ == '__main__':
     unittest.main()

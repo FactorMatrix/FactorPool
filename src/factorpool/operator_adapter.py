@@ -31,6 +31,9 @@ class PoolOperatorBinding:
     def graph_evaluate_many(self, graph, *args):
         return self.native.evaluate_matrix(graph, *args)
 
+    def graph_evaluate_asof(self, graph, *args):
+        return self.native.evaluate_asof_matrix(graph, *args)
+
     @staticmethod
     def native_vector_export(value):
         return value
@@ -59,6 +62,9 @@ class SharedGraphBinding:
 
     def graph_evaluate_many(self, graph, *args):
         return self.native.evaluate_matrix(graph, *args)
+
+    def graph_evaluate_asof(self, graph, *args):
+        return self.native.evaluate_asof_matrix(graph, *args)
 
     def native_vector_export(self, value):
         return value if isinstance(value, (bytes, bytearray, memoryview)) else self.original.native_vector_export(value)
