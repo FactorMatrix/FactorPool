@@ -2,7 +2,8 @@
 from datetime import datetime
 import os
 
-from factorpool.data_client.contract import CACHE_VERSION, FIELDS, decode_block, validate_snapshot
+from factorpool.data_client.contract import (CACHE_VERSION, FIELDS, SERVED_FIELDS,
+                                            decode_block, market_field, validate_snapshot)
 from . import transaction
 
 
@@ -47,7 +48,13 @@ class PostgresMarketSource:
         self.stats["pg_blocks"] += 1
         return decode_block(row[1], row[2], row[0], len(snapshot["symbols"]), snapshot["fields"])
 
-    def selected_blocks(self, snapshot, initial, stop, columns):
+    def selected_blocks(self, snapshot, initial, stop, columns, *, fields=None):
+        import numpy as np
+        fields = FIELDS if fields is None else tuple(fields)
+        if not fields or len(set(fields)) != len(fields) or any(field not in SERVED_FIELDS for field in fields):
+            raise ValueError("Invalid requested market fields")
         for block in snapshot["blocks"]:
             if block["start_index"] < stop and block["start_index"] + block["row_count"] > initial:
-                yield block["start_index"], block["row_count"], self.original_block(snapshot, block)[:, :, columns]
+                original = self.original_block(snapshot, block)
+                projected = np.stack([market_field(original, field)[:, columns] for field in fields])
+                yield block["start_index"], block["row_count"], projected

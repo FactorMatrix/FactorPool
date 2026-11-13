@@ -10,12 +10,13 @@ import uuid
 
 import grpc
 
-from factorpool.data_client.contract import (FIELDS, decode_tile, encode_tile, json_bytes, metadata_key,
+from factorpool.data_client.contract import (FIELDS, market_field, decode_tile, encode_tile, json_bytes, metadata_key,
     pack_metadata, tile_key, tile_width, pack_value_page, unpack_value_page, axis_digest)
 from factorpool.data_client.generated import data_pb2 as pb, data_pb2_grpc
 from ..postgres import transaction
 from ..postgres.market import PostgresMarketSource, MarketSnapshotNotFound
 from ..postgres.values import ValueStore
+from ..prepared_matrices import PreparedMatrices
 from ..redis_cache import Cache
 
 
@@ -34,10 +35,11 @@ def endpoint(method):
 
 
 class DataService(data_pb2_grpc.DataServiceServicer):
-    def __init__(self, *, source=None, cache=None, values=None):
+    def __init__(self, *, source=None, cache=None, values=None, prepared=None):
         self.source = source or PostgresMarketSource()
         self.cache = cache or Cache()
         self.values = values or ValueStore()
+        self.prepared = prepared or PreparedMatrices()
         self.token = os.environ.get("FACTORPOOL_INTERNAL_TOKEN", "")
         self.max_chunk = int(os.environ.get("FACTORPOOL_CACHE_CHUNK_MAX_BYTES", "4194304"))
         self.max_batch = int(os.environ.get("FACTORPOOL_CACHE_BATCH_MAX_BYTES", "33554432"))
@@ -46,7 +48,8 @@ class DataService(data_pb2_grpc.DataServiceServicer):
         self._metadata = OrderedDict()
         self._metadata_lock = threading.Lock()
         self._locks = [threading.Lock() for _ in range(64)]
-        self.stats = dict(pg_block_reads=0, decoded_bytes=0, cached_tiles=0, cache_hits=0, requests=0, cache_encode_seconds=0.)
+        self.stats = dict(pg_block_reads=0, decoded_bytes=0, cached_tiles=0, cache_hits=0, requests=0,
+                          prepared_tiles=0, cache_encode_seconds=0.)
 
     def authenticate(self, context):
         provided = dict(context.invocation_metadata()).get("x-factorpool-internal-token", "")
@@ -108,15 +111,34 @@ class DataService(data_pb2_grpc.DataServiceServicer):
                     # Redis failure exits the bounded wait immediately.
                     if self.cache.failed_until > time.monotonic():
                         break
+            result = {key: value for key, value in found.items() if value is not None}
+            missing = [(key, field, start) for key, field, start in requested if key not in result]
+            columns = self.prepared.tiles(snapshot, block, [(field, start) for _, field, start in missing])
+            prepared = []
+            for key, field, start in missing:
+                values = columns.get((field, start))
+                if values is not None:
+                    encoded = encode_tile(snapshot, block, field, start, values, axes=snapshot.get("_axes_digest"))
+                    result[key] = encoded
+                    prepared.append((key, encoded))
+                    self.stats["prepared_tiles"] += 1
+            self.cache.store(prepared)
+            missing = [(key, field, start) for key, field, start in missing if key not in result]
+            if not missing:
+                return result
             values = self.source.original_block(snapshot, block)
             self.stats["pg_block_reads"] += 1
             self.stats["decoded_bytes"] += values.nbytes
             width = tile_width(snapshot, block)
-            result = {}
+            projected = {}
+            def column(field, start):
+                if field not in projected:
+                    projected[field] = market_field(values, field)
+                return projected[field][:, start:start+width]
             def entries():
-                for key, field, start in requested:
+                for key, field, start in missing:
                     started = time.perf_counter()
-                    encoded = encode_tile(snapshot, block, field, start, values[FIELDS.index(field), :, start:start+width], axes=snapshot.get("_axes_digest"))
+                    encoded = encode_tile(snapshot, block, field, start, column(field, start), axes=snapshot.get("_axes_digest"))
                     self.stats["cache_encode_seconds"] += time.perf_counter() - started
                     result[key] = encoded
                     self.stats["cached_tiles"] += 1
@@ -125,10 +147,10 @@ class DataService(data_pb2_grpc.DataServiceServicer):
             # Pipeline buffers are bounded independently of its decoded size.
             self.cache.store(entries())
             # Disabled Redis must still consume the generator to return blocks.
-            if not result:
-                for key, field, start in requested:
+            if any(key not in result for key, _, _ in missing):
+                for key, field, start in missing:
                     result[key] = encode_tile(snapshot, block, field, start,
-                        values[FIELDS.index(field), :, start:start+width], axes=snapshot.get("_axes_digest"))
+                        column(field, start), axes=snapshot.get("_axes_digest"))
             return result
         finally:
             if acquired:
@@ -227,4 +249,5 @@ class DataService(data_pb2_grpc.DataServiceServicer):
             conn.execute("SELECT 1").fetchone()
         redis_ok = bool(self.cache.call("ping")) if self.cache.enabled else None
         return pb.JsonReply(json=json_bytes(dict(status="UP", postgres="UP", redis="UP" if redis_ok else "DOWN" if self.cache.enabled else "DISABLED",
-            degraded=self.cache.enabled and not redis_ok, stats=dict(self.stats), postgres_stats=dict(self.source.stats), redis_errors=self.cache.errors)))
+            degraded=self.cache.enabled and not redis_ok, stats=dict(self.stats), postgres_stats=dict(self.source.stats),
+            prepared_stats=dict(self.prepared.stats), redis_errors=self.cache.errors)))

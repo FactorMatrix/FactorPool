@@ -83,5 +83,5 @@ class PythonIndicator(SharedPythonIndicator):
         with tempfile.TemporaryDirectory(prefix="factorpool-research-") as directory:
             root = Path(directory)
             (root / "request.json").write_text(json.dumps(request, ensure_ascii=False, allow_nan=False))
-            run(root, factory=lambda: cls(**deepcopy(request["factor_params"])))
+            run(root, factory=lambda: cls(**deepcopy(request["factor_params"])), values_format="matrix")
             return json.loads((root / "result.json").read_text())

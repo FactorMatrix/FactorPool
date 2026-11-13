@@ -10,9 +10,24 @@ import numpy as np
 
 FIELDS = ("open", "high", "low", "close", "prev_close", "volume",
           "total_turnover", "return", "member", "is_st", "is_suspended")
+PRESENT_FIELD = "__present__"
+MEMBERSHIP_FIELD = "__member__"
+BOOLEAN_FIELDS = (PRESENT_FIELD, MEMBERSHIP_FIELD)
+SERVED_FIELDS = FIELDS + BOOLEAN_FIELDS
 FORMAT = "factorpool-market-matrix-v1"
 CACHE_VERSION = "matrix-v2"
 PREFIX = b"FPC2"
+
+
+def market_field(values, field):
+    """Project stored fields or the exact original missing-bar predicate."""
+    if field == PRESENT_FIELD:
+        return np.any(np.isfinite(values[:7]), axis=0)
+    if field == MEMBERSHIP_FIELD:
+        return values[FIELDS.index("member")] > 0
+    if field not in FIELDS:
+        raise ValueError("Unknown market field")
+    return values[FIELDS.index(field)]
 
 
 def json_bytes(value):
@@ -91,7 +106,7 @@ def tile_width(metadata, block):
 
 
 def tile_key(metadata, block, field, symbol_start):
-    if field not in FIELDS:
+    if field not in SERVED_FIELDS:
         raise ValueError("Unknown market field")
     snapshot = metadata["snapshot_id"]
     if not isinstance(snapshot, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", snapshot):
@@ -104,13 +119,18 @@ def tile_key(metadata, block, field, symbol_start):
 
 
 def encode_tile(metadata, block, field, symbol_start, values, *, axes=None):
-    array = np.ascontiguousarray(values, dtype="<f8")
+    if field not in SERVED_FIELDS:
+        raise ValueError("Unknown market field")
+    dtype = "|u1" if field in BOOLEAN_FIELDS else "<f8"
+    if field in BOOLEAN_FIELDS and not np.all((np.asarray(values) == 0) | (np.asarray(values) == 1)):
+        raise ValueError("Market status cells must be boolean")
+    array = np.ascontiguousarray(values, dtype=dtype)
     raw = array.tobytes()
     if len(raw) > max(metadata["cache"]["chunk_max_bytes"], block["row_count"] * 8):
         raise ValueError("Market cache chunk exceeds configured size")
     header = dict(version=CACHE_VERSION, snapshot_id=metadata["snapshot_id"], axes=axes or axis_digest(metadata),
                   field=field, start_index=block["start_index"], row_count=block["row_count"],
-                  symbol_start=symbol_start, symbol_count=array.shape[1], dtype="<f8",
+                  symbol_start=symbol_start, symbol_count=array.shape[1], dtype=dtype,
                   source_sha256=block["sha256"], sha256=hashlib.sha256(raw).hexdigest(),
                   codec=metadata["cache"]["codec"])
     data = raw if header["codec"] == "raw" else zlib.compress(raw, 1)
@@ -133,19 +153,23 @@ def decode_tile(payload, metadata, block, field, symbol_start, *, axes=None):
         raise ValueError("Invalid market cache header object")
     width = tile_width(metadata, block)
     symbols = min(width, len(metadata["symbols"]) - symbol_start)
+    dtype = "|u1" if field in BOOLEAN_FIELDS else "<f8"
     expected = dict(version=CACHE_VERSION, snapshot_id=metadata["snapshot_id"], axes=axes or axis_digest(metadata),
                     field=field, start_index=block["start_index"], row_count=block["row_count"],
-                    symbol_start=symbol_start, symbol_count=symbols, dtype="<f8",
+                    symbol_start=symbol_start, symbol_count=symbols, dtype=dtype,
                     source_sha256=block["sha256"], codec=metadata["cache"]["codec"])
     if any(header.get(key) != value for key, value in expected.items()):
         raise ValueError("Market cache block axes or metadata mismatch")
-    expected_bytes = block["row_count"] * symbols * 8
+    expected_bytes = block["row_count"] * symbols * np.dtype(dtype).itemsize
     raw = payload[8+size:]
     if header["codec"] == "zlib":
         raw = decompress(raw, expected_bytes)
     if len(raw) != expected_bytes or hashlib.sha256(raw).hexdigest() != header.get("sha256"):
         raise ValueError("Market cache block integrity check failed")
-    return np.frombuffer(raw, dtype="<f8").reshape(block["row_count"], symbols)
+    result = np.frombuffer(raw, dtype=dtype).reshape(block["row_count"], symbols)
+    if field in BOOLEAN_FIELDS and np.any(result > 1):
+        raise ValueError("Market status cells must be boolean")
+    return result
 
 
 def metadata_key(snapshot, layout=None):

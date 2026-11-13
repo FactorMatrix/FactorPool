@@ -1,6 +1,7 @@
 #include "analysis.hpp"
 #include "statistics.hpp"
 #include "research_input.hpp"
+#include "parallel.hpp"
 #include <algorithm>
 #include <memory>
 #include <string>
@@ -9,6 +10,12 @@ using namespace fp;
 struct Holding {
   std::size_t symbol;
   double weight, growth = 1;
+};
+struct SignalData {
+  std::size_t time, end;
+  std::vector<unsigned char> labels;
+  std::vector<std::size_t> sizes;
+  long double mean = 0, norm = 0;
 };
 struct Strategy {
   std::string name;
@@ -164,24 +171,65 @@ PyObject *portfolio_report(PyObject *, PyObject *args) {
       strategies.emplace_back("inner_high_low");
     strategies.emplace_back("alpha");
     std::vector<double> indices, daily_indices;
-    for (std::size_t t = 0; t < f.size(); t += h) {
-      indices.push_back(double(t));
-      const auto end = std::min(t + h + 1, r.size());
-      for (auto d = t + 1; d < end; ++d)
+    const auto signal_count = f.size() ? 1 + (f.size() - 1) / h : 0;
+    std::vector<SignalData> signals(signal_count);
+    for (std::size_t row = 0; row < signal_count; ++row) {
+      auto &signal = signals[row];
+      signal.time = row * h;
+      signal.end = std::min(signal.time + h + 1, r.size());
+      indices.push_back(double(signal.time));
+      for (auto d = signal.time + 1; d < signal.end; ++d)
         daily_indices.push_back(double(d));
+    }
+    parallel_for(signal_count, count, [&](std::size_t row) {
+      auto &signal = signals[row];
+      const auto t = signal.time;
       const auto &order = input.order[t];
-      std::vector<std::size_t> labels(count, groups), sizes(groups, 0);
-      long double mean = 0;
+      signal.labels.assign(count, static_cast<unsigned char>(groups));
+      signal.sizes.assign(groups, 0);
       for (std::size_t k = 0; k < order.size(); ++k) {
         auto n = order[k], g = k * groups / order.size();
-        labels[n] = g;
-        ++sizes[g];
-        mean += (static_cast<long double>(f[t][n]) - mean) / (k + 1);
+        signal.labels[n] = static_cast<unsigned char>(g);
+        ++signal.sizes[g];
+        signal.mean += (static_cast<long double>(f[t][n]) - signal.mean) / (k + 1);
       }
-      long double norm = 0;
       for (auto n : order)
-        norm += std::abs(static_cast<long double>(f[t][n]) - mean);
-      for (auto &s : strategies) {
+        signal.norm += std::abs(static_cast<long double>(f[t][n]) - signal.mean);
+    });
+    // All books use the same close-return path between two signal dates.
+    // Compound it once per symbol and holding interval, in the original
+    // chronological double-precision multiplication order. This temporary
+    // matrix is shared only by this horizon call; no task/persistent cache.
+    Matrix growth(signals.empty() ? 0 : signals.back().end, count);
+    parallel_for(signal_count, count * static_cast<std::size_t>(h), [&](std::size_t row) {
+      const auto &signal = signals[row];
+      for (auto d = signal.time + 1; d < signal.end; ++d) {
+        const auto daily = r[d];
+        auto current = growth[d];
+        const auto previous = growth[d - 1];
+        for (std::size_t n = 0; n < count; ++n) {
+          const auto value = daily[n];
+          const auto before = d == signal.time + 1 ? 1. : previous[n];
+          current[n] = !std::isfinite(value) || value < -1
+                           ? missing : before * (1 + value);
+        }
+      }
+    });
+    const auto simulate = [&](std::size_t strategy) {
+      auto &s = strategies[strategy];
+      s.pnl.reserve(daily_indices.size());
+      s.book_pnl.reserve(daily_indices.size());
+      s.turnover.reserve(daily_indices.size());
+      s.positions.reserve(daily_indices.size());
+      s.concentration.reserve(daily_indices.size());
+      s.period_returns.reserve(signals.size());
+      s.period_turnover.reserve(signals.size());
+      for (const auto &signal : signals) {
+        const auto t = signal.time, end = signal.end;
+        const auto &order = input.order[t];
+        const auto &labels = signal.labels;
+        const auto &sizes = signal.sizes;
+        const auto mean = signal.mean, norm = signal.norm;
         std::vector<double> weights(count, 0);
         bool usable = true;
         if (s.name == "alpha") {
@@ -256,16 +304,13 @@ PyObject *portfolio_report(PyObject *, PyObject *args) {
           long double delta = 0;
           for (auto &position : held) {
             const auto previous_growth = position.growth;
-            const auto value = r[d][position.symbol];
-            if (!std::isfinite(value) || value < -1)
-              position.growth = missing;
-            else
-              position.growth *= 1 + value;
+            position.growth = growth[d][position.symbol];
             if (!std::isfinite(position.growth))
               valid = false;
             delta += position.weight * (static_cast<long double>(position.growth) - 1);
             if (tracing) {
               const auto n = position.symbol;
+              const auto value = r[d][n];
               tracing->before[n] = previous_growth;
               const char *error = nullptr;
               double contribution = missing;
@@ -307,6 +352,25 @@ PyObject *portfolio_report(PyObject *, PyObject *args) {
         s.previous_valid = valid && t + h < r.size();
         s.seen = true;
       }
+    };
+    // A traced alpha publishes Python rows on the caller thread. Ordinary
+    // strategy timelines share only immutable inputs and preserve their own
+    // signal/day/holding arithmetic order.
+    if (traces.p)
+      for (std::size_t strategy = 0; strategy < strategies.size(); ++strategy)
+        simulate(strategy);
+    else {
+      // Alpha holds the broadest book; spread books hold two groups. Start
+      // these longer timelines first, then let idle workers take group books.
+      // Publication still follows the original strategies vector order.
+      std::vector<std::size_t> schedule;
+      schedule.reserve(strategies.size());
+      for (auto strategy = strategies.size(); strategy > std::size_t(2 * groups); --strategy)
+        schedule.push_back(strategy - 1);
+      for (std::size_t strategy = 0; strategy < std::size_t(2 * groups); ++strategy)
+        schedule.push_back(strategy);
+      parallel_for(schedule.size(), signals.size() * count,
+                   [&](std::size_t task) { simulate(schedule[task]); }, true);
     }
     Owned result{PyDict_New()}, out{PyDict_New()};
     for (auto &s : strategies) {

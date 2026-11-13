@@ -6,7 +6,7 @@ from unittest.mock import patch
 import numpy as np
 
 from factorpool import market_loader as store
-from factorpool.data_client.contract import FIELDS, FORMAT, decode_block, pack_block
+from factorpool.data_client.contract import FIELDS, FORMAT, decode_block, market_field, pack_block
 
 
 class _Connection:
@@ -29,12 +29,16 @@ class _Connection:
         manifest, symbols, dates, fields = self.fetchone()
         return dict(snapshot_id=identity, manifest=manifest, symbols=symbols, dates=dates, fields=fields)
 
-    def selected_blocks(self, snapshot, initial, stop, columns):
+    def selected_blocks(self, snapshot, initial, stop, columns, *, fields=None):
+        fields = FIELDS if fields is None else tuple(fields)
         covered = initial
         for start, count, payload, checksum in self.blocks:
+            if start+count <= initial:
+                continue
             if not start <= covered < start + count or start + count > len(self.dates):
                 raise ValueError("Market matrix blocks overlap or have missing dates")
-            yield start, count, decode_block(payload, checksum, count, len(self.symbols))[:, :, columns]
+            original = decode_block(payload, checksum, count, len(self.symbols))
+            yield start, count, np.stack([market_field(original, field)[:, columns] for field in fields])
             covered = min(stop, start + count)
             if covered == stop:
                 break

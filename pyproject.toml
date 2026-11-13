@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 name = "factorpool"
 version = "0.1.0"
 requires-python = ">=3.11"
-dependencies = ["grpcio==1.76.0", "protobuf==6.33.0", "redis==7.0.1"]
+dependencies = ["grpcio==1.76.0", "protobuf==6.33.0", "redis==7.0.1", "lz4==4.4.5"]
 description = "Factor research using the pinned FactorTrader Indicator compiler and native Core"
 [project.scripts]
 factorpool = "factorpool.runner:main"

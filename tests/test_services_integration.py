@@ -143,6 +143,35 @@ class ServiceIntegrationTests(unittest.TestCase):
                 data.upload_values(cancelled_id, cancelled['attempt'], cancelled['lease_token'], path, 0)
         self.assertEqual(self.http(f'/api/tasks/{cancelled_id}/result')[0], 409)
 
+    def test_matrix_receipt_publishes_through_http_and_pages_across_dates(self):
+        import numpy as np
+        from factorpool.data_client import DataClient
+        from factorpool.result_matrix import write_result_matrix
+        task_id = self.enqueue()
+        lease = self.claim()
+        values = np.array([[-0., np.nan, 2.], [3., 4., 5.]])
+        valid = np.isfinite(values)
+        reasons = np.where(valid, 0, 3).astype(np.uint8)
+        with tempfile.TemporaryDirectory() as tmp, DataClient() as data:
+            path = Path(tmp) / 'values.matrix'
+            info = write_result_matrix(path, ['2024-01-02', '2024-01-03'], ['A', 'B', 'C'],
+                                       values, valid, valid, reasons, values * .01,
+                                       np.array([[1., np.nan, 2.], [1., 2., 3.]]))
+            receipt = data.upload_values(task_id, lease['attempt'], lease['lease_token'], path, info['count'])
+        self.assertEqual(self.http(f'/api/tasks/{task_id}/values')[0], 409)
+        result = dict(metadata=dict(value_count=6), summary={}, daily=[])
+        self.assertEqual(self.http('/internal/worker/complete', dict(lease, result=result, **receipt), auth=True)[0], 200)
+        code, first = self.http(f'/api/tasks/{task_id}/values?offset=0&limit=2')
+        self.assertEqual(code, 200, first)
+        self.assertTrue(np.signbit(first[0]['value']))
+        self.assertIsNone(first[1]['value'])
+        self.assertEqual(first[1]['reason'], 'not_ready')
+        code, page = self.http(f'/api/tasks/{task_id}/values?offset=2&limit=3')
+        self.assertEqual(code, 200, page)
+        self.assertEqual([(row['trading_date'], row['symbol'], row['value']) for row in page],
+                         [('2024-01-02', 'C', 2.), ('2024-01-03', 'A', 3.), ('2024-01-03', 'B', 4.)])
+        self.assertEqual(self.http(f'/api/tasks/{task_id}/values?offset=6&limit=3'), (200, []))
+
 
 if __name__ == '__main__':
     unittest.main()

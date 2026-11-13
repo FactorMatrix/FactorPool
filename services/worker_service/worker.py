@@ -215,9 +215,14 @@ class Worker:
                 if type(count) is not int or count < 0:
                     raise ValueError("Invalid research factor value count")
                 data = self._data_client()
+                values_path = directory / "values.matrix"
+                if not values_path.exists():
+                    values_path = directory / "values.jsonl"
+                upload_started = time.perf_counter()
                 receipt = data.upload_values(task["task_id"], task["attempt"], task["lease_token"],
-                                             directory / "values.jsonl", count,
+                                             values_path, count,
                                              cancelled=heartbeat.interrupted)
+                result["metadata"].setdefault("stage_seconds", {})["upload_values"] = time.perf_counter() - upload_started
                 heartbeat.check()
                 self.client.logs(task, logs.text())
                 self._complete(task, result, receipt, heartbeat)

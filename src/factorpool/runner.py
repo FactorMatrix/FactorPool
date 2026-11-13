@@ -95,9 +95,11 @@ def return_contract(payload):
     return policy, description, price
 
 
-def run(directory, *, factory=None):
+def run(directory, *, factory=None, values_format="jsonl"):
     import _factorpool_native as native
     directory = Path(directory)
+    if values_format not in ("matrix", "jsonl"):
+        raise ValueError("values_format must be matrix or jsonl")
     request = json.loads((directory / "request.json").read_text())
     if request.get("source_mode") == "script":
         from .script import bind_request
@@ -128,8 +130,9 @@ def run(directory, *, factory=None):
     elif provider == "market_matrix":
         from .market_loader import load
         extra = {"pasteurization": "OFF"} if settings is not None and settings["pasteurization"] == "OFF" else {}
+        from .adapter import indicator_fields
         payload = load(data, max(1, warmup + simulation_warmup), max(horizons)*decay_steps,
-                       matrix_only=True, **extra)
+                       matrix_only=True, fields=indicator_fields(indicator), **extra)
     else:
         raise ValueError(f"Unknown/unconfigured provider: {provider}")
     timings["read"] = time.perf_counter() - checkpoint
@@ -149,43 +152,93 @@ def run(directory, *, factory=None):
                          if frame['date'] >= data['factor_start']), None)
     if first_signal is None:
         raise ValueError("No factor observations in requested date range")
-    rebalance = signal_indices(len(evaluator.frames)-first_signal, horizons)
-    matrices, rows, dates, membership = [], [], [], []
-    warm_factors, warm_membership = [], []
-    for index, frame in enumerate(frames):
-        if frame["date"] > data["factor_end"]:
-            continue  # Future prices never enter Indicator state.
-        offset = index - first_signal
-        needed = offset in rebalance or simulation_warmup > 0
-        values = evaluator.evaluate(index) if needed else []
-        lookup = {r["symbol"]: r for r in values}
-        current_members = set(frame.get("research_symbols", frame["symbols"]))
-        current_factors = [lookup[s]["value"] if s in current_members and s in lookup else None for s in symbols]
-        current_membership = [s in current_members for s in symbols]
-        if settings is not None:
-            warm_factors.append(current_factors)
-            warm_membership.append(current_membership)
-        if frame["date"] < data["factor_start"]:
-            continue
-        matrices.append(current_factors if offset in rebalance else [None]*len(symbols))
-        dates.append(frame["date"])
-        membership.append(current_membership if offset in rebalance else [False]*len(symbols))
-        if offset not in rebalance:
-            continue
-        for symbol in symbols:
-            cell = lookup.get(symbol) if symbol in current_members else None
-            if cell is None:
-                cell = dict(symbol=symbol, value=None, valid=False, ready=False, reason="outside_universe")
-            rows.append(dict(date=frame["date"], **cell))
-        if index % 20 == 0:
-            log("calculate", progress=round((index+1)/len(frames), 4))
+    historical = evaluator.frames
+    research_frames = historical[first_signal:]
+    dates = [frame["date"] for frame in research_frames]
     if not dates:
         raise ValueError("No factor observations in requested date range")
+    rebalance = signal_indices(len(dates), horizons)
+    signal_mask = np.zeros(len(dates), dtype=bool)
+    signal_mask[list(rebalance)] = True
+    count, width = len(historical), len(symbols)
+    all_factors = np.full((count, width), np.nan, dtype=np.float64)
+    valid = np.zeros((len(dates), width), dtype=bool)
+    ready = np.zeros_like(valid)
+    reasons = np.full(valid.shape, 6, dtype=np.uint8)  # outside_universe
+    stored_members = payload.get("membership")
+    if stored_members is not None:
+        stored_members = np.asarray(stored_members, dtype=bool)
+        if stored_members.shape != (len(frames), len(source_symbols)):
+            raise ValueError("Stored membership does not match date/symbol axes")
+        if source_symbols == symbols:
+            all_members = stored_members[:count]
+        else:
+            source_lookup = {symbol: n for n, symbol in enumerate(source_symbols)}
+            all_members = np.ascontiguousarray(stored_members[:count, [source_lookup[s] for s in symbols]])
+    else:
+        all_members = np.zeros((count, width), dtype=bool)
+        research_lookup = {symbol: n for n, symbol in enumerate(symbols)}
+        for t, frame in enumerate(historical):
+            for symbol in frame.get("research_symbols", frame["symbols"]):
+                n = research_lookup.get(symbol)
+                if n is not None:
+                    all_members[t, n] = True
+    calculation_to_research = np.full(len(evaluator.symbols), -1, dtype=np.intp)
+    calculation_lookup = evaluator.columns
+    for n, symbol in enumerate(symbols):
+        index = calculation_lookup.get(symbol)
+        if index is not None:
+            calculation_to_research[index] = n
+    evaluation_indices = [index for index in range(count)
+                          if index-first_signal in rebalance or simulation_warmup > 0]
+    batch = evaluator.evaluate_many(evaluation_indices)
+    if batch is not None:
+        indices = np.asarray(batch['indices'], dtype=np.intp)
+        columns = np.flatnonzero(calculation_to_research >= 0)
+        targets = calculation_to_research[columns]
+        full_axis = (len(columns) == len(evaluator.symbols)
+                     and np.array_equal(targets, np.arange(width)))
+        member = all_members[indices[:, None], targets]
+        values = batch['value'] if full_axis else batch['value'][:, columns]
+        all_factors[indices[:, None], targets] = np.where(member, values, np.nan)
+        offsets = indices-first_signal
+        published = (offsets >= 0) & np.isin(offsets, list(rebalance))
+        output_rows = offsets[published, None]
+        observed = member[published]
+        for name, output in [('valid', valid), ('ready', ready), ('reason', reasons)]:
+            values = batch[name] if full_axis else batch[name][:, columns]
+            values = values[published]
+            output[output_rows, targets] = (np.where(observed, values, 6) if name == 'reason'
+                                            else values & observed)
+        del batch, member, values
+        log("calculate", progress=1)
+    else:
+        for index in evaluation_indices:
+            offset = index - first_signal
+            state = evaluator.evaluate_arrays(index)
+            columns = np.asarray(state['columns'], dtype=np.intp)
+            targets = calculation_to_research[columns]
+            keep = targets >= 0
+            keep[keep] &= all_members[index, targets[keep]]
+            selected = targets[keep]
+            all_factors[index, selected] = state['value'][keep]
+            if offset >= 0 and offset in rebalance:
+                valid[offset, selected] = state['valid'][keep]
+                ready[offset, selected] = state['ready'][keep]
+                reasons[offset, selected] = state['reason'][keep]
+            if index % 100 == 0:
+                log("calculate", progress=round((index+1)/len(frames), 4))
+    factors = all_factors[first_signal:]
+    members = np.ascontiguousarray(all_members[first_signal:] & signal_mask[:, None])
+    # Daily observations needed only by explicit Alpha decay remain in all_factors;
+    # the primary IC/group matrix still contains only the union of rebalance dates.
+    if simulation_warmup > 0 and not np.all(signal_mask):
+        factors = factors.copy()
+        factors[~signal_mask] = np.nan
     # Include every calendar day from first factor date and its future tail.
     tail = [f for f in frames if f["date"] >= dates[0]]
     if [f["date"] for f in tail[:len(dates)]] != dates:
         raise ValueError("Factor and price date axes differ")
-    factors = np.ascontiguousarray(matrices, dtype=np.float64)
     if "returns" in payload:
         stored = np.asarray(payload["returns"], dtype=np.float64)
         if stored.shape != (len(frames), len(source_symbols)):
@@ -199,7 +252,6 @@ def run(directory, *, factory=None):
             returns = np.ascontiguousarray(stored[first:, columns], dtype=np.float64)
     else:
         returns = returns_matrix(tail, symbols)
-    members = np.ascontiguousarray(membership, dtype=np.float64)
     timings["calculate"] = time.perf_counter() - checkpoint
     checkpoint = time.perf_counter()
     options = request["analysis"]
@@ -217,9 +269,8 @@ def run(directory, *, factory=None):
     settings_details = {}
     if settings is not None:
         from .simulation import alpha_targets
-        offset = len(warm_factors)-len(dates)
-        all_targets = alpha_targets(np.asarray(warm_factors, dtype=np.float64),
-                                    np.asarray(warm_membership, dtype=np.float64), settings,
+        offset = first_signal
+        all_targets = alpha_targets(all_factors, all_members, settings,
                                     details=settings_details if trace_indices or settings["truncation"] > 0 else None,
                                     trace_indices=[i+offset for i in trace_indices
                                                    if i+1 < len(tail) and any(i % h == 0 for h in horizons)])
@@ -228,9 +279,10 @@ def run(directory, *, factory=None):
         transforms = {i-offset: values for i, values in settings_details.get("trace", {}).items()}
     prepared = (native.prepare_research(factors, returns, members) if alpha_weights is None
                 else native.prepare_research(factors, returns, members, alpha_weights))
-    result = native.analyze(prepared, None, options.get("groups", 3), options.get("min_ic_pairs", 3), options.get("icir_ddof", 1))
+    result = native.analyze(prepared, None, options.get("groups", 3), options.get("min_ic_pairs", 3),
+                            options.get("icir_ddof", 1), None, 1, 1, True)
     trace_info = dict(indices=trace_indices, symbols=symbols, transforms=transforms,
-                      factor_rows=rows) if trace_indices else None
+                      factor_arrays=dict(reason=reasons, valid=valid, ready=ready)) if trace_indices else None
     result["diagnostics"] = build_diagnostics(prepared, None, None, dates, [f["date"] for f in tail], options,
                                              primary=result, trace_info=trace_info, rebalance_only=True)
     conventions = result["diagnostics"]["conventions"]
@@ -263,14 +315,17 @@ def run(directory, *, factory=None):
     add_amounts(result["diagnostics"], options)
     for date, day in zip(dates, result["daily"]):
         day["date"] = date
-    returns, groups = result.pop("forward_returns"), result.pop("groups")
+    timings["analysis"] = time.perf_counter() - checkpoint
+    export_started = time.perf_counter()
+    forward_returns, groups = result.pop("forward_returns"), result.pop("groups")
     result['daily'] = [day for i, day in enumerate(result['daily']) if i in rebalance]
-    date_positions, symbol_positions = {day: i for i, day in enumerate(dates)}, {s: i for i, s in enumerate(symbols)}
-    with (directory / "values.jsonl").open("w") as output:
-        for row in rows:
-            t, n = date_positions[row['date']], symbol_positions[row['symbol']]
-            row.update(forward_return=returns[t][n], group=groups[t][n])
-            output.write(json.dumps(row, allow_nan=False) + "\n")
+    from .result_matrix import write_result_matrix, write_jsonl
+    value_artifact = write_result_matrix(directory / "values.matrix", dates, symbols, factors,
+                                        valid, ready, reasons, forward_returns, groups,
+                                        signal_indices=rebalance, threads=native.compute_threads())
+    if values_format == "jsonl":
+        write_jsonl(directory / "values.jsonl", directory / "values.matrix")
+    timings["export"] = time.perf_counter() - export_started
     timings["analysis_export"] = time.perf_counter() - checkpoint
     build_info = json.loads(Path(os.environ.get("FACTORPOOL_BUILD_INFO", "/opt/factorpool/build-info.json")).read_text())
     result["metadata"] = dict(build=build_info, execution_mode=adapter.mode, warm_up_period=warmup,
@@ -280,13 +335,15 @@ def run(directory, *, factory=None):
         group_weight="equal among available returns", cumulative="nonoverlapping one-day; invalid after a missing interval",
         ic_rank_ties="average", icir_ddof=options.get("icir_ddof", 1), annualized=False,
         annualized_scope="legacy ICIR only; portfolio annualization is defined in diagnostics.conventions",
-        operator_contract="pool-indicator-2", shared_primitive_contract="ft-pool-1", forward_return_horizon=1, report_version=3, report_horizons=horizons, coverage_axis="historical universe membership", stage_seconds=timings, value_count=len(rows))
+        operator_contract="pool-indicator-2", shared_primitive_contract="ft-pool-1", forward_return_horizon=1, report_version=3, report_horizons=horizons, coverage_axis="historical universe membership", stage_seconds=timings, value_count=value_artifact["count"])
     result["metadata"]["indicator_backend"] = "pool_native" if getattr(indicator, "_pool_ir", None) is not None else adapter.mode
     from .operator_frontend import FRONTEND_VERSION
     result["metadata"]["public_operator_api"] = FRONTEND_VERSION
     if getattr(indicator, "_pool_ir", None) is not None:
         from .operators import CONTRACT
         result["metadata"]["pool_operator_contract"] = deepcopy(CONTRACT)
+    result["metadata"]["value_artifact"] = value_artifact
+    result["metadata"]["compute_threads"] = native.compute_threads()
     result["metadata"]["factor_price"] = 'quote_adjusted'
     result["metadata"]["price_contract"] = evaluator.contract
     result["metadata"]["rebalance_dates"] = [dates[i] for i in sorted(rebalance)]
@@ -313,7 +370,7 @@ def main():
     parser.add_argument("directory")
     args = parser.parse_args()
     try:
-        run(args.directory)
+        run(args.directory, values_format="matrix")
     except Exception as error:
         log("failed", error=f"{type(error).__name__}: {error}")
         raise

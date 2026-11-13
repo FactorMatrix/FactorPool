@@ -8,7 +8,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .contract import (FIELDS, decode_tile, metadata_key, tile_key, tile_width,
+from .contract import (FIELDS, SERVED_FIELDS, decode_tile, metadata_key, tile_key, tile_width,
                        unpack_metadata, validate_snapshot, json_bytes, axis_digest)
 
 
@@ -131,7 +131,10 @@ class DataClient:
                 raise ValueError("Data service returned incomplete market blocks")
         return arrays
 
-    def selected_blocks(self, metadata, initial, stop, columns):
+    def selected_blocks(self, metadata, initial, stop, columns, *, fields=None):
+        fields = FIELDS if fields is None else tuple(fields)
+        if not fields or len(set(fields)) != len(fields) or any(field not in SERVED_FIELDS for field in fields):
+            raise ValueError("Invalid requested market fields")
         columns = np.asarray(columns, dtype=np.intp)
         if (columns.ndim != 1 or not len(columns) or np.any(columns < 0)
                 or np.any(columns >= len(metadata["symbols"]))):
@@ -141,14 +144,27 @@ class DataClient:
                 continue
             width = tile_width(metadata, block)
             starts = sorted(set((columns // width * width).tolist()))
-            result = np.empty((len(FIELDS), block["row_count"], len(columns)), dtype="<f8")
+            locations = {}
+            for start in starts:
+                positions = np.flatnonzero((columns >= start) & (columns < start + width))
+                offsets = columns[positions]-start
+                target = (slice(int(positions[0]), int(positions[-1])+1)
+                          if len(positions) == 1 or np.all(np.diff(positions) == 1) else positions)
+                origin = (slice(int(offsets[0]), int(offsets[-1])+1)
+                          if len(offsets) == 1 or np.all(np.diff(offsets) == 1) else offsets)
+                locations[start] = target, origin
+            result = np.empty((len(fields), block["row_count"], len(columns)), dtype="<f8")
             batch, size = [], 0
             def consume(batch):
                 arrays = self._tiles(metadata, batch)
                 for descriptor, field, start in batch:
-                    positions = np.flatnonzero((columns >= start) & (columns < start + width))
-                    result[FIELDS.index(field), :, positions] = arrays[tile_key(metadata, descriptor, field, start)][:, columns[positions]-start].T
-            for field in FIELDS:
+                    target, origin = locations[start]
+                    cells = arrays[tile_key(metadata, descriptor, field, start)][:, origin]
+                    if isinstance(target, slice):
+                        result[fields.index(field), :, target] = cells
+                    else:
+                        result[fields.index(field), :, target] = cells.T
+            for field in fields:
                 for start in starts:
                     tile_bytes = block["row_count"] * min(width, len(metadata["symbols"])-start) * 8 + 4096
                     if batch and size + tile_bytes > self.batch_bytes:
@@ -161,50 +177,64 @@ class DataClient:
             yield block["start_index"], block["row_count"], result
 
     def upload_values(self, task_id, attempt, lease_token, path, expected_count, *, cancelled=None):
-        """Convert local JSONL into bounded typed binary rows; no shared path leaves worker."""
+        """Stream bounded columnar chunks, or explicit legacy JSONL test artifacts."""
+        from ..result_matrix import AXES_MAGIC, iter_result_chunks
         lease = self.pb.Lease(task_id=str(task_id), attempt=attempt, lease_token=str(lease_token))
-        digest = hashlib.sha256()
-        count = 0
+        digest, count = hashlib.sha256(), 0
+        path = Path(path)
+        with path.open('rb') as source:
+            matrix = source.read(4) == AXES_MAGIC
         def check():
             if cancelled is not None and cancelled():
                 raise InterruptedError("Task cancelled or execution lease lost")
         def chunks():
             nonlocal count
-            rows, size, ordinal = [], 0, 0
-            def chunk(rows, ordinal):
-                payload = self.pb.ValuesPayload(rows=rows).SerializeToString(deterministic=True)
-                digest.update(bytes.fromhex(hashlib.sha256(payload).hexdigest()))
-                return self.pb.ValueChunk(lease=lease, ordinal=ordinal, payload=payload,
-                    row_count=len(rows), sha256=hashlib.sha256(payload).hexdigest())
-            with Path(path).open() as source:
-                for line in source:
+            if matrix:
+                # The file SHA authenticates the exact bytes written by runner;
+                # the receiving data service performs bounded decompression and
+                # full numeric/axis validation before storing each chunk.
+                for ordinal, rows, payload, sha in iter_result_chunks(path, max_bytes=self.chunk_bytes,validate_values=False):
                     check()
-                    if len(line) > self.chunk_bytes:
-                        raise ValueError("Factor value row exceeds chunk limit")
-                    value = json.loads(line)
-                    group = _factor_group(value.get("group"))
-                    row = self.pb.FactorValue(date=value["date"], symbol=value["symbol"],
-                        value=value["value"] if value.get("value") is not None else 0,
-                        has_value=value.get("value") is not None, valid=value["valid"], ready=value["ready"],
-                        reason=value.get("reason", ""),
-                        forward_return=value["forward_return"] if value.get("forward_return") is not None else 0,
-                        has_forward_return=value.get("forward_return") is not None,
-                        group=group if group is not None else 0, has_group=group is not None)
-                    item_size = row.ByteSize() + 8
-                    if rows and (size + item_size > self.chunk_bytes or len(rows) >= 1000):
+                    digest.update(bytes.fromhex(sha))
+                    count += rows
+                    yield self.pb.ValueChunk(lease=lease, ordinal=ordinal, payload=payload,
+                                             row_count=rows, sha256=sha)
+            else:
+                rows, size, ordinal = [], 0, 0
+                def chunk(rows, ordinal):
+                    payload = self.pb.ValuesPayload(rows=rows).SerializeToString(deterministic=True)
+                    sha = hashlib.sha256(payload).hexdigest()
+                    digest.update(bytes.fromhex(sha))
+                    return self.pb.ValueChunk(lease=lease, ordinal=ordinal, payload=payload,
+                                             row_count=len(rows), sha256=sha)
+                with path.open() as source:
+                    for line in source:
+                        check()
+                        if len(line) > self.chunk_bytes:
+                            raise ValueError("Factor value row exceeds chunk limit")
+                        value = json.loads(line)
+                        group = _factor_group(value.get("group"))
+                        row = self.pb.FactorValue(date=value["date"], symbol=value["symbol"],
+                            value=value["value"] if value.get("value") is not None else 0,
+                            has_value=value.get("value") is not None, valid=value["valid"], ready=value["ready"],
+                            reason=value.get("reason", ""),
+                            forward_return=value["forward_return"] if value.get("forward_return") is not None else 0,
+                            has_forward_return=value.get("forward_return") is not None,
+                            group=group if group is not None else 0, has_group=group is not None)
+                        item_size = row.ByteSize() + 8
+                        if rows and (size + item_size > self.chunk_bytes or len(rows) >= 1000):
+                            yield chunk(rows, ordinal)
+                            ordinal += len(rows)
+                            rows, size = [], 0
+                        rows.append(row)
+                        size += item_size
+                        count += 1
+                    if rows:
                         yield chunk(rows, ordinal)
-                        ordinal += len(rows)
-                        rows, size = [], 0
-                    rows.append(row)
-                    size += item_size
-                    count += 1
-                if rows:
-                    yield chunk(rows, ordinal)
-                elif count == 0:
-                    yield chunk([], 0)
+                    elif count == 0:
+                        yield chunk([], 0)
             if count != expected_count:
                 raise ValueError("Incomplete factor values")
-        check()
         def cancellable(method, request):
             if not hasattr(method, "future"):
                 return method(request, timeout=max(self.timeout, 300), metadata=self.metadata)
@@ -220,6 +250,7 @@ class DataClient:
             except BaseException:
                 future.cancel()
                 raise
+        check()
         staged = cancellable(self.stub.StageValues, chunks())
         check()
         if count != expected_count or staged.count != expected_count or staged.sha256 != digest.hexdigest():

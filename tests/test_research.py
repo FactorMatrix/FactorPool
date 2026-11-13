@@ -124,7 +124,7 @@ class Factor(PythonIndicator):
             path = Path(directory)
             (path/'request.json').write_text(json.dumps(request))
             run(directory)
-            load.assert_called_once_with(request['data'], 3, 1, matrix_only=True)
+            load.assert_called_once_with(request['data'], 3, 1, matrix_only=True, fields=('volume',))
             values = [json.loads(line) for line in (path/'values.jsonl').read_text().splitlines()]
             self.assertEqual([row['symbol'] for row in values], ['A', 'B', 'C'])
             np.testing.assert_allclose([row['forward_return'] for row in values], [1, 2, -.5])

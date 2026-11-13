@@ -1,6 +1,7 @@
 """Amount labels and optional trace formatting around the existing matrix PnL."""
 import math
 from ..reporting_options import monetary_options
+from ..result_matrix import REASONS
 
 
 def _number(value):
@@ -16,7 +17,12 @@ def format_trace(traces, info, dates, price_dates, analysis):
         for row in trace["rows"]:
             n = row["symbol_index"]
             row["symbol"] = info["symbols"][n]
-            if "factor_rows" in info:
+            if "factor_arrays" in info:
+                source = info['factor_arrays']
+                row.update(raw_factor_status=REASONS[int(source['reason'][signal, n])],
+                           raw_factor_ready=bool(source['ready'][signal, n]),
+                           raw_factor_valid=bool(source['valid'][signal, n]))
+            elif "factor_rows" in info:
                 source = info["factor_rows"][signal*len(info["symbols"])+n]
                 row.update(raw_factor_status=source["reason"], raw_factor_ready=source["ready"],
                            raw_factor_valid=source["valid"])

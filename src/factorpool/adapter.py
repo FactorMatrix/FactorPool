@@ -6,6 +6,29 @@ from factortrader import TradeBar
 from .entry import PythonIndicator
 from factortrader.binding.loading import _load_native_rows
 import os
+from .result_matrix import REASONS
+
+
+def indicator_fields(indicator):
+    """Required raw inputs, before loading a task's projected quote matrices."""
+    indicator._prepare()
+    if indicator._ir is None:
+        return ("open", "high", "low", "close", "prev_close", "volume",
+                "total_turnover", "is_st", "is_suspended")
+    fields = list(indicator._ir.fields)
+    if indicator._batch_ir is not None:
+        fields.extend(indicator._batch_ir.fields)
+        for port in indicator._batch_ir.temporals:
+            fields.extend(field for field in port.fields if field not in port.bindings)
+    return tuple(dict.fromkeys(fields))
+
+
+def rows_from_arrays(state):
+    """Materialize row dictionaries only for callers explicitly requesting rows."""
+    return [dict(symbol=symbol, value=float(value) if valid else None,
+                 valid=bool(valid), ready=bool(ready), reason=REASONS[int(reason)])
+            for symbol, value, valid, ready, reason in zip(
+                state['symbols'], state['value'], state['valid'], state['ready'], state['reason'])]
 
 
 class IndicatorAdapter:
@@ -28,28 +51,32 @@ class IndicatorAdapter:
         self.binding = select_operator_binding(indicator, self.binding)
         self.graph = None
 
-    def update(self, frame, factory, *, emit=True):
-        ids = tuple(sorted(frame["symbols"]))
-        if len(ids) != len(set(ids)):
-            raise ValueError("Duplicate symbol in frame")
+    def update_arrays(self, frame, factory, *, emit=True, fresh=False):
+        return self.update(frame, factory, emit=emit, _arrays=True, _fresh=fresh)
+
+    def update(self, frame, factory, *, emit=True, _arrays=False, _fresh=False):
+        supplied = frame["symbols"]
+        ids = supplied if isinstance(supplied, tuple) else tuple(supplied)
+        # A calculation axis usually spans many adjacent sessions unchanged.
+        # Tuple equality is implemented in C and avoids per-symbol Python
+        # ordering/duplicate callbacks on every published numerical frame.
+        if ids != self.axis:
+            ids = tuple(sorted(ids))
+            if len(ids) != len(set(ids)):
+                raise ValueError("Duplicate symbol in frame")
         stamp = datetime.fromisoformat(frame["date"] + "T15:00:00")
         rows = frame["rows"]
         if self.mode == "native":
             indicator = self.indicator
             if self.axis is None:
                 self.graph = self.binding.graph_create(indicator._ir.to_dict(), ids)
-                fields = list(indicator._ir.fields)
                 if indicator._batch_ir is not None:
                     self.binding.graph_configure_batch(self.graph, indicator._batch_ir.to_dict(), (), False)
-                    fields.extend(indicator._batch_ir.fields)
-                    for port in indicator._batch_ir.temporals:
-                        fields.extend(field for field in port.fields if field not in port.bindings)
-                self.fields = tuple(dict.fromkeys(fields))
+                self.fields = indicator_fields(indicator)
                 supported = {"open", "high", "low", "close", "prev_close", "value", "volume", "total_turnover", "is_st", "is_suspended"}
                 missing = set(self.fields) - supported
                 if missing:
                     raise ValueError(f"Provider has no point-in-time fields: {sorted(missing)}")
-            self.axis = ids
             matrix = "columns" in frame
             if matrix:
                 if tuple(frame['symbols']) != ids:
@@ -72,23 +99,32 @@ class IndicatorAdapter:
                 for field in self.fields:
                     present &= np.isfinite(columns[field])
             binding = self.binding
-            binding.graph_set_symbols(self.graph, ids)
-            binding.graph_update(self.graph, int(stamp.strftime("%Y%m%d%H%M%S")), columns, present)
+            if self.axis != ids:
+                binding.graph_set_symbols(self.graph, ids)
+                self.axis = ids
+            binding.graph_update(self.graph, int(stamp.strftime("%Y%m%d%H%M%S")), columns, present, _fresh)
             if not emit:
                 return None
-            state = binding.graph_snapshot(self.graph)
+            state = binding.graph_snapshot_columns(self.graph)
             # One native snapshot/column transfer per time frame.
-            arrays = {name: np.frombuffer(binding.native_vector_export(state[name]), dtype="float64" if name == "current" else "bool").tolist() for name in ("current", "valid", "ready")}
-            out = []
-            for i, symbol in enumerate(state["symbols"]):
-                value = arrays["current"][i]
-                valid, ready = bool(arrays["valid"][i]), bool(arrays["ready"][i])
-                usable = bool(valid and ready and math.isfinite(value) and observed[i])
-                reason = ("ok" if usable else "missing_bar" if not observed[i] else
-                          "source_missing" if any(not math.isfinite(columns[f][i]) for f in self.fields) else
-                          "not_ready" if valid and not ready else "native_unavailable")
-                out.append(dict(symbol=symbol, value=value if usable else None, valid=usable, ready=ready, reason=reason))
-            return out
+            arrays = {name: np.frombuffer(binding.native_vector_export(state[name]),
+                      dtype="float64" if name == "current" else "bool")
+                      for name in ("current", "valid", "ready")}
+            current, valid, ready = (arrays[name] for name in ('current', 'valid', 'ready'))
+            if any(array.shape != observed.shape for array in arrays.values()):
+                raise ValueError("Native publication does not match its symbol axis")
+            usable = valid & ready & np.isfinite(current) & observed
+            source_missing = np.zeros(len(ids), dtype=bool)
+            for column in columns.values():
+                source_missing |= ~np.isfinite(column)
+            reason = np.full(len(ids), 4, dtype=np.uint8)
+            reason[valid & ~ready] = 3
+            reason[source_missing] = 2
+            reason[~observed] = 1
+            reason[usable] = 0
+            out = dict(symbols=ids, value=np.where(usable, current, np.nan), valid=usable,
+                       ready=ready, reason=reason)
+            return out if _arrays else rows_from_arrays(out)
         # Explicit single-symbol Python callbacks; no .cs fallback is possible.
         self.slots = {s: self.slots[s] for s in ids if s in self.slots}
         out = []
@@ -116,4 +152,10 @@ class IndicatorAdapter:
             if emit:
                 out.append(dict(symbol=symbol, value=slot.current.value if usable else None,
                                 valid=usable, ready=usable, reason="ok" if usable else "missing_bar" if row is None else "unready_or_invalid"))
+        if _arrays and emit:
+            return dict(symbols=ids,
+                        value=np.array([np.nan if row['value'] is None else row['value'] for row in out]),
+                        valid=np.array([row['valid'] for row in out], dtype=bool),
+                        ready=np.array([row['ready'] for row in out], dtype=bool),
+                        reason=np.array([REASONS.index(row['reason']) for row in out], dtype=np.uint8))
         return out

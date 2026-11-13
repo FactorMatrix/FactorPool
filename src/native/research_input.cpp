@@ -1,5 +1,6 @@
 #include "research_input.hpp"
 #include "statistics.hpp"
+#include "parallel.hpp"
 #include <algorithm>
 
 namespace {
@@ -13,7 +14,7 @@ namespace fp {
 ResearchInput::ResearchInput(PyObject *factor, PyObject *daily_returns,
                              PyObject *membership, PyObject *weights)
     : factors(matrix(factor)), returns(matrix(daily_returns)),
-      members(membership && membership != Py_None ? matrix(membership) : Matrix{}),
+      members(membership && membership != Py_None ? matrix(membership, true) : Matrix{}),
       alpha_weights(weights && weights != Py_None ? matrix(weights) : Matrix{}) {
   if (factors.size() > returns.size() ||
       factors.columns() != returns.columns() ||
@@ -46,12 +47,13 @@ ResearchInput::ResearchInput(PyObject *factor, PyObject *daily_returns,
         throw std::invalid_argument("Alpha weights exceed unit gross exposure");
     }
   }
-  for (std::size_t t = 0; t < returns.size(); ++t)
+  parallel_for(returns.size(), returns.columns(), [&](std::size_t t) {
     for (auto &r : returns[t])
       if (!std::isfinite(r) || r < -1)
         r = missing;
+  });
   order.resize(factors.size());
-  for (std::size_t t = 0; t < factors.size(); ++t) {
+  parallel_for(factors.size(), factors.columns(), [&](std::size_t t) {
     auto &sorted = order[t];
     sorted.reserve(factors[t].size());
     for (std::size_t n = 0; n < factors[t].size(); ++n)
@@ -60,7 +62,7 @@ ResearchInput::ResearchInput(PyObject *factor, PyObject *daily_returns,
     std::stable_sort(sorted.begin(), sorted.end(), [&](auto a, auto b) {
       return factors[t][a] < factors[t][b];
     });
-  }
+  });
 }
 void ResearchInput::prepare_prefixes() const {
   if (!log_prefix_.empty())
@@ -72,8 +74,11 @@ void ResearchInput::prepare_prefixes() const {
   const auto cells = (rows + 1) * columns;
   std::vector<long double> logs(cells, 0);
   std::vector<std::size_t> gaps(cells, 0), zeros(cells, 0);
-  for (std::size_t t = 0; t < rows; ++t)
-    for (std::size_t n = 0; n < columns; ++n) {
+  constexpr std::size_t tile = 256;
+  parallel_for((columns + tile - 1) / tile, rows * tile, [&](std::size_t block) {
+    const auto first = block * tile, last = std::min(columns, first + tile);
+    for (std::size_t t = 0; t < rows; ++t)
+      for (auto n = first; n < last; ++n) {
       const auto before = t * columns + n, after = before + columns;
       const auto r = returns[t][n];
       logs[after] = logs[before];
@@ -85,7 +90,8 @@ void ResearchInput::prepare_prefixes() const {
         ++zeros[after];
       else
         logs[after] += std::log1p(static_cast<long double>(r));
-    }
+      }
+  });
   log_prefix_ = std::move(logs);
   missing_prefix_ = std::move(gaps);
   zero_prefix_ = std::move(zeros);
@@ -99,11 +105,12 @@ const Matrix &ResearchInput::forward(int h) const {
   const auto days = static_cast<std::size_t>(h), columns = returns.columns();
   if (days < returns.size()) {
     if (h == 1) {
-      for (std::size_t t = 0; t + 1 < returns.size(); ++t)
+      parallel_for(returns.size() - 1, columns, [&](std::size_t t) {
         std::copy(returns[t + 1].begin(), returns[t + 1].end(), result[t].begin());
+      });
     } else {
       prepare_prefixes();
-      for (std::size_t t = 0; t + days < returns.size(); ++t)
+      parallel_for(returns.size() - days, columns, [&](std::size_t t) {
         for (std::size_t n = 0; n < columns; ++n) {
           const auto begin = (t + 1) * columns + n,
                      end = (t + 1 + days) * columns + n;
@@ -118,14 +125,12 @@ const Matrix &ResearchInput::forward(int h) const {
               result[t][n] = r;
           }
         }
+      });
     }
   }
   return forwards_.emplace(h, std::move(result)).first->second;
 }
-std::vector<double> ResearchInput::paired_return_ranks(
-    int h, std::size_t row, const std::vector<std::size_t> &symbols) const {
-  if (symbols.empty())
-    return {};
+void ResearchInput::prepare_return_orders(int h) const {
   const auto &values = forward(h);
   auto [entry, inserted] = return_orders_.try_emplace(h);
   auto &cache = entry->second;
@@ -133,6 +138,15 @@ std::vector<double> ResearchInput::paired_return_ranks(
     cache.rows.resize(values.size());
     cache.ready.resize(values.size(), 0);
   }
+}
+std::vector<double> ResearchInput::paired_return_ranks(
+    int h, std::size_t row, const std::vector<std::size_t> &symbols) const {
+  if (symbols.empty())
+    return {};
+  const auto &values = forward(h);
+  // The parent cache is allocated before any independent row work starts.
+  // Each parallel caller below owns a different return row in this phase.
+  auto &cache = return_orders_.at(h);
   auto &order = cache.rows[row];
   if (!cache.ready[row]) {
     order.reserve(values.columns());
@@ -229,8 +243,11 @@ PyObject *ic_series(PyObject *, PyObject *args) {
     InputRef holder(prepared, Py_None, nullptr);
     const auto &input = *holder.value;
     const auto &f = input.factors, &forward = input.forward(h);
-    std::vector<double> ics, rankics;
-    for (std::size_t t = 0; t < f.size(); t += signal_stride) {
+    input.prepare_return_orders(h);
+    const auto rows = f.size() ? 1 + (f.size() - 1) / signal_stride : 0;
+    std::vector<double> ics(rows), rankics(rows);
+    parallel_for(rows, f.columns(), [&](std::size_t row) {
+      const auto t = row * signal_stride;
       std::vector<double> a, b;
       std::vector<std::size_t> symbols;
       for (std::size_t n = 0; n < f[t].size(); ++n) {
@@ -241,12 +258,12 @@ PyObject *ic_series(PyObject *, PyObject *args) {
           symbols.push_back(n);
         }
       }
-      ics.push_back(correlation(a, b, minimum));
-      rankics.push_back(a.size() >= static_cast<std::size_t>(minimum)
+      ics[row] = correlation(a, b, minimum);
+      rankics[row] = a.size() >= static_cast<std::size_t>(minimum)
         ? correlation(paired_factor_ranks(input, t, symbols),
                       input.paired_return_ranks(h, t, symbols), minimum)
-        : missing);
-    }
+        : missing;
+    });
     Owned out{PyDict_New()};
     put(out.p, "ic", list(ics));
     put(out.p, "rank_ic", list(rankics));

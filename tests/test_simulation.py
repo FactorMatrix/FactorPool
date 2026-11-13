@@ -5,12 +5,11 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import numpy as np
 import _factorpool_native as native
 from factortrader import NativeVector, PythonIndicator as SharedIndicator
-from factorpool.adapter import IndicatorAdapter
 from factorpool.runner import run
 from factorpool.settings import normalize_settings
 from factorpool.simulation import alpha_targets
@@ -256,12 +255,8 @@ if __name__ == "__main__":
                           analysis=dict(groups=2, horizons=[1], min_ic_pairs=2, decay_steps=1),
                           settings=dict(pasteurization=mode))
             source = source_template.replace('CONFIG', repr(config))
-            held = []
-            def capture(indicator):
-                adapter = IndicatorAdapter(indicator); adapter.binding = Mock(wraps=adapter.binding); held.append(adapter); return adapter
             with tempfile.TemporaryDirectory() as temporary, \
                     patch('factorpool.market_loader.load', return_value=payload) as load, \
-                    patch('factorpool.factor_matrix.IndicatorAdapter', side_effect=capture), \
                     patch('factortrader.Engine', side_effect=AssertionError('Trading Engine constructed')):
                 directory = Path(temporary)
                 (directory/'request.json').write_text(json.dumps(dict(name='calculation axis', source_mode='script', source_code=source)))
@@ -270,11 +265,10 @@ if __name__ == "__main__":
                 self.assertEqual([row['symbol'] for row in values], ['A', 'B'])
                 results[mode] = [row['value'] for row in values]
                 if mode == 'OFF':
-                    self.assertEqual(load.call_args.kwargs, dict(matrix_only=True,pasteurization='OFF'))
-                    adapter = held[-1]
-                    state = adapter.binding.graph_snapshot(adapter.graph)
-                    self.assertEqual(list(state['symbols']), ['A', 'B', 'C'])
-                    self.assertEqual(adapter.binding.graph_update.call_count, 1)
+                    self.assertEqual(load.call_args.kwargs,
+                                     dict(matrix_only=True, fields=('volume',), pasteurization='OFF'))
+                    report = json.loads((directory/'result.json').read_text())
+                    self.assertEqual(report['metadata']['price_contract']['native_input_frames'], 1)
                 self.assertEqual(len(values), 2)
         np.testing.assert_allclose(results['ON'], [.5, 1], atol=1e-14)
         np.testing.assert_allclose(results['OFF'], [2/3, 1], atol=1e-14)

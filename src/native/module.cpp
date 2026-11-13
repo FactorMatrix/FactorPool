@@ -1,6 +1,16 @@
 #include "analysis.hpp"
 #include "research_input.hpp"
+#include "parallel.hpp"
+static PyObject* compute_threads(PyObject*, PyObject*) {
+  try { return PyLong_FromSize_t(fp::compute_threads()); }
+  catch (const std::exception& error) {
+    PyErr_SetString(PyExc_ValueError, error.what());
+    return nullptr;
+  }
+}
 static PyMethodDef methods[] = {
+    {"compute_threads", compute_threads, METH_NOARGS,
+     "Effective numeric thread limit bounded by configured threads, CPU affinity and cgroup quota."},
     {"prepare_research", prepare_research, METH_VARARGS,
      "Own factor, daily-return, membership and optional target-alpha matrices; share sorted factors and compounded horizons."},
     {"ic_series", ic_series, METH_VARARGS,

@@ -43,6 +43,8 @@ public:
     Program(Spec, std::vector<std::string>);
     void set_symbols(std::vector<std::string>);
     void update(std::int64_t, std::span<const graph::Column>, std::span<const std::uint8_t>);
+    const Spec& spec() const { return spec_; }
+    bool independent_frames() const;
     const auto& symbols() const { return symbols_; }
     const auto& current() const { return current_; }
     const auto& valid() const { return valid_; }

@@ -24,7 +24,7 @@ RUN --mount=type=cache,target=/root/.m2 mvn -q package
 FROM ${FT_ENV_IMAGE} AS research-runtime
 USER 0:0
 WORKDIR /opt/factorpool
-RUN --mount=type=cache,target=/root/.cache/pip python3 -m pip install --index-url https://pypi.org/simple 'psycopg[binary]==3.2.13' 'grpcio==1.76.0' 'protobuf==6.33.0' 'redis==7.0.1'
+RUN --mount=type=cache,target=/root/.cache/pip python3 -m pip install --index-url https://pypi.org/simple 'psycopg[binary]==3.2.13' 'grpcio==1.76.0' 'protobuf==6.33.0' 'redis==7.0.1' 'lz4==4.4.5'
 COPY --from=native-build /build/shared/native/abi/ /opt/factorpool/shared-build/native/abi/
 COPY --from=native-build /build/shared/language/python/binding/_native_rows.abi3.so /opt/factorpool/shared-build/language/python/binding/
 COPY --from=native-build /build/research/_factorpool_native.so /opt/factorpool/native/

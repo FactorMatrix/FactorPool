@@ -110,6 +110,12 @@ void Program::set_symbols(std::vector<std::string> symbols) {
     symbols_ = std::move(symbols);
     current_.assign(symbols_.size(), shared::missing); valid_.assign(symbols_.size(), 0); ready_.assign(symbols_.size(), 0);
 }
+bool Program::independent_frames() const {
+    return ports_.empty() && calendar_.empty() && brain_ts_.empty() &&
+        std::none_of(spec_.nodes.begin(), spec_.nodes.end(), [](const auto& node) {
+            return node.op == "brain_cs_trade_when" || node.op == "brain_cs_group_backfill";
+        });
+}
 void Program::update(std::int64_t time, std::span<const graph::Column> columns, std::span<const std::uint8_t> present) {
     const auto width = symbols_.size();
     if (time < time_ || (!calendar_.empty() && time <= time_))

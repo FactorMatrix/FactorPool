@@ -37,7 +37,7 @@ public:
     return {columns_ ? values_.data() + row * columns_ : values_.data(), columns_};
   }
 };
-inline Matrix matrix(PyObject *object) {
+inline Matrix matrix(PyObject *object, bool boolean_mask = false) {
   if (PyObject_CheckBuffer(object)) {
     struct Buffer {
       Py_buffer view{};
@@ -52,19 +52,25 @@ inline Matrix matrix(PyObject *object) {
     buffer.acquired = true;
     const auto &view = buffer.view;
     const std::string_view format = view.format ? view.format : "";
+    const bool bytes = boolean_mask && view.itemsize == 1 && (format == "?" || format == "B");
     if (view.ndim != 2 || !view.shape || view.shape[0] < 0 ||
-        view.shape[1] < 0 || view.itemsize != sizeof(double) ||
-        (format != "d" && format != "=d" && format != "@d") ||
+        view.shape[1] < 0 || (!bytes && (view.itemsize != sizeof(double) ||
+        (format != "d" && format != "=d" && format != "@d"))) ||
         !PyBuffer_IsContiguous(&buffer.view, 'C'))
       throw std::invalid_argument(
           "Expected a C-contiguous two-dimensional native float64 matrix");
     Matrix result(static_cast<std::size_t>(view.shape[0]),
                   static_cast<std::size_t>(view.shape[1]));
-    const auto bytes = result.size() * result.columns() * sizeof(double);
-    if (view.len < 0 || static_cast<std::size_t>(view.len) != bytes)
+    const auto cells = result.size() * result.columns();
+    const auto size = cells * (bytes ? 1 : sizeof(double));
+    if (view.len < 0 || static_cast<std::size_t>(view.len) != size)
       throw std::invalid_argument("Research buffer shape differs from length");
-    if (bytes)
-      std::memcpy(result.data(), view.buf, bytes);
+    if (bytes) {
+      const auto* source = static_cast<const unsigned char*>(view.buf);
+      for (std::size_t i = 0; i < cells; ++i)
+        result.data()[i] = source[i] != 0;
+    } else if (size)
+      std::memcpy(result.data(), view.buf, size);
     return result;
   }
   Owned rows{PySequence_Fast(object, "Expected matrix")};
@@ -109,5 +115,15 @@ inline PyObject *list(const std::vector<double> &values) {
   for (std::size_t i = 0; i < values.size(); ++i)
     PyList_SET_ITEM(out, i, number(values[i]));
   return out;
+}
+inline PyObject *matrix_array(PyObject *bytes, std::size_t rows, std::size_t columns) {
+  Owned numpy{PyImport_ImportModule("numpy")};
+  if (!numpy.p) throw std::runtime_error("NumPy is required for matrix publication");
+  Owned flat{PyObject_CallMethod(numpy.p, "frombuffer", "Os", bytes, "float64")};
+  if (!flat.p) throw std::runtime_error("Unable to publish numerical matrix buffer");
+  auto* output = PyObject_CallMethod(flat.p, "reshape", "nn", static_cast<Py_ssize_t>(rows),
+                                     static_cast<Py_ssize_t>(columns));
+  if (!output) throw std::runtime_error("Unable to publish numerical matrix axes");
+  return output;
 }
 } // namespace fp

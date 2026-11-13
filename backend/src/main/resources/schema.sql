@@ -66,3 +66,18 @@ CREATE TABLE IF NOT EXISTS factor_value_upload_chunks (
   task_id uuid NOT NULL REFERENCES research_tasks(id), attempt bigint NOT NULL, ordinal bigint NOT NULL,
   row_count bigint NOT NULL, sha256 text NOT NULL, PRIMARY KEY(task_id,attempt,ordinal)
 );
+
+-- Columnar values keep large research histories as bounded immutable chunks.
+ALTER TABLE factor_value_publications ADD COLUMN IF NOT EXISTS storage_format text NOT NULL DEFAULT 'rows-v1';
+CREATE TABLE IF NOT EXISTS factor_value_matrix_axes (
+  task_id uuid NOT NULL REFERENCES research_tasks(id), attempt bigint NOT NULL,
+  row_count bigint NOT NULL CHECK (row_count>=0), payload bytea NOT NULL, sha256 text NOT NULL,
+  PRIMARY KEY(task_id,attempt)
+);
+CREATE TABLE IF NOT EXISTS factor_value_matrix_chunks (
+  task_id uuid NOT NULL REFERENCES research_tasks(id), attempt bigint NOT NULL, ordinal bigint NOT NULL,
+  row_count bigint NOT NULL CHECK(row_count>0), payload bytea NOT NULL, sha256 text NOT NULL,
+  PRIMARY KEY(task_id,attempt,ordinal)
+);
+ALTER TABLE factor_value_matrix_axes ALTER COLUMN payload SET STORAGE EXTERNAL;
+ALTER TABLE factor_value_matrix_chunks ALTER COLUMN payload SET STORAGE EXTERNAL;

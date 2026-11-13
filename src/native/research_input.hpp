@@ -18,6 +18,7 @@ struct ResearchInput {
   // Sort a forward-return row once, then rerank only the actual paired sample.
   std::vector<double> paired_return_ranks(
       int h, std::size_t row, const std::vector<std::size_t> &symbols) const;
+  void prepare_return_orders(int h) const;
   bool eligible(std::size_t t, std::size_t n) const {
     return members.empty() || members[t][n] > 0;
   }
