@@ -3,7 +3,7 @@ from factorpool import PythonIndicator
 
 config = {
     'type': 'REGULAR',
-    'base': {'start_date': '2024-01-02', 'end_date': '2024-01-12', 'frequency': '1d'},
+    'base': {'start_date': '2016-01-01', 'end_date': '2026-01-01', 'frequency': '1d'},
     'data': {
         'provider': 'market_matrix',
         'universe': ['000001.XSHE', '000002.XSHE', '600000.XSHG'],

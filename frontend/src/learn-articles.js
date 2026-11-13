@@ -47,15 +47,15 @@ export const learnArticles = {
     ],
   },
   "quick-start": {
-    id: "quick-start", title: "创建第一个因子", subtitle: "用三只虚拟股票运行低成交量排名，熟悉完整研究流程。", readingTime: "4 分钟",
+    id: "quick-start", title: "创建第一个因子", subtitle: "用三只股票的十年行情运行低成交量排名，熟悉完整研究流程。", readingTime: "4 分钟",
     sections: [
       { id: "first-run", title: "运行这份脚本", paragraphs: [
-        "复制下面的完整示例，回到 Simulate，粘贴到代码框并点击 Simulate。示例只使用合成数据，不需要准备真实行情。",
+        "复制下面的完整示例，回到 Simulate，粘贴到代码框并点击 Simulate。示例读取已发布的日线行情，统一研究区间为 2016-01-01 至 2026-01-01。",
         "这个因子先计算每只股票最近 3 个有效观测的平均成交量，再对负均量做同日截面排名。因此，成交量越低，因子排名越高。",
       ], code: quickStartCode, codeLabel: "入门完整脚本" },
       { id: "inspect-first-result", title: "先看因子值，再看收益", paragraphs: [
         "任务完成后，打开 Factor Values，确认输出日期、股票、因子值和 ready 状态符合你的表达式。窗口尚未完成时不会发布可用因子值。",
-        "接着在 IC Analysis 和 Groups 查看因子与未来收益的关系，在 Chart 与 Summary 查看 Alpha 组合的表现。合成数据只用于演示流程，不能作为真实因子有效性的证据。",
+        "接着在 IC Analysis 和 Groups 查看因子与未来收益的关系，在 Chart 与 Summary 查看 Alpha 组合的表现。结合覆盖率、样本数和整个研究区间判断结果。",
       ] },
       { id: "change-one-parameter", title: "只改一个参数做比较", paragraphs: [
         "把 config.factor.period 从 3 改成 1，再运行一次。构造参数会传入 TutorialFactor 的 __init__，因此这次比较只改变成交量窗口。",
@@ -230,8 +230,8 @@ value = self.ts.delay(input.close, 1, clock="trading_days")`, codeLabel: "在 up
       { id: "config-example", title: "一个真实行情配置", code: `config = {
     "type": "REGULAR",
     "base": {
-        "start_date": "2024-01-29",
-        "end_date": "2024-03-29",
+        "start_date": "2016-01-01",
+        "end_date": "2026-01-01",
         "frequency": "1d",
     },
     "data": {

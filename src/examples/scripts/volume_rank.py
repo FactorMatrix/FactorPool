@@ -4,8 +4,8 @@ from factorpool import PythonIndicator
 config = {
     'type': 'REGULAR',
     'base': {
-        'start_date': '2024-01-29',
-        'end_date': '2024-01-29',
+        'start_date': '2016-01-01',
+        'end_date': '2026-01-01',
         'frequency': '1d',
     },
     'data': {

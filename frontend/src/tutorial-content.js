@@ -4,11 +4,11 @@ export const quickStartCode = `from factorpool import PythonIndicator
 config = {
     "type": "REGULAR",
     "base": {
-        "start_date": "2024-01-04",
-        "end_date": "2024-01-08",
+        "start_date": "2016-01-01",
+        "end_date": "2026-01-01",
         "frequency": "1d",
     },
-    "data": {"provider": "fixture", "universe": "fixture", "factor_price": "quote_adjusted"},
+    "data": {"provider": "market_matrix", "universe": ["000001.XSHE", "000002.XSHE", "600000.XSHG"], "factor_price": "quote_adjusted"},
     "factor": {"period": 3},
     "analysis": {"groups": 3, "horizons": [1, 5]},
     "settings": {

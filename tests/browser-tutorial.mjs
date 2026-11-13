@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module'
 import assert from 'node:assert/strict'
-import { readSource, setSource } from './browser-script-utils.mjs'
+import { fixtureScript, readSource, setSource } from './browser-script-utils.mjs'
 const require = createRequire(import.meta.url)
 const { chromium } = require(process.env.FACTORPOOL_PLAYWRIGHT_MODULE || 'playwright')
 const base = process.env.FACTORPOOL_URL || 'http://127.0.0.1:8088'
@@ -38,6 +38,12 @@ try {
   const sample = await docs.getByLabel('入门完整脚本', { exact: true }).innerText()
   const preview = await page.request.post(`${base}/api/script/resolve`, { data: { source_code: sample } })
   assert.equal(preview.status(), 200, await preview.text())
+  const parsedSample = await preview.json()
+  assert.equal(parsedSample.source_config.base.start_date, '2016-01-01')
+  assert.equal(parsedSample.source_config.base.end_date, '2026-01-01')
+  assert.equal(parsedSample.data.factor_start, '2016-01-01')
+  assert.equal(parsedSample.data.factor_end, '2026-01-01')
+  assert.equal(parsedSample.data.provider, 'market_matrix')
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
   await docs.getByRole('button', { name: '复制完整示例', exact: true }).click()
   assert.equal(await page.evaluate(() => navigator.clipboard.readText()), sample)
@@ -184,7 +190,10 @@ try {
   await page.getByRole('button', { name: '研究', exact: true }).click()
   assert.equal(await readSource(page), original)
 
-  await setSource(page, sample)
+  // The copied Learn script uses ten years of actual market data. Exercise
+  // research/draft persistence with the short deterministic fixture instead.
+  const fixtureSource = fixtureScript({ period: 3, start: '2024-01-04', end: '2024-01-08' })
+  await setSource(page, fixtureSource)
   await page.getByRole('button', { name: '运行研究', exact: true }).click()
   await page.locator('.badge.SUCCEEDED').waitFor({ timeout: 40000 })
   await page.getByRole('button', { name: 'Factor Values', exact: true }).click()
@@ -197,7 +206,7 @@ try {
   await page.getByRole('button', { name: '研究', exact: true }).click()
   await page.getByRole('button', { name: 'Factor Values', exact: true }).click()
   assert.equal(await page.locator('.factor-values').innerText(), values)
-  assert.equal(await readSource(page), sample)
+  assert.equal(await readSource(page), fixtureSource)
   assert.equal(submissions.length, 1)
 
   const outage = await browser.newPage()
@@ -212,5 +221,5 @@ try {
   await outage.getByRole('heading', { name: '模拟设置参考', exact: true }).waitFor()
   await outage.close()
   assert.deepEqual(errors, [])
-  console.log(JSON.stringify({ documentation: 'inline operator/settings expand and collapse, keyboard, preserved URL and scroll, search, chapters and legacy deep links passed', sample: 'AST validated and fixture research succeeded', copy: 'clipboard API and HTTP fallback passed', state: 'draft and task results preserved', retry: 'isolated catalog outage recovered', desktop: 'passed', mobile: 'passed', browser_errors: errors }))
+  console.log(JSON.stringify({ documentation: 'inline operator/settings expand and collapse, keyboard, preserved URL and scroll, search, chapters and legacy deep links passed', sample: '2016-01-01 through 2026-01-01 market_matrix script AST validated; separate short fixture research succeeded', copy: 'clipboard API and HTTP fallback passed', state: 'draft and task results preserved', retry: 'isolated catalog outage recovered', desktop: 'passed', mobile: 'passed', browser_errors: errors }))
 } finally { await browser.close() }
