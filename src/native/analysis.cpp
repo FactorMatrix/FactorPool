@@ -50,7 +50,8 @@ PyObject *analyze(PyObject *, PyObject *args) {
       }
       const double ic = correlation(a, b, minimum),
                    ric = a.size() >= static_cast<std::size_t>(minimum)
-                     ? correlation(paired_factor_ranks(input, t, pair_symbols), rank_values(b), minimum)
+                     ? correlation(paired_factor_ranks(input, t, pair_symbols),
+                                   input.paired_return_ranks(horizon, t, pair_symbols), minimum)
                      : missing;
       if (std::isfinite(ic))
         ics.push_back(ic);

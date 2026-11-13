@@ -15,12 +15,20 @@ struct ResearchInput {
   // Row t compounds days t+1..t+h. Cached intervals include every daily
   // observation; neither a missing day nor a total loss can be skipped.
   const Matrix &forward(int h) const;
+  // Sort a forward-return row once, then rerank only the actual paired sample.
+  std::vector<double> paired_return_ranks(
+      int h, std::size_t row, const std::vector<std::size_t> &symbols) const;
   bool eligible(std::size_t t, std::size_t n) const {
     return members.empty() || members[t][n] > 0;
   }
 
 private:
+  struct ReturnOrders {
+    std::vector<std::vector<std::size_t>> rows;
+    std::vector<unsigned char> ready;
+  };
   mutable std::map<int, Matrix> forwards_;
+  mutable std::map<int, ReturnOrders> return_orders_;
   mutable std::vector<long double> log_prefix_;
   mutable std::vector<std::size_t> missing_prefix_, zero_prefix_;
   void prepare_prefixes() const;

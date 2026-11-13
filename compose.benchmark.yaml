@@ -2,7 +2,7 @@ name: factorpool-benchmark
 services:
   benchmark:
     image: ${FACTORPOOL_BENCH_IMAGE:?}
-    entrypoint: [python3, /bench/scripts/benchmark_core.py]
+    entrypoint: [python3, /bench/tools/benchmark_core.py]
     network_mode: none
     read_only: true
     cpus: 1
@@ -11,7 +11,7 @@ services:
     tmpfs:
       - /tmp:size=512m
     volumes:
-      - ./scripts:/bench/scripts:ro
+      - ./tools:/bench/tools:ro
       - ./tests:/bench/tests:ro
-      - ./examples:/bench/examples:ro
+      - ./src/examples:/bench/src/examples:ro
       - ./build/performance:/bench/output

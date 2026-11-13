@@ -11,3 +11,6 @@ description = "Factor research using the pinned FactorTrader Indicator compiler 
 factorpool = "factorpool.runner:main"
 [tool.setuptools.packages.find]
 where = ["src"]
+include = ["factorpool*"]
+[tool.setuptools.package-data]
+factorpool = ["*.json"]

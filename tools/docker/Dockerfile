@@ -8,8 +8,8 @@ RUN cmake -S /src/engine-sdk -B /build/shared -G Ninja -DCMAKE_BUILD_TYPE=Releas
       -DCMAKE_C_COMPILER=gcc-14 -DCMAKE_CXX_COMPILER=g++-14 -DFACTORTRADER_CORE_TESTS=OFF \
       -DFACTORTRADER_DATA_MMAP_TESTS=OFF -DFACTORTRADER_MINUTE_H5_TESTS=OFF \
     && cmake --build /build/shared --parallel 4 --target factortrader_python_native_rows
-COPY research-core-cpp /src/research-core-cpp
-RUN cmake -S /src/research-core-cpp -B /build/research -G Ninja -DCMAKE_BUILD_TYPE=Release \
+COPY src/native /src/native
+RUN cmake -S /src/native -B /build/research -G Ninja -DCMAKE_BUILD_TYPE=Release \
       -DCMAKE_CXX_COMPILER=g++-14 -DFT_ROOT=/src -DFT_BUILD=/build/shared \
     && cmake --build /build/research --parallel 4 \
     && /build/research/factorpool_brain_temporal_tests
@@ -30,12 +30,11 @@ COPY --from=native-build /build/shared/language/python/binding/_native_rows.abi3
 COPY --from=native-build /build/research/_factorpool_native.so /opt/factorpool/native/
 COPY --from=native-build /build/research/_factorpool_operators.so /opt/factorpool/native/
 COPY shared/factortrader/engine-sdk/language/python /opt/factorpool/shared-python
-COPY src /opt/factorpool/src
-COPY examples /opt/factorpool/examples
-COPY docs/operators.json /opt/factorpool/docs/operators.json
+COPY src/factorpool /opt/factorpool/src/factorpool
+COPY src/examples /opt/factorpool/src/examples
 COPY tests /opt/factorpool/tests
 COPY backend/src/main/resources/schema.sql /opt/factorpool/schema.sql
-COPY docker/build-info.json /opt/factorpool/build-info.json
+COPY tools/docker/build-info.json /opt/factorpool/build-info.json
 ENV SERVER_PORT=8080 LD_LIBRARY_PATH=/opt/factorpool/shared-build/native/abi \
     PYTHONPATH=/opt/factorpool/shared-python/src:/opt/factorpool/src:/opt/factorpool/native \
     FACTORTRADER_NATIVE_LIBRARY=/opt/factorpool/shared-build/native/abi/libfactortrader_c.so \

@@ -102,7 +102,7 @@ public class Api {
   @GetMapping("/examples")
   Object examples() throws Exception {
     List<Object> out = new ArrayList<>();
-    try (var files = Files.list(Path.of("/opt/factorpool/examples/scripts"))) {
+    try (var files = Files.list(Path.of("/opt/factorpool/src/examples/scripts"))) {
       for (Path p :
            files.filter(x -> x.toString().endsWith(".py")).sorted().toList())
         out.add(Map.of("name", p.getFileName().toString(), "source_code",
@@ -113,7 +113,7 @@ public class Api {
   @GetMapping("/operators")
   Object operators() throws Exception {
     return store.json.readTree(
-        Path.of("/opt/factorpool/docs/operators.json").toFile());
+        Path.of("/opt/factorpool/src/factorpool/operators.json").toFile());
   }
   @GetMapping("/simulation-settings")
   Object simulationSettings() throws Exception {

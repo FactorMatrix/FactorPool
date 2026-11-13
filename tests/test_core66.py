@@ -62,7 +62,7 @@ class Core66Tests(unittest.TestCase):
    rows[name]=dict(close=x,high=x+1,low=x-1,open=j%2,volume=2*x+1,prev_close=x-1,total_turnover=100)
   return dict(date=f'2024-01-{t+2:02}',symbols=names,rows=rows)
  def test_every_core_name_runs_native_with_actual_values_and_readiness(self):
-  catalog=json.loads((Path(__file__).resolve().parents[1]/'docs/operators.json').read_text())
+  catalog=json.loads((Path(__file__).resolve().parents[1]/'src/factorpool/operators.json').read_text())
   self.assertEqual({item['name'] for item in catalog},set(CORE_EXPRESSIONS))
   self.assertEqual(len(CORE_EXPRESSIONS),66)
   self.assertTrue(all(item['native'] and item['pool_wiring']=='connected' for item in catalog))

@@ -49,7 +49,7 @@
         "src/factorpool/reporting/partition.py",
         "src/factorpool/reporting/pnl.py",
         "src/factorpool/reporting_options.py",
-        "research-core-cpp/src/portfolios.cpp",
+        "src/native/portfolios.cpp",
         "frontend/src/components/SimulationResults.vue"
       ],
       "scope": "本项目默认值、实际输入轴和Alpha权重路径；不是官方默认值"

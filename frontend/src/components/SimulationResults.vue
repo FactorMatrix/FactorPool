@@ -19,7 +19,7 @@ const props = defineProps({
 const emit = defineEmits(["load-snapshot", "page"]);
 const view = ref("chart"),
   period = ref("1"),
-  chartMode = ref("pnl"),
+  chartMode = ref("nav"),
   partition = ref("all");
 const periods = computed(() =>
   Object.keys(props.result?.diagnostics?.horizons || {}),
@@ -163,8 +163,8 @@ const sections = [
           <div class="section-title">
             <span><UiIcon name="chart" />Chart</span
             ><select v-if="visualization" v-model="chartMode" aria-label="结果曲线">
-              <option value="pnl">PnL · 固定 book</option>
               <option value="nav">Net value · 复利净值</option>
+              <option value="pnl">PnL · 固定 book</option>
               <option value="returns">{{ dailyPortfolio ? 'Daily returns · 日收益' : 'Period returns · 期收益' }}</option>
               <option value="monthly">Monthly returns · 月度收益</option>
               <option value="yearly">Yearly returns · 年度收益</option>
@@ -184,7 +184,8 @@ const sections = [
               result.daily.at(-1)?.date
             }}<span>{{ dailyPortfolio ? '快照日收益 · 逐日盯市' : '历史报告 · 原任务收益口径' }} · 无费用 · 缺失值 --</span>
           </div>
-          <p class="pnl-book-note">固定名义 book：{{ bookLabel }}。PnL 逐日累加，净值另按收益复利；仅名义缩放，无汇兑或实际成交。</p>
+          <p v-if="chartMode === 'nav'" class="pnl-book-note">初始净值 1，按比例权重计算收益并逐日复利；持有期内权重随价格自然漂移。</p>
+          <p v-else-if="chartMode === 'pnl'" class="pnl-book-note">固定名义 book：{{ bookLabel }}。PnL 逐日累加，净值另按收益复利；仅名义缩放，无汇兑或实际成交。</p>
         </div>
         <AlphaTrace v-else-if="view === 'trace'" :data="selected" :constraints="result.diagnostics?.alpha_constraints" />
         <FactorDiagnostics

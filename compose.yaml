@@ -6,7 +6,7 @@ services:
     environment:
       POSTGRES_USER: factorpool
       POSTGRES_DB: factorpool
-      POSTGRES_PASSWORD: ${FACTORPOOL_DB_PASSWORD:?run scripts/configure.py first}
+      POSTGRES_PASSWORD: ${FACTORPOOL_DB_PASSWORD:?run tools/configure.py first}
     volumes:
       - ${FACTORPOOL_STATE_DIR:?}/postgres:/var/lib/postgresql/data
     healthcheck:
@@ -18,7 +18,7 @@ services:
     image: factorpool/backend:${FACTORPOOL_RELEASE:?}
     build:
       context: .
-      dockerfile: docker/Dockerfile
+      dockerfile: tools/docker/Dockerfile
       args:
         FT_ENV_IMAGE: ${FT_ENV_IMAGE:-factortrader/platform:20261105-factortrader-48804c66-r1}
     restart: unless-stopped
@@ -39,7 +39,7 @@ services:
     image: factorpool/frontend:${FACTORPOOL_FRONTEND_RELEASE:-${FACTORPOOL_RELEASE:?}}
     build:
       context: .
-      dockerfile: docker/Dockerfile.frontend
+      dockerfile: tools/docker/Dockerfile.frontend
     restart: unless-stopped
     ports:
       - "${FACTORPOOL_BIND_IP:-0.0.0.0}:${FACTORPOOL_PORT:-8088}:80"

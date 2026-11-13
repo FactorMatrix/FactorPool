@@ -34,7 +34,8 @@ PyObject *ic_decay(PyObject *, PyObject *args) {
           }
         ics.push_back(correlation(a, b, minimum));
         rankics.push_back(a.size() >= static_cast<std::size_t>(minimum)
-          ? correlation(paired_factor_ranks(input, t, symbols), rank_values(b), minimum)
+          ? correlation(paired_factor_ranks(input, t, symbols),
+                        input.paired_return_ranks(h, signal, symbols), minimum)
           : missing);
       }
       Owned item{PyDict_New()};

@@ -1,1 +1,1 @@
-"""Report assembly and labels; numeric kernels stay in research-core-cpp."""
+"""Report assembly and labels; numeric kernels stay in src/native."""

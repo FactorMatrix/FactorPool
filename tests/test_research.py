@@ -107,7 +107,7 @@ class Factor(PythonIndicator):
         for frame in payload['frames']:
             for row in frame['rows'].values():
                 row.update(close=100, prev_close=100)  # Recomputing instead of using stored R would yield zero.
-        source = (ROOT/'examples/factors/low_volume.py').read_text()
+        source = (ROOT/'src/examples/factors/low_volume.py').read_text()
         request = dict(name='db-return-matrix', source_code=source, factor_class='LowVolumeFactor', factor_params={'period':3},
                        data=dict(provider='market_matrix', snapshot_id='test-db-snapshot', universe=['A', 'B', 'C'],
                                  frequency='1d', adjustment='raw', factor_start='2024-01-04', factor_end='2024-01-04'),
@@ -205,7 +205,7 @@ class Factor(PythonIndicator):
         np.testing.assert_allclose([r['value'] for r in final],[1/3,2/3,1])
 
     def test_python_callback_and_native_agree_after_warmup(self):
-        factory=load_factor(ROOT/'examples/factors/close_mean_python.py','CloseMeanPython',{'period':3})
+        factory=load_factor(ROOT/'src/examples/factors/close_mean_python.py','CloseMeanPython',{'period':3})
         adapter=IndicatorAdapter(factory());self.assertEqual(adapter.mode,'python')
         frames=fixture()['frames'][:3]
         for i,frame in enumerate(frames):
@@ -215,7 +215,7 @@ class Factor(PythonIndicator):
         self.assertEqual([r['value'] for r in rows],[2,2,2])
 
     def test_future_price_padding_never_advances_indicator_graph(self):
-        source=(ROOT/'examples/factors/low_volume.py').read_text()
+        source=(ROOT/'src/examples/factors/low_volume.py').read_text()
         request=dict(name='future-padding',source_code=source,factor_class='LowVolumeFactor',factor_params={'period':20},
                      data=dict(provider='fixture',universe='fixture',frequency='1d',adjustment='raw',factor_start='2024-01-29',factor_end='2024-01-29'),analysis=dict(groups=3,horizons=[1,5,20],decay_steps=10))
         held=[]
@@ -229,7 +229,7 @@ class Factor(PythonIndicator):
         np.testing.assert_equal(NativeVector._view(binding,state['end_time']).to_numpy(),[20240129150000]*3)
 
     def test_runner_never_constructs_engine_and_future_never_enters_factor(self):
-        source=(ROOT/'examples/factors/low_volume.py').read_text()
+        source=(ROOT/'src/examples/factors/low_volume.py').read_text()
         request=dict(name='matrix',source_code=source,factor_class='LowVolumeFactor',factor_params={'period':20},
                      data=dict(provider='fixture',universe='fixture',frequency='1d',adjustment='raw',factor_start='2024-01-29',factor_end='2024-01-29'),analysis=dict(groups=3))
         with tempfile.TemporaryDirectory() as d,patch('factortrader.Engine',side_effect=AssertionError('Trading Engine constructed')):

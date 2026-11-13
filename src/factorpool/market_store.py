@@ -1,8 +1,11 @@
 """Immutable PostgreSQL daily matrices; research tasks only read this store."""
 from contextlib import contextmanager
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from datetime import date
 import hashlib
+from itertools import chain
 import os
 import zlib
 
@@ -13,6 +16,10 @@ FIELDS = ("open", "high", "low", "close", "prev_close", "volume",
           "total_turnover", "return", "member", "is_st", "is_suspended")
 FORMAT = "factorpool-market-matrix-v1"
 MAX_CELLS = 2_000_000
+_DECODE_WORKERS = 4
+_DECODE_BYTES = 128 * 1024 * 1024
+_ROW_FIELDS = tuple(field for field in FIELDS if field not in ("member", "return"))
+_ROW_COLUMNS = np.array([FIELDS.index(field) for field in _ROW_FIELDS])
 
 
 def connect():
@@ -59,6 +66,72 @@ def decode_block(payload, sha256, row_count, symbol_count, fields=FIELDS):
             or decoder.unconsumed_tail or hashlib.sha256(raw).hexdigest() != sha256):
         raise ValueError("Market matrix block integrity check failed")
     return np.frombuffer(raw, dtype="<f8").reshape(len(FIELDS), row_count, symbol_count)
+
+
+def _decode_selected(row, symbol_count, fields, columns):
+    start, count, payload, checksum = row
+    block = decode_block(payload, checksum, count, symbol_count, fields)
+    # Drop the full-market decoded buffer inside the worker. Only requested
+    # columns cross back to the consumer, in the original block order.
+    return start, count, np.take(block, columns, axis=2)
+
+
+def _validated_blocks(rows, initial, stop, date_count):
+    """Reject invalid metadata on the cursor thread, before decompression."""
+    covered, seen = initial, False
+    for row in rows:
+        start, count = row[:2]
+        end = start + count
+        if (start < 0 or count < 1 or end > date_count
+                or (start != covered if seen else not start <= covered < end)):
+            raise ValueError("Market matrix blocks overlap or have missing dates")
+        covered, seen = min(stop, end), True
+        yield row
+    if covered != stop:
+        raise ValueError("Market matrix snapshot has missing blocks")
+
+
+def _selected_blocks(rows, symbol_count, fields, columns):
+    """Overlap bounded block decode/checksums with the read-only DB cursor."""
+    rows = iter(rows)
+    first = next(rows, None)
+    if first is None:
+        return
+    second = next(rows, None)
+    if second is None:
+        yield _decode_selected(first, symbol_count, fields, columns)
+        return
+    workers = min(_DECODE_WORKERS, os.cpu_count() or 1)
+    pending, reserved = deque(), 0
+    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="market-decode") as executor:
+        try:
+            for row in chain((first, second), rows):
+                size = len(FIELDS) * max(1, row[1]) * symbol_count * 8
+                while pending and (len(pending) >= workers or reserved + size > _DECODE_BYTES):
+                    future, previous_size = pending.popleft()
+                    reserved -= previous_size
+                    yield future.result()
+                pending.append((executor.submit(_decode_selected, row, symbol_count, fields, columns), size))
+                reserved += size
+            while pending:
+                future, _ = pending.popleft()
+                yield future.result()
+        finally:
+            for future, _ in pending:
+                future.cancel()
+
+
+def _bar_rows(values, symbols):
+    """Convert one native matrix row at a time, preserving missing-bar rules."""
+    present = np.flatnonzero(np.any(np.isfinite(values[:7]), axis=0))
+    selected = values[_ROW_COLUMNS][:, present].T
+    converted = np.where(np.isfinite(selected), selected, None).tolist()
+    rows = {}
+    for n, cells in zip(present, converted):
+        row = dict(zip(_ROW_FIELDS, cells))
+        row["value"] = row["close"]
+        rows[symbols[n]] = row
+    return rows
 
 
 def _axis(values, label):
@@ -151,14 +224,14 @@ def load(data, warmup, future, *, connection=None, pasteurization="ON"):
                 "AND start_index + row_count > %s ORDER BY start_index",
                 (snapshot_id, stop, initial),
             )
-            for start, count, payload, checksum in blocks:
+            source = _validated_blocks(blocks, initial, stop, len(dates))
+            for start, count, block in _selected_blocks(source, len(all_symbols), fields, columns):
                 end = start + count
                 if (start < 0 or count < 1 or end > len(dates)
                         or (start != covered if seen else not start <= covered < end)):
                     raise ValueError("Market matrix blocks overlap or have missing dates")
-                block = decode_block(payload, checksum, count, len(all_symbols), fields)
                 left, right = max(initial, start), min(stop, end)
-                matrices[:, left - initial:right - initial] = block[:, left - start:right - start, :][:, :, columns]
+                matrices[:, left - initial:right - initial] = block[:, left - start:right - start]
                 covered = right
                 seen = True
         if covered != stop:
@@ -177,14 +250,7 @@ def load(data, warmup, future, *, connection=None, pasteurization="ON"):
             continue
         axis = ([s for n, s in enumerate(selected) if matrices[8, t, n] > 0]
                 if dynamic else selected.copy())
-        rows = {}
-        for n, symbol in enumerate(selected):
-            if not np.any(np.isfinite(matrices[:7, t, n])):
-                continue
-            row = {field: (float(matrices[k, t, n]) if np.isfinite(matrices[k, t, n]) else None)
-                   for k, field in enumerate(FIELDS) if field not in ("member", "return")}
-            row["value"] = row["close"]
-            rows[symbol] = row
+        rows = _bar_rows(matrices[:, t], selected)
         frames.append(dict(date=day, session_index=initial+t, symbols=axis, rows=rows))
     return dict(provider="market_matrix", adjustment="raw", symbols=selected,
                 frames=frames, returns=np.ascontiguousarray(matrices[7]),
@@ -222,6 +288,9 @@ def _load_unpasteurized(conn, snapshot_id, manifest, all_symbols, dates, fields,
             "Pasteurization OFF calculation and research input exceeds 2,000,000 cells; narrow dates/universe")
     calculation = np.full((len(FIELDS), historical_days, len(calculation_columns)), np.nan)
     returns = np.full((total_days, len(columns)), np.nan)
+    read_columns = np.union1d(calculation_columns, columns)
+    return_columns = np.searchsorted(read_columns, columns)
+    input_columns = np.searchsorted(read_columns, calculation_columns)
     covered, seen = initial, False
     with conn.cursor(name="factorpool_market_blocks", binary=True) as blocks:
         blocks.itersize = 1
@@ -231,18 +300,18 @@ def _load_unpasteurized(conn, snapshot_id, manifest, all_symbols, dates, fields,
             "AND start_index + row_count > %s ORDER BY start_index",
             (snapshot_id, stop, initial),
         )
-        for start, count, payload, checksum in blocks:
+        source = _validated_blocks(blocks, initial, stop, len(dates))
+        for start, count, block in _selected_blocks(source, len(all_symbols), fields, read_columns):
             end = start + count
             if (start < 0 or count < 1 or end > len(dates)
                     or (start != covered if seen else not start <= covered < end)):
                 raise ValueError("Market matrix blocks overlap or have missing dates")
-            block = decode_block(payload, checksum, count, len(all_symbols), fields)
             left, right = max(initial, start), min(stop, end)
-            returns[left-initial:right-initial] = block[7, left-start:right-start, :][:, columns]
+            returns[left-initial:right-initial] = block[7, left-start:right-start, :][:, return_columns]
             historical_right = min(finish, end)
             if left < historical_right:
                 calculation[:, left-initial:historical_right-initial] = (
-                    block[:, left-start:historical_right-start, :][:, :, calculation_columns])
+                    block[:, left-start:historical_right-start, :][:, :, input_columns])
             covered, seen = right, True
     if covered != stop:
         raise ValueError("Market matrix snapshot has missing blocks")
@@ -264,14 +333,7 @@ def _load_unpasteurized(conn, snapshot_id, manifest, all_symbols, dates, fields,
         research_axis = ([symbol for symbol, column in zip(selected, research_columns)
                           if calculation[8, t, column] > 0]
                          if dynamic else selected.copy())
-        rows = {}
-        for n, symbol in enumerate(calculation_symbols):
-            if not np.any(np.isfinite(calculation[:7, t, n])):
-                continue
-            row = {field: (float(calculation[k, t, n]) if np.isfinite(calculation[k, t, n]) else None)
-                   for k, field in enumerate(FIELDS) if field not in ("member", "return")}
-            row["value"] = row["close"]
-            rows[symbol] = row
+        rows = _bar_rows(calculation[:, t], calculation_symbols)
         frames.append(dict(date=day, session_index=initial+t, symbols=axis, rows=rows, research_symbols=research_axis))
     return dict(provider="market_matrix", adjustment="raw", symbols=selected,
                 frames=frames, returns=np.ascontiguousarray(returns),

@@ -1,0 +1,6 @@
+{
+  "ui_contract": "brain-workbench-1",
+  "api_report_version": 3,
+  "frontend_source_sha256": "4bce8ad99d5a34589f2ee86699bcca3fd9c28b1195194b4e23d80799dfc486be",
+  "backend_build": "8ab51426e698aaf04e537245b56cede83027728b2778d012d93504ffafe80ab8"
+}

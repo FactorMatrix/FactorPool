@@ -77,9 +77,26 @@ const asPercent = value => value == null ? '--' : (value*100).toFixed(2)+'%'
 const firstHorizon = fullResult.diagnostics.horizons['1']
 assert.equal(await returnCard.innerText(), asPercent(firstHorizon.partitions.train.alpha.brain_style.returns))
 await page.locator('.simulation-chart-panel .report-chart').waitFor()
+assert.equal(await page.getByLabel('结果曲线', {exact:true}).inputValue(), 'nav')
+assert.match(await page.locator('.simulation-chart-panel .pnl-book-note').innerText(), /初始净值 1/)
+// The unit-NAV anchor must be rendered in each independently rebased partition.
+async function checkNavAnchor(dates) {
+  const plot = page.locator('.simulation-chart-panel .report-chart')
+  const box = await plot.boundingBox()
+  await plot.hover({position:{x:55+(box.width-110)/(2*(dates.length+1)), y:150}})
+  await page.waitForTimeout(350)
+  const tooltip = await plot.innerText()
+  assert.match(tooltip, /初始/)
+  assert.match(tooltip, /复利净值/)
+  assert.match(tooltip, /1/)
+}
+await checkNavAnchor(firstHorizon.partitions.train.dates)
+await page.screenshot({path:`${output}/workbench-unit-nav.png`, fullPage:true})
 await validation.selectOption('test')
+await checkNavAnchor(firstHorizon.partitions.test.dates)
 assert.equal(await returnCard.innerText(), asPercent(firstHorizon.partitions.test.alpha.brain_style.returns))
 await validation.selectOption('all')
+await checkNavAnchor(firstHorizon.portfolio_dates)
 assert.equal(await returnCard.innerText(), asPercent(firstHorizon.portfolios.alpha.brain_style.returns))
 assert.deepEqual((await (await page.request.get(`${base}/api/tasks/${taskId}/result`)).json()).daily, fullResult.daily)
 const metrics = await page.locator('.metrics strong').allTextContents()

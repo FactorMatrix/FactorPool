@@ -122,6 +122,49 @@ const Matrix &ResearchInput::forward(int h) const {
   }
   return forwards_.emplace(h, std::move(result)).first->second;
 }
+std::vector<double> ResearchInput::paired_return_ranks(
+    int h, std::size_t row, const std::vector<std::size_t> &symbols) const {
+  if (symbols.empty())
+    return {};
+  const auto &values = forward(h);
+  auto [entry, inserted] = return_orders_.try_emplace(h);
+  auto &cache = entry->second;
+  if (inserted) {
+    cache.rows.resize(values.size());
+    cache.ready.resize(values.size(), 0);
+  }
+  auto &order = cache.rows[row];
+  if (!cache.ready[row]) {
+    order.reserve(values.columns());
+    for (std::size_t n = 0; n < values.columns(); ++n)
+      if (std::isfinite(values[row][n]))
+        order.push_back(n);
+    std::sort(order.begin(), order.end(),
+              [&](auto a, auto b) { return values[row][a] < values[row][b]; });
+    cache.ready[row] = 1;
+  }
+  // The membership/factor mask belongs to the original signal, not this
+  // possibly lagged return row. Filtering before assigning ranks preserves
+  // sample-dependent ties and the original paired-symbol order exactly.
+  const auto absent = std::numeric_limits<std::size_t>::max();
+  std::vector<std::size_t> positions(values.columns(), absent), filtered;
+  filtered.reserve(symbols.size());
+  for (std::size_t i = 0; i < symbols.size(); ++i)
+    positions[symbols[i]] = i;
+  for (auto n : order)
+    if (positions[n] != absent)
+      filtered.push_back(n);
+  std::vector<double> ranks(symbols.size());
+  for (std::size_t i = 0; i < filtered.size();) {
+    auto j = i + 1;
+    while (j < filtered.size() && values[row][filtered[i]] == values[row][filtered[j]])
+      ++j;
+    for (auto k = i; k < j; ++k)
+      ranks[positions[filtered[k]]] = (i + j - 1) / 2.0 + 1;
+    i = j;
+  }
+  return ranks;
+}
 InputRef::InputRef(PyObject *factor, PyObject *daily_returns, PyObject *membership) {
   if (PyCapsule_IsValid(factor, capsule_name)) {
     if (daily_returns != Py_None || (membership && membership != Py_None))
@@ -200,7 +243,8 @@ PyObject *ic_series(PyObject *, PyObject *args) {
       }
       ics.push_back(correlation(a, b, minimum));
       rankics.push_back(a.size() >= static_cast<std::size_t>(minimum)
-        ? correlation(paired_factor_ranks(input, t, symbols), rank_values(b), minimum)
+        ? correlation(paired_factor_ranks(input, t, symbols),
+                      input.paired_return_ranks(h, t, symbols), minimum)
         : missing);
     }
     Owned out{PyDict_New()};

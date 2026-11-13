@@ -85,6 +85,8 @@ function draw() {
   } else if (p) {
     option.xAxis.data = portfolioDates;
     if (props.mode === "nav") {
+      // A display anchor keeps every partition on the same unit-NAV basis.
+      option.xAxis.data = ["初始", ...(portfolioDates || [])];
       option.yAxis = [
         base.yAxis,
         {
@@ -102,7 +104,7 @@ function draw() {
           type: "line",
           showSymbol: portfolioDates?.length < 20,
           connectNulls: false,
-          data: p.nav,
+          data: [1, ...p.nav],
         },
         {
           name: "回撤",
@@ -110,7 +112,7 @@ function draw() {
           yAxisIndex: 1,
           showSymbol: portfolioDates?.length < 20,
           areaStyle: { opacity: 0.2 },
-          data: p.drawdown_series,
+          data: [0, ...p.drawdown_series],
         },
       ];
     } else if (props.mode === "pnl") {

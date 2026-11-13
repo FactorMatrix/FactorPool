@@ -46,7 +46,7 @@
     "official_parity": "not_verified",
     "catalog_source": "BRAIN",
     "brain_category": "算术",
-    "source_path": "research-core-cpp/src/brain_cross.cpp",
+    "source_path": "src/native/brain_cross.cpp",
     "contract": "按同日有限唯一值升序编码为0..N-1，缺失保留；编码随截面变化，不是永久证券或行业编号"
   },
   {
@@ -439,7 +439,7 @@
     "official_parity": "not_verified",
     "catalog_source": "BRAIN",
     "brain_category": "时序",
-    "source_path": "research-core-cpp/src/brain_temporal.cpp",
+    "source_path": "src/native/brain_temporal.cpp",
     "contract": "有限值首次出现或变化时为0，连续相同值逐帧递增；默认日历模式的缺失会断开连续段"
   },
   {
@@ -457,7 +457,7 @@
     "official_parity": "not_verified",
     "catalog_source": "BRAIN",
     "brain_category": "时序",
-    "source_path": "research-core-cpp/src/brain_temporal.cpp",
+    "source_path": "src/native/brain_temporal.cpp",
     "contract": "阈值=hump*当日有效截面abs_sum；小变化保持，大变化每期最多移动阈值，按股票保存历史输出"
   },
   {
@@ -475,7 +475,7 @@
     "official_parity": "not_verified",
     "catalog_source": "BRAIN",
     "brain_category": "时序",
-    "source_path": "research-core-cpp/src/brain_temporal.cpp",
+    "source_path": "src/native/brain_temporal.cpp",
     "contract": "从最近向最旧取第k个未被ignore排除的观测，不是窗口第k小；ignore可指定NaN和有限数值"
   },
   {
@@ -493,7 +493,7 @@
     "official_parity": "not_verified",
     "catalog_source": "BRAIN",
     "brain_category": "时序",
-    "source_path": "research-core-cpp/src/brain_temporal.cpp",
+    "source_path": "src/native/brain_temporal.cpp",
     "contract": "窗口内从近到远找最近一个与当前值不同的有限值；当前缺失或无不同值则不可用"
   },
   {
@@ -511,7 +511,7 @@
     "official_parity": "not_verified",
     "catalog_source": "BRAIN",
     "brain_category": "时序",
-    "source_path": "research-core-cpp/src/brain_temporal.cpp",
+    "source_path": "src/native/brain_temporal.cpp",
     "contract": "返回极大值距当前帧的距离，当前为0，并列选择最近一次"
   },
   {
@@ -529,7 +529,7 @@
     "official_parity": "not_verified",
     "catalog_source": "BRAIN",
     "brain_category": "时序",
-    "source_path": "research-core-cpp/src/brain_temporal.cpp",
+    "source_path": "src/native/brain_temporal.cpp",
     "contract": "返回极小值距当前帧的距离，当前为0，并列选择最近一次"
   },
   {
@@ -563,7 +563,7 @@
     "official_parity": "not_verified",
     "catalog_source": "BRAIN",
     "brain_category": "时序",
-    "source_path": "research-core-cpp/src/brain_temporal.cpp",
+    "source_path": "src/native/brain_temporal.cpp",
     "contract": "窗口包含当前点，按从近到远取第k个有限值；找不到则不可用"
   },
   {
@@ -581,7 +581,7 @@
     "official_parity": "not_verified",
     "catalog_source": "BRAIN",
     "brain_category": "时序",
-    "source_path": "research-core-cpp/src/brain_temporal.cpp",
+    "source_path": "src/native/brain_temporal.cpp",
     "contract": "窗口内成对有限样本的Pearson相关；至少2对且双方方差为正，否则不可用"
   },
   {
@@ -599,7 +599,7 @@
     "official_parity": "not_verified",
     "catalog_source": "BRAIN",
     "brain_category": "时序",
-    "source_path": "research-core-cpp/src/brain_temporal.cpp",
+    "source_path": "src/native/brain_temporal.cpp",
     "contract": "统计窗口NaN槽数；Inf不计作NaN并使该次结果不可用"
   },
   {
@@ -617,7 +617,7 @@
     "official_parity": "not_verified",
     "catalog_source": "BRAIN",
     "brain_category": "时序",
-    "source_path": "research-core-cpp/src/brain_temporal.cpp",
+    "source_path": "src/native/brain_temporal.cpp",
     "contract": "成对有限样本的总体协方差，分母为有效配对数N；没有配对不可用"
   },
   {
@@ -703,7 +703,7 @@
     "official_parity": "not_verified",
     "catalog_source": "BRAIN",
     "brain_category": "时序",
-    "source_path": "research-core-cpp/src/brain_temporal.cpp",
+    "source_path": "src/native/brain_temporal.cpp",
     "contract": "要求窗口所有值有限后相乘；NaN、Inf或乘积溢出不可用"
   },
   {
@@ -721,7 +721,7 @@
     "official_parity": "not_verified",
     "catalog_source": "BRAIN",
     "brain_category": "时序",
-    "source_path": "research-core-cpp/src/brain_temporal.cpp",
+    "source_path": "src/native/brain_temporal.cpp",
     "contract": "p=(当前值之前的较小样本数+相等样本数/2)/有效N，再按driver逆分布映射"
   },
   {
@@ -739,7 +739,7 @@
     "official_parity": "not_verified",
     "catalog_source": "BRAIN",
     "brain_category": "时序",
-    "source_path": "research-core-cpp/src/brain_temporal.cpp",
+    "source_path": "src/native/brain_temporal.cpp",
     "contract": "当前值的窗口端点排名，平均并列名次映射0..1后加constant；单样本为0.5+constant"
   },
   {
@@ -757,7 +757,7 @@
     "official_parity": "not_verified",
     "catalog_source": "BRAIN",
     "brain_category": "时序",
-    "source_path": "research-core-cpp/src/brain_temporal.cpp",
+    "source_path": "src/native/brain_temporal.cpp",
     "contract": "输入顺序为y,x；正lag配对当前y与过去x。rettype0..9；MSE分母N-2，需N>2"
   },
   {
@@ -808,7 +808,7 @@
     "official_parity": "not_verified",
     "catalog_source": "BRAIN",
     "brain_category": "时序",
-    "source_path": "research-core-cpp/src/brain_temporal.cpp",
+    "source_path": "src/native/brain_temporal.cpp",
     "contract": "按程序收到的帧数输出步长倍数，从第一帧的step值开始，不是自然日期编号"
   },
   {
@@ -875,7 +875,7 @@
     "official_parity": "not_verified",
     "catalog_source": "BRAIN",
     "brain_category": "截面",
-    "source_path": "research-core-cpp/src/brain_cross.cpp",
+    "source_path": "src/native/brain_cross.cpp",
     "contract": "截面端点rank r映射p=1/N+r*(1-2/N)，再取driver逆分布并乘sigma"
   },
   {
@@ -926,7 +926,7 @@
     "official_parity": "not_verified",
     "catalog_source": "BRAIN",
     "brain_category": "截面",
-    "source_path": "research-core-cpp/src/brain_cross.cpp",
+    "source_path": "src/native/brain_cross.cpp",
     "contract": "按有效截面总体均值和标准差将数值裁剪到mean±std*sd，保留原证券轴"
   },
   {
@@ -961,7 +961,7 @@
     "official_parity": "not_verified",
     "catalog_source": "BRAIN",
     "brain_category": "向量",
-    "source_path": "research-core-cpp/src/brain_cross.cpp",
+    "source_path": "src/native/brain_cross.cpp",
     "contract": "逐证券对分量表达式求均值，跳过NaN分量；没有有限分量或含Inf则不可用，不沿股票轴求均值"
   },
   {
@@ -979,7 +979,7 @@
     "official_parity": "not_verified",
     "catalog_source": "BRAIN",
     "brain_category": "向量",
-    "source_path": "research-core-cpp/src/brain_cross.cpp",
+    "source_path": "src/native/brain_cross.cpp",
     "contract": "逐证券对分量表达式求和，跳过NaN分量；没有有限分量或含Inf则不可用，不沿股票轴求和"
   },
   {
@@ -997,7 +997,7 @@
     "official_parity": "not_verified",
     "catalog_source": "BRAIN",
     "brain_category": "转换",
-    "source_path": "research-core-cpp/src/brain_cross.cpp",
+    "source_path": "src/native/brain_cross.cpp",
     "contract": "buckets阈值右闭；range模式默认隐藏区间外桶且右闭，起点保留为首桶。NaNGroup可输出独立缺失桶"
   },
   {
@@ -1015,7 +1015,7 @@
     "official_parity": "not_verified",
     "catalog_source": "BRAIN",
     "brain_category": "转换",
-    "source_path": "research-core-cpp/src/brain_cross.cpp",
+    "source_path": "src/native/brain_cross.cpp",
     "contract": "exit>0优先清空；否则trigger>0更新为value，其余保持上次输出；首次无触发保持不可用"
   },
   {
@@ -1033,7 +1033,7 @@
     "official_parity": "not_verified",
     "catalog_source": "BRAIN",
     "brain_category": "分组",
-    "source_path": "research-core-cpp/src/brain_cross.cpp",
+    "source_path": "src/native/brain_cross.cpp",
     "contract": "当前值有限则保留；缺失时用当前分组对应的历史窗口有限样本作winsorized算术均值补全"
   },
   {
@@ -1051,7 +1051,7 @@
     "official_parity": "not_verified",
     "catalog_source": "BRAIN",
     "brain_category": "分组",
-    "source_path": "research-core-cpp/src/brain_cross.cpp",
+    "source_path": "src/native/brain_cross.cpp",
     "contract": "按非负有效权重计算组内加权算术均值；有效权重和须为正，不是调和均值"
   },
   {
@@ -1101,7 +1101,7 @@
     "official_parity": "not_verified",
     "catalog_source": "BRAIN",
     "brain_category": "分组",
-    "source_path": "research-core-cpp/src/brain_cross.cpp",
+    "source_path": "src/native/brain_cross.cpp",
     "contract": "组内按(min,max)极差映射0..1；常量和单样本组不可用"
   },
   {
@@ -1119,7 +1119,7 @@
     "official_parity": "not_verified",
     "catalog_source": "BRAIN",
     "brain_category": "分组",
-    "source_path": "research-core-cpp/src/brain_cross.cpp",
+    "source_path": "src/native/brain_cross.cpp",
     "contract": "组内使用总体标准差做标准分；常量和单样本组不可用"
   }
 ]
