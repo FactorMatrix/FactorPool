@@ -25,15 +25,93 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      data-service:
+        condition: service_healthy
     environment:
       SERVER_PORT: 8080
       FACTORPOOL_DB_PASSWORD: ${FACTORPOOL_DB_PASSWORD}
       FACTORPOOL_MAX_CONCURRENT: ${FACTORPOOL_MAX_CONCURRENT:-1}
       FACTORPOOL_TIMEOUT_SECONDS: ${FACTORPOOL_TIMEOUT_SECONDS:-1800}
-    volumes:
-      - ${FACTORPOOL_STATE_DIR:?}/tasks:/data/tasks
-    mem_limit: 4g
-    cpus: 4
+      FACTORPOOL_INTERNAL_TOKEN: ${FACTORPOOL_INTERNAL_TOKEN:?run tools/configure.py first}
+      FACTORPOOL_DATA_SERVICE_ADDR: ${FACTORPOOL_DATA_SERVICE_ADDR:-data-service:50051}
+      FACTORPOOL_LEASE_SECONDS: ${FACTORPOOL_LEASE_SECONDS:-30}
+      FACTORPOOL_MAX_ATTEMPTS: ${FACTORPOOL_MAX_ATTEMPTS:-3}
+      FACTORPOOL_MAX_QUEUED: ${FACTORPOOL_MAX_QUEUED:-1000}
+      FACTORPOOL_DATA_TIMEOUT_SECONDS: ${FACTORPOOL_DATA_TIMEOUT_SECONDS:-30}
+    mem_limit: 1g
+    cpus: 1
+    stop_grace_period: 30s
+  redis:
+    image: redis:7.4.12-alpine
+    restart: unless-stopped
+    command: [redis-server, --maxmemory, "${FACTORPOOL_REDIS_MAXMEMORY:-1gb}", --maxmemory-policy, allkeys-lru, --save, "", --appendonly, "no"]
+    mem_limit: ${FACTORPOOL_REDIS_MEMORY_LIMIT:-1536m}
+    cpus: 1
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 5s
+      timeout: 2s
+      retries: 10
+  data-service:
+    image: factorpool/data-service:${FACTORPOOL_RELEASE:?}
+    build:
+      context: .
+      dockerfile: services/data_service/Dockerfile
+      args:
+        FT_ENV_IMAGE: ${FT_ENV_IMAGE:-factortrader/platform:20261105-factortrader-48804c66-r1}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      FACTORPOOL_DB_PASSWORD: ${FACTORPOOL_DB_PASSWORD}
+      FACTORPOOL_INTERNAL_TOKEN: ${FACTORPOOL_INTERNAL_TOKEN:?}
+      FACTORPOOL_REDIS_URL: ${FACTORPOOL_REDIS_URL:-redis://redis:6379/0}
+      FACTORPOOL_CACHE_ENABLED: ${FACTORPOOL_CACHE_ENABLED:-true}
+      FACTORPOOL_CACHE_CODEC: ${FACTORPOOL_CACHE_CODEC:-raw}
+      FACTORPOOL_CACHE_TILE_SYMBOLS: ${FACTORPOOL_CACHE_TILE_SYMBOLS:-1024}
+      FACTORPOOL_CACHE_CHUNK_MAX_BYTES: ${FACTORPOOL_CACHE_CHUNK_MAX_BYTES:-4194304}
+      FACTORPOOL_CACHE_BATCH_MAX_BYTES: ${FACTORPOOL_CACHE_BATCH_MAX_BYTES:-33554432}
+      FACTORPOOL_CACHE_TTL_SECONDS: ${FACTORPOOL_CACHE_TTL_SECONDS:-86400}
+      FACTORPOOL_REDIS_CONNECT_TIMEOUT_SECONDS: ${FACTORPOOL_REDIS_CONNECT_TIMEOUT_SECONDS:-0.2}
+      FACTORPOOL_REDIS_TIMEOUT_SECONDS: ${FACTORPOOL_REDIS_TIMEOUT_SECONDS:-0.5}
+      FACTORPOOL_REDIS_POOL_SIZE: ${FACTORPOOL_REDIS_POOL_SIZE:-16}
+    mem_limit: 2g
+    cpus: 2
+    stop_grace_period: 30s
+  worker-service:
+    image: factorpool/worker-service:${FACTORPOOL_RELEASE:?}
+    build:
+      context: .
+      dockerfile: tools/docker/Dockerfile
+      target: worker
+      args:
+        FT_ENV_IMAGE: ${FT_ENV_IMAGE:-factortrader/platform:20261105-factortrader-48804c66-r1}
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+      data-service:
+        condition: service_healthy
+    environment:
+      FACTORPOOL_INTERNAL_TOKEN: ${FACTORPOOL_INTERNAL_TOKEN:?}
+      FACTORPOOL_BACKEND_URL: ${FACTORPOOL_BACKEND_URL:-http://backend:8080}
+      FACTORPOOL_DATA_SERVICE_ADDR: ${FACTORPOOL_DATA_SERVICE_ADDR:-data-service:50051}
+      FACTORPOOL_REDIS_URL: ${FACTORPOOL_REDIS_URL:-redis://redis:6379/0}
+      FACTORPOOL_CACHE_ENABLED: ${FACTORPOOL_CACHE_ENABLED:-true}
+      FACTORPOOL_CACHE_CODEC: ${FACTORPOOL_CACHE_CODEC:-raw}
+      FACTORPOOL_CACHE_TILE_SYMBOLS: ${FACTORPOOL_CACHE_TILE_SYMBOLS:-1024}
+      FACTORPOOL_CACHE_CHUNK_MAX_BYTES: ${FACTORPOOL_CACHE_CHUNK_MAX_BYTES:-4194304}
+      FACTORPOOL_CACHE_BATCH_MAX_BYTES: ${FACTORPOOL_CACHE_BATCH_MAX_BYTES:-33554432}
+      FACTORPOOL_REDIS_CONNECT_TIMEOUT_SECONDS: ${FACTORPOOL_REDIS_CONNECT_TIMEOUT_SECONDS:-0.2}
+      FACTORPOOL_REDIS_TIMEOUT_SECONDS: ${FACTORPOOL_REDIS_TIMEOUT_SECONDS:-0.5}
+      FACTORPOOL_REDIS_POOL_SIZE: ${FACTORPOOL_REDIS_POOL_SIZE:-16}
+      FACTORPOOL_DATA_TIMEOUT_SECONDS: ${FACTORPOOL_DATA_TIMEOUT_SECONDS:-30}
+      FACTORPOOL_WORKER_CONCURRENCY: ${FACTORPOOL_WORKER_CONCURRENCY:-1}
+    tmpfs:
+      - /tmp:size=${FACTORPOOL_WORKER_TMP_LIMIT:-768m},uid=1000,gid=1000,mode=1777
+    mem_limit: ${FACTORPOOL_WORKER_MEMORY_LIMIT:-4g}
+    cpus: ${FACTORPOOL_WORKER_CPUS:-4}
     stop_grace_period: 30s
   frontend:
     image: factorpool/frontend:${FACTORPOOL_FRONTEND_RELEASE:-${FACTORPOOL_RELEASE:?}}
@@ -48,8 +126,8 @@ services:
         condition: service_healthy
   market-import:
     profiles: [tools]
-    image: factorpool/backend:${FACTORPOOL_RELEASE:?}
-    entrypoint: [python3, -m, factorpool.bundle_import]
+    image: factorpool/data-service:${FACTORPOOL_RELEASE:?}
+    entrypoint: [python3, -m, services.data_service.importers.bundle]
     command: [--root, /data/bundle]
     environment:
       FACTORPOOL_DB_PASSWORD: ${FACTORPOOL_DB_PASSWORD}

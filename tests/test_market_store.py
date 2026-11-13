@@ -9,8 +9,8 @@ import zlib
 
 import h5py
 import numpy as np
-from factorpool.market_store import FIELDS, pack_block, decode_block
-from factorpool.bundle_import import scan_bundle, iter_blocks
+from factorpool.data_client.contract import FIELDS, pack_block, decode_block
+from services.data_service.importers.bundle import scan_bundle, iter_blocks
 
 
 STOCK_DTYPE = np.dtype([('datetime', '<i8'), ('open', '<f8'), ('close', '<f8'),

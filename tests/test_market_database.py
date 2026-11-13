@@ -11,8 +11,14 @@ import uuid
 
 import h5py
 import numpy as np
-from factorpool.bundle_import import import_bundle, iter_blocks, scan_bundle
-from factorpool.market_store import FIELDS, connect, decode_block, load, pack_block, transaction
+from services.data_service.importers.bundle import import_bundle, iter_blocks, scan_bundle
+from factorpool.data_client.contract import FIELDS, decode_block, pack_block
+from services.data_service.postgres import connect, transaction
+from services.data_service.postgres.market import PostgresMarketSource
+from factorpool.market_loader import load as remote_load
+
+def load(*args, connection=None, **kwargs):
+    return remote_load(*args, source=PostgresMarketSource(connection), **kwargs)
 from test_market_store import bundle_sha256, no_trade_bundle, synthetic_bundle
 
 
@@ -192,7 +198,7 @@ class MarketDatabaseTests(unittest.TestCase):
                 if index == 1:
                     raise RuntimeError('Synthetic import interruption')
                 yield block
-        with patch('factorpool.bundle_import.iter_blocks', side_effect=interrupted):
+        with patch('services.data_service.importers.bundle.iter_blocks', side_effect=interrupted):
             with self.assertRaisesRegex(RuntimeError, 'Synthetic import interruption'):
                 import_bundle(self.root, connection=self.connection, block_days=1)
         self.assertEqual(self.counts(), (0, 0))

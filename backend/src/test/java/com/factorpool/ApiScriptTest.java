@@ -13,7 +13,7 @@ class ApiScriptTest {
   final ObjectMapper json = new ObjectMapper();
   final ScriptResolver scripts = mock(ScriptResolver.class);
   final Store store = new Store(mock(JdbcTemplate.class), json,
-      mock(PlatformTransactionManager.class), scripts);
+      mock(PlatformTransactionManager.class), scripts,mock(DataClient.class));
 
   @Test
   void resolveEndpointAcceptsSourceWithoutExternalFactorClass() throws Exception {

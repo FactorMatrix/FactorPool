@@ -22,6 +22,11 @@ management:
       probes:
         enabled: true
 factorpool:
-  task-root: ${FACTORPOOL_TASK_ROOT:/data/tasks}
   max-concurrent: ${FACTORPOOL_MAX_CONCURRENT:1}
   timeout-seconds: ${FACTORPOOL_TIMEOUT_SECONDS:1800}
+  lease-seconds: ${FACTORPOOL_LEASE_SECONDS:30}
+  max-attempts: ${FACTORPOOL_MAX_ATTEMPTS:3}
+  max-queued: ${FACTORPOOL_MAX_QUEUED:1000}
+  internal-token: ${FACTORPOOL_INTERNAL_TOKEN}
+  data-service-address: ${FACTORPOOL_DATA_SERVICE_ADDR:data-service:50051}
+  data-timeout-seconds: ${FACTORPOOL_DATA_TIMEOUT_SECONDS:10}

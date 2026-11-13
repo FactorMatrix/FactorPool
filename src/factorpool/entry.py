@@ -73,14 +73,10 @@ class PythonIndicator(SharedPythonIndicator):
             raise ValueError("run(config) must match this script's literal config and entry class")
         request = dict(name=cls.__name__, source_code=source, **parsed)
         if request["data"]["provider"] == "market_matrix":
-            from .market_store import transaction
-            requested = request["data"].get("snapshot_id")
-            with transaction(readonly=True) as connection:
-                row = (connection.execute("SELECT id FROM market_snapshots WHERE id=%s", (requested,)).fetchone()
-                       if requested else connection.execute("SELECT id FROM market_snapshots ORDER BY created_at DESC,id DESC LIMIT 1").fetchone())
-            if row is None:
-                raise ValueError("Market snapshot is unavailable; import a snapshot explicitly first")
-            request["data"]["snapshot_id"] = row[0]
+            from .data_client import DataClient
+            with DataClient() as client:
+                snapshot = client.snapshot(request["data"].get("snapshot_id"))
+            request["data"]["snapshot_id"] = snapshot["snapshot_id"]
         request["effective_config"] = effective_config(request)
         # The class is already loaded. Reuse it rather than reimporting the file
         # and accidentally evaluating the user's module a second time.

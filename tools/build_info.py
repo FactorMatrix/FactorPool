@@ -6,9 +6,9 @@ import hashlib
 import json
 root=Path(__file__).resolve().parents[1]
 paths=[]
-for name in ('src','backend/src','frontend/src','tests','tools'):
+for name in ('src','backend/src','frontend/src','tests','tools','services','shared/contracts'):
     paths.extend(p for p in (root/name).rglob('*') if p.is_file() and '__pycache__' not in p.parts and p.name not in ('build-info.json', 'frontend-build-info.json'))
-for name in ('pyproject.toml','backend/pom.xml','frontend/package.json','frontend/package-lock.json','frontend/vite.config.js','compose.yaml','compose.test.yaml','compose.benchmark.yaml'):
+for name in ('pyproject.toml','backend/pom.xml','frontend/package.json','frontend/package-lock.json','frontend/vite.config.js','compose.yaml','compose.test.yaml','compose.benchmark.yaml','compose.services-test.yaml'):
     paths.append(root/name)
 digest=hashlib.sha256()
 for path in sorted(paths):

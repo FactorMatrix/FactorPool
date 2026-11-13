@@ -260,7 +260,7 @@ if __name__ == "__main__":
             def capture(indicator):
                 adapter = IndicatorAdapter(indicator); adapter.binding = Mock(wraps=adapter.binding); held.append(adapter); return adapter
             with tempfile.TemporaryDirectory() as temporary, \
-                    patch('factorpool.market_store.load', return_value=payload) as load, \
+                    patch('factorpool.market_loader.load', return_value=payload) as load, \
                     patch('factorpool.factor_matrix.IndicatorAdapter', side_effect=capture), \
                     patch('factortrader.Engine', side_effect=AssertionError('Trading Engine constructed')):
                 directory = Path(temporary)

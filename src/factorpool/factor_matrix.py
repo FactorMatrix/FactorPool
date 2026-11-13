@@ -3,7 +3,7 @@ import json
 import numpy as np
 
 from .adapter import IndicatorAdapter
-from .market_store import FIELDS
+from .data_client.contract import FIELDS
 PRICE_FIELDS = frozenset(("open", "high", "low", "close", "value", "prev_close"))
 
 

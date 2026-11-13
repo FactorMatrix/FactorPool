@@ -15,12 +15,16 @@ public class Store {
   final ObjectMapper json;
   final TransactionTemplate tx;
   final ScriptResolver scripts;
+  final DataClient data;
+  @org.springframework.beans.factory.annotation.Value("${factorpool.max-queued:1000}")
+  int maxQueued=1000;
   Store(JdbcTemplate db, ObjectMapper json,
-        PlatformTransactionManager manager, ScriptResolver scripts) {
+        PlatformTransactionManager manager, ScriptResolver scripts, DataClient data) {
     this.db = db;
     this.json = json;
     this.tx = new TransactionTemplate(manager);
     this.scripts = scripts;
+    this.data = data;
   }
   JsonNode parse(String source) {
     try {
@@ -95,6 +99,9 @@ public class Store {
     return tx.execute(status -> insertTask(normalized, batch, null));
   }
   UUID insertTask(ObjectNode normalized, UUID batch, String defaultSnapshot) {
+    db.execute("SELECT pg_advisory_xact_lock(194736281)");
+    Integer queued=db.queryForObject("SELECT count(*) FROM research_tasks WHERE status='QUEUED'",Integer.class);
+    if (queued!=null && queued>=maxQueued) throw new IllegalStateException("Research queue is full");
     ObjectNode pinned = normalized.deepCopy();
     pinned.set("data", pinMarketData(normalized.path("data"), defaultSnapshot));
     ((ObjectNode)pinned.path("data")).put("factor_price", "quote_adjusted");
@@ -140,14 +147,12 @@ public class Store {
       pinned.put("snapshot_id", defaultSnapshot);
       return pinned;
     }
-    var snapshots = requested.isBlank()
-        ? db.queryForList("SELECT id FROM market_snapshots ORDER BY created_at DESC,id DESC LIMIT 1")
-        : db.queryForList("SELECT id FROM market_snapshots WHERE id=?", requested);
-    if (snapshots.isEmpty())
+    var snapshot = this.data.snapshot(requested);
+    if (snapshot == null)
       throw new IllegalArgumentException(requested.isBlank()
           ? "No market matrix snapshot is available. Import a snapshot explicitly first; tasks never import or refresh market data."
           : "Market matrix snapshot does not exist: " + requested);
-    pinned.put("snapshot_id", snapshots.get(0).get("id").toString());
+    pinned.put("snapshot_id", snapshot.path("snapshot_id").asText());
     return pinned;
   }
 
@@ -201,18 +206,16 @@ public class Store {
     source.put("synthetic", false);
     source.set("frequency", json.valueToTree(List.of("1d")));
     source.set("adjustment", json.valueToTree(List.of("raw")));
-    var snapshots = db.queryForList(
-        "SELECT id,manifest::text,dates::text,symbols::text,fields::text,created_at FROM market_snapshots ORDER BY created_at DESC,id DESC LIMIT 1");
-    source.put("available", !snapshots.isEmpty());
-    if (snapshots.isEmpty()) {
+    var row = data.snapshot("");
+    source.put("available", row != null);
+    if (row == null) {
       source.put("message", "暂无行情矩阵快照，请先显式导入；任务不会自动导入或刷新行情");
       return source;
     }
-    var row = snapshots.get(0);
-    var dates = parse((String)row.get("dates"));
-    var symbols = parse((String)row.get("symbols"));
+    var dates = row.path("dates");
+    var symbols = row.path("symbols");
     ObjectNode snapshot = json.createObjectNode();
-    snapshot.put("id", row.get("id").toString());
+    snapshot.put("id", row.path("snapshot_id").asText());
     snapshot.put("date_count", dates.size());
     snapshot.put("symbol_count", symbols.size());
     if (!dates.isEmpty()) {
@@ -220,9 +223,9 @@ public class Store {
       snapshot.set("date_end", dates.get(dates.size()-1));
     }
     snapshot.set("symbols", symbols);
-    snapshot.set("fields", parse((String)row.get("fields")));
-    snapshot.set("manifest", parse((String)row.get("manifest")));
-    snapshot.put("created_at", row.get("created_at").toString());
+    snapshot.set("fields", row.path("fields"));
+    snapshot.set("manifest", row.path("manifest"));
+    snapshot.put("created_at", row.path("created_at").asText());
     source.set("snapshot", snapshot);
     return source;
   }

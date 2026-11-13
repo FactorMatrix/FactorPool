@@ -118,7 +118,7 @@ class Factor(PythonIndicator):
             adapter.binding = Mock(wraps=adapter.binding)
             adapters.append(adapter)
             return adapter
-        with tempfile.TemporaryDirectory() as directory, patch('factorpool.market_store.load', return_value=payload) as load, \
+        with tempfile.TemporaryDirectory() as directory, patch('factorpool.market_loader.load', return_value=payload) as load, \
                 patch('factorpool.runner.returns_matrix', side_effect=AssertionError('Stored returns must be reused')), \
                 patch('factorpool.factor_matrix.IndicatorAdapter', side_effect=create):
             path = Path(directory)

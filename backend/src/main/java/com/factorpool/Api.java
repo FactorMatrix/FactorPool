@@ -80,12 +80,7 @@ public class Api {
       throw new IllegalArgumentException("Invalid pagination");
     if (!store.task(id, false).get("status").equals("SUCCEEDED"))
       throw new IllegalStateException("Task has no complete values");
-    return store.db.queryForList(
-        "SELECT " +
-        "trading_date,symbol,value,valid,ready,reason,forward_return,factor_" +
-        "group FROM factor_values WHERE task_id=? ORDER BY ordinal LIMIT ? " +
-        "OFFSET ?",
-        id, limit, offset);
+    return store.data.values(id,offset,limit);
   }
   @PostMapping("/tasks/batch")
   Object batch(@RequestBody JsonNode body) {

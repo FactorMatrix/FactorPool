@@ -19,7 +19,7 @@ class ApiSettingsCatalogTest {
     var json = new ObjectMapper();
     var db = mock(JdbcTemplate.class);
     var scripts = mock(ScriptResolver.class);
-    var store = new Store(db, json, mock(PlatformTransactionManager.class), scripts);
+    var store = new Store(db, json, mock(PlatformTransactionManager.class), scripts,mock(DataClient.class));
     Path resource = temporary.resolve("settings_catalog.json");
     Files.writeString(resource, """
         {"schema_version":1,"official_schema_complete":false,"fields":[

@@ -1,124 +1,12 @@
-"""Immutable PostgreSQL daily matrices; research tasks only read this store."""
-from contextlib import contextmanager
-from collections import deque
-from concurrent.futures import ThreadPoolExecutor
+"""Task-local matrix assembly over the bounded data-service/Redis client."""
 from copy import deepcopy
 from datetime import date
-import hashlib
-from itertools import chain
-import os
-import zlib
-
 import numpy as np
+from .data_client.contract import FIELDS, FORMAT
 
-
-FIELDS = ("open", "high", "low", "close", "prev_close", "volume",
-          "total_turnover", "return", "member", "is_st", "is_suspended")
-FORMAT = "factorpool-market-matrix-v1"
 MAX_CELLS = 2_000_000
-_DECODE_WORKERS = 4
-_DECODE_BYTES = 128 * 1024 * 1024
 _ROW_FIELDS = tuple(field for field in FIELDS if field not in ("member", "return"))
 _ROW_COLUMNS = np.array([FIELDS.index(field) for field in _ROW_FIELDS])
-
-
-def connect():
-    import psycopg
-    return psycopg.connect(
-        host=os.environ.get("FACTORPOOL_DB_HOST", "db"),
-        port=int(os.environ.get("FACTORPOOL_DB_PORT", "5432")),
-        dbname=os.environ.get("FACTORPOOL_DB_NAME", "factorpool"),
-        user=os.environ.get("FACTORPOOL_DB_USER", "factorpool"),
-        password=os.environ["FACTORPOOL_DB_PASSWORD"],
-        connect_timeout=10,
-    )
-
-
-@contextmanager
-def transaction(connection=None, *, readonly=False):
-    owned = connection is None
-    conn = connect() if owned else connection
-    try:
-        with conn.transaction():
-            if readonly:
-                conn.execute("SET TRANSACTION READ ONLY")
-            yield conn
-    finally:
-        if owned:
-            conn.close()
-
-
-def pack_block(values):
-    values = np.ascontiguousarray(values, dtype="<f8")
-    if values.ndim != 3 or values.shape[0] != len(FIELDS):
-        raise ValueError("Expected field x date x symbol market block")
-    raw = values.tobytes(order="C")
-    return zlib.compress(raw, level=3), hashlib.sha256(raw).hexdigest()
-
-
-def decode_block(payload, sha256, row_count, symbol_count, fields=FIELDS):
-    if tuple(fields) != FIELDS or row_count < 1 or symbol_count < 1:
-        raise ValueError("Unsupported market block shape or fields")
-    expected = len(FIELDS) * row_count * symbol_count * 8
-    decoder = zlib.decompressobj()
-    raw = decoder.decompress(bytes(payload), expected + 1)
-    if (len(raw) != expected or not decoder.eof or decoder.unused_data
-            or decoder.unconsumed_tail or hashlib.sha256(raw).hexdigest() != sha256):
-        raise ValueError("Market matrix block integrity check failed")
-    return np.frombuffer(raw, dtype="<f8").reshape(len(FIELDS), row_count, symbol_count)
-
-
-def _decode_selected(row, symbol_count, fields, columns):
-    start, count, payload, checksum = row
-    block = decode_block(payload, checksum, count, symbol_count, fields)
-    # Drop the full-market decoded buffer inside the worker. Only requested
-    # columns cross back to the consumer, in the original block order.
-    return start, count, np.take(block, columns, axis=2)
-
-
-def _validated_blocks(rows, initial, stop, date_count):
-    """Reject invalid metadata on the cursor thread, before decompression."""
-    covered, seen = initial, False
-    for row in rows:
-        start, count = row[:2]
-        end = start + count
-        if (start < 0 or count < 1 or end > date_count
-                or (start != covered if seen else not start <= covered < end)):
-            raise ValueError("Market matrix blocks overlap or have missing dates")
-        covered, seen = min(stop, end), True
-        yield row
-    if covered != stop:
-        raise ValueError("Market matrix snapshot has missing blocks")
-
-
-def _selected_blocks(rows, symbol_count, fields, columns):
-    """Overlap bounded block decode/checksums with the read-only DB cursor."""
-    rows = iter(rows)
-    first = next(rows, None)
-    if first is None:
-        return
-    second = next(rows, None)
-    if second is None:
-        yield _decode_selected(first, symbol_count, fields, columns)
-        return
-    workers = min(_DECODE_WORKERS, os.cpu_count() or 1)
-    pending, reserved = deque(), 0
-    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="market-decode") as executor:
-        try:
-            for row in chain((first, second), rows):
-                size = len(FIELDS) * max(1, row[1]) * symbol_count * 8
-                while pending and (len(pending) >= workers or reserved + size > _DECODE_BYTES):
-                    future, previous_size = pending.popleft()
-                    reserved -= previous_size
-                    yield future.result()
-                pending.append((executor.submit(_decode_selected, row, symbol_count, fields, columns), size))
-                reserved += size
-            while pending:
-                future, _ = pending.popleft()
-                yield future.result()
-        finally:
-            for future, _ in pending:
-                future.cancel()
 
 
 def _bar_rows(values, symbols):
@@ -152,7 +40,7 @@ def _axis(values, label):
     return values
 
 
-def load(data, warmup, future, *, connection=None, pasteurization="ON", matrix_only=False):
+def load(data, warmup, future, *, source=None, pasteurization="ON", matrix_only=False):
     """Read full daily R; optionally expose quotes without per-stock bar dicts.
 
     matrix_only keeps the full frame/calendar and universe metadata, with empty
@@ -173,14 +61,12 @@ def load(data, warmup, future, *, connection=None, pasteurization="ON", matrix_o
     last = date.fromisoformat(data["factor_end"]).isoformat()
     if last < first:
         raise ValueError("End precedes start")
-    with transaction(connection, readonly=True) as conn:
-        row = conn.execute(
-            "SELECT manifest,symbols,dates,fields FROM market_snapshots WHERE id=%s",
-            (snapshot_id,),
-        ).fetchone()
-        if row is None:
-            raise ValueError("Market snapshot is unavailable; import it explicitly first")
-        manifest, all_symbols, dates, fields = row
+    from .data_client import DataClient
+    owned = source is None
+    source = DataClient() if owned else source
+    try:
+        snapshot = source.snapshot(snapshot_id)
+        manifest, all_symbols, dates, fields = (snapshot[key] for key in ("manifest", "symbols", "dates", "fields"))
         if (manifest.get("format") != FORMAT or tuple(fields) != FIELDS):
             raise ValueError("Unsupported market snapshot format")
         return_policy = manifest.get("return_policy", dict(version="legacy-price-ratio-v1", formula="close/prev_close-1"))
@@ -228,32 +114,26 @@ def load(data, warmup, future, *, connection=None, pasteurization="ON", matrix_o
             raise ValueError("Research input exceeds 2,000,000 cells; narrow dates/universe")
         if pasteurization == "OFF":
             return _load_unpasteurized(
-                conn, snapshot_id, manifest, all_symbols, dates, fields,
+                source, snapshot, snapshot_id, manifest, all_symbols, dates, fields,
                 selected, columns, dynamic, initial, finish, stop, return_policy, matrix_only,
             )
         matrices = np.full((len(FIELDS), stop - initial, len(columns)), np.nan)
         covered = initial
         seen = False
-        with conn.cursor(name="factorpool_market_blocks", binary=True) as blocks:
-            blocks.itersize = 1
-            blocks.execute(
-                "SELECT start_index,row_count,payload,sha256 FROM market_matrix_blocks "
-                "WHERE snapshot_id=%s AND start_index < %s "
-                "AND start_index + row_count > %s ORDER BY start_index",
-                (snapshot_id, stop, initial),
-            )
-            source = _validated_blocks(blocks, initial, stop, len(dates))
-            for start, count, block in _selected_blocks(source, len(all_symbols), fields, columns):
-                end = start + count
-                if (start < 0 or count < 1 or end > len(dates)
-                        or (start != covered if seen else not start <= covered < end)):
-                    raise ValueError("Market matrix blocks overlap or have missing dates")
-                left, right = max(initial, start), min(stop, end)
-                matrices[:, left - initial:right - initial] = block[:, left - start:right - start]
-                covered = right
-                seen = True
+        for start, count, block in source.selected_blocks(snapshot, initial, stop, columns):
+            end = start + count
+            if (start < 0 or count < 1 or end > len(dates)
+                    or (start != covered if seen else not start <= covered < end)):
+                raise ValueError("Market matrix blocks overlap or have missing dates")
+            left, right = max(initial, start), min(stop, end)
+            matrices[:, left - initial:right - initial] = block[:, left - start:right - start]
+            covered = right
+            seen = True
         if covered != stop:
             raise ValueError("Market matrix snapshot has missing blocks")
+    finally:
+        if owned:
+            source.close()
     if dynamic:
         membership = matrices[FIELDS.index("member"), :finish - initial]
         mask = np.any(membership > 0, axis=0)
@@ -286,7 +166,7 @@ def load(data, warmup, future, *, connection=None, pasteurization="ON", matrix_o
     return result
 
 
-def _load_unpasteurized(conn, snapshot_id, manifest, all_symbols, dates, fields,
+def _load_unpasteurized(source, snapshot, snapshot_id, manifest, all_symbols, dates, fields,
                        selected, columns, dynamic, initial, finish, stop, return_policy, matrix_only):
     """Expand only Indicator inputs; research and future-return axes stay fixed."""
     lifetimes = manifest.get("instrument_lifetimes")
@@ -320,27 +200,18 @@ def _load_unpasteurized(conn, snapshot_id, manifest, all_symbols, dates, fields,
     return_columns = np.searchsorted(read_columns, columns)
     input_columns = np.searchsorted(read_columns, calculation_columns)
     covered, seen = initial, False
-    with conn.cursor(name="factorpool_market_blocks", binary=True) as blocks:
-        blocks.itersize = 1
-        blocks.execute(
-            "SELECT start_index,row_count,payload,sha256 FROM market_matrix_blocks "
-            "WHERE snapshot_id=%s AND start_index < %s "
-            "AND start_index + row_count > %s ORDER BY start_index",
-            (snapshot_id, stop, initial),
-        )
-        source = _validated_blocks(blocks, initial, stop, len(dates))
-        for start, count, block in _selected_blocks(source, len(all_symbols), fields, read_columns):
-            end = start + count
-            if (start < 0 or count < 1 or end > len(dates)
-                    or (start != covered if seen else not start <= covered < end)):
-                raise ValueError("Market matrix blocks overlap or have missing dates")
-            left, right = max(initial, start), min(stop, end)
-            returns[left-initial:right-initial] = block[7, left-start:right-start, :][:, return_columns]
-            historical_right = min(finish, end)
-            if left < historical_right:
-                calculation[:, left-initial:historical_right-initial] = (
-                    block[:, left-start:historical_right-start, :][:, :, input_columns])
-            covered, seen = right, True
+    for start, count, block in source.selected_blocks(snapshot, initial, stop, read_columns):
+        end = start + count
+        if (start < 0 or count < 1 or end > len(dates)
+                or (start != covered if seen else not start <= covered < end)):
+            raise ValueError("Market matrix blocks overlap or have missing dates")
+        left, right = max(initial, start), min(stop, end)
+        returns[left-initial:right-initial] = block[7, left-start:right-start, :][:, return_columns]
+        historical_right = min(finish, end)
+        if left < historical_right:
+            calculation[:, left-initial:historical_right-initial] = (
+                block[:, left-start:historical_right-start, :][:, :, input_columns])
+        covered, seen = right, True
     if covered != stop:
         raise ValueError("Market matrix snapshot has missing blocks")
     index = {int(column): n for n, column in enumerate(calculation_columns)}

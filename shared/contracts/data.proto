@@ -1,0 +1,34 @@
+syntax = "proto3";
+package factorpool.data.v1;
+option java_package = "com.factorpool.data";
+option java_multiple_files = true;
+service DataService {
+  rpc Snapshot(SnapshotRequest) returns (JsonReply);
+  rpc MarketBlocks(MarketRequest) returns (stream BinaryBlock);
+  rpc StageValues(stream ValueChunk) returns (ReceiptReply);
+  rpc FinalizeValues(ReceiptRequest) returns (ReceiptReply);
+  rpc VerifyPublication(ReceiptRequest) returns (ReceiptReply);
+  rpc Values(ValuesRequest) returns (JsonReply);
+  rpc Health(Empty) returns (JsonReply);
+}
+message Empty {}
+message JsonReply { bytes json = 1; }
+message SnapshotRequest { string snapshot_id = 1; }
+message TileRequest { int64 start_index = 1; string field = 2; int64 symbol_start = 3; }
+message MarketRequest { string snapshot_id = 1; repeated TileRequest tiles = 2; bytes cache_layout = 3; }
+message BinaryBlock { string key = 1; bytes payload = 2; }
+message Lease { string task_id = 1; int64 attempt = 2; string lease_token = 3; }
+message FactorValue {
+ string date = 1; string symbol = 2; double value = 3; bool has_value = 4;
+ bool valid = 5; bool ready = 6; string reason = 7;
+ double forward_return = 8; bool has_forward_return = 9;
+ int32 group = 10; bool has_group = 11;
+}
+message ValuesPayload { repeated FactorValue rows = 1; }
+message ValueChunk { Lease lease = 1; int64 ordinal = 2; bytes payload = 3; int64 row_count = 4; string sha256 = 5; }
+message ReceiptRequest {
+ string task_id = 1; int64 attempt = 2; string lease_token = 3;
+ string receipt = 4; int64 expected_count = 5; string sha256 = 6;
+}
+message ReceiptReply { bool valid = 1; int64 count = 2; string receipt = 3; string sha256 = 4; }
+message ValuesRequest { string task_id = 1; int64 offset = 2; int32 limit = 3; }

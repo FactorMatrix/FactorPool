@@ -126,7 +126,7 @@ def run(directory, *, factory=None):
         if data.get("universe") not in (None, "fixture"):
             raise ValueError("Fixture universe is A/B/C")
     elif provider == "market_matrix":
-        from .market_store import load
+        from .market_loader import load
         extra = {"pasteurization": "OFF"} if settings is not None and settings["pasteurization"] == "OFF" else {}
         payload = load(data, max(1, warmup + simulation_warmup), max(horizons)*decay_steps,
                        matrix_only=True, **extra)

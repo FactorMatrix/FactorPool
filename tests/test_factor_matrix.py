@@ -12,7 +12,7 @@ import numpy as np
 
 from factorpool.adapter import IndicatorAdapter
 from factorpool.factor_matrix import FactorMatrix, signal_indices
-from factorpool.market_store import FIELDS
+from factorpool.data_client.contract import FIELDS
 from factorpool.runner import load_factor, run
 import test_core66
 

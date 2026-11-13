@@ -13,7 +13,8 @@ import static org.mockito.Mockito.*;
 class StoreTest {
   final JdbcTemplate db = mock(JdbcTemplate.class);
   final ObjectMapper json = new ObjectMapper();
-  final Store store = new Store(db, json, mock(PlatformTransactionManager.class), mock(ScriptResolver.class));
+  final DataClient data=mock(DataClient.class);
+  final Store store = new Store(db, json, mock(PlatformTransactionManager.class), mock(ScriptResolver.class),data);
 
   ObjectNode reportingRequest() {
     ObjectNode out = json.createObjectNode();
@@ -58,8 +59,7 @@ class StoreTest {
 
   @Test
   void latestSnapshotIsPinnedWithoutMutatingCaller() {
-    when(db.queryForList("SELECT id FROM market_snapshots ORDER BY created_at DESC,id DESC LIMIT 1"))
-        .thenReturn(List.of(Map.of("id", "snapshot-a")));
+    when(data.snapshot("")).thenReturn(json.createObjectNode().put("snapshot_id","snapshot-a"));
     ObjectNode original = json.createObjectNode().put("provider", "market_matrix");
     var pinned = store.pinMarketData(original);
     assertEquals("snapshot-a", pinned.path("snapshot_id").asText());
@@ -69,23 +69,22 @@ class StoreTest {
 
   @Test
   void explicitSnapshotRemainsPinned() {
-    when(db.queryForList("SELECT id FROM market_snapshots WHERE id=?", "snapshot-old"))
-        .thenReturn(List.of(Map.of("id", "snapshot-old")));
+    when(data.snapshot("snapshot-old")).thenReturn(json.createObjectNode().put("snapshot_id","snapshot-old"));
     var data = json.createObjectNode().put("provider", "market_matrix")
         .put("snapshot_id", "snapshot-old");
     assertEquals("snapshot-old", store.pinMarketData(data).path("snapshot_id").asText());
-    verify(db, never()).queryForList("SELECT id FROM market_snapshots ORDER BY created_at DESC,id DESC LIMIT 1");
+    verify(this.data,never()).snapshot("");
+    verifyNoInteractions(db);
   }
 
   @Test
   void missingSnapshotFailsWithoutImportingAnything() {
-    when(db.queryForList("SELECT id FROM market_snapshots ORDER BY created_at DESC,id DESC LIMIT 1"))
-        .thenReturn(List.of());
+    when(data.snapshot("")).thenReturn(null);
     var error = assertThrows(IllegalArgumentException.class,
         () -> store.pinMarketData(json.createObjectNode().put("provider", "market_matrix")));
     assertTrue(error.getMessage().contains("never import or refresh"));
-    verify(db).queryForList("SELECT id FROM market_snapshots ORDER BY created_at DESC,id DESC LIMIT 1");
-    verifyNoMoreInteractions(db);
+    verify(data).snapshot("");
+    verifyNoInteractions(db);
   }
 
   @Test
@@ -97,9 +96,12 @@ class StoreTest {
 
   @Test
   void sourceExposesTheSnapshotAxes() {
-    when(db.queryForList("SELECT id,manifest::text,dates::text,symbols::text,fields::text,created_at FROM market_snapshots ORDER BY created_at DESC,id DESC LIMIT 1"))
-        .thenReturn(List.of(Map.of("id", "snapshot-a", "dates", "[\"2024-01-02\",\"2024-01-03\"]",
-            "symbols", "[\"A\",\"B\"]", "fields", "[\"close\",\"return\"]", "manifest", "{\"format\":\"factorpool-market-matrix-v1\",\"return_formula\":\"close/prev_close-1\"}", "created_at", "2026-11-12")));
+    var snapshot=json.createObjectNode().put("snapshot_id","snapshot-a").put("created_at","2026-11-12");
+    snapshot.putArray("dates").add("2024-01-02").add("2024-01-03");
+    snapshot.putArray("symbols").add("A").add("B");
+    snapshot.putArray("fields").add("close").add("return");
+    snapshot.putObject("manifest").put("format","factorpool-market-matrix-v1").put("return_formula","close/prev_close-1");
+    when(data.snapshot("")).thenReturn(snapshot);
     var source = store.marketSource();
     assertTrue(source.path("available").asBoolean());
     assertEquals("market_matrix", source.path("id").asText());

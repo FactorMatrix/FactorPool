@@ -4,7 +4,9 @@ from unittest.mock import patch
 
 import numpy as np
 
-from factorpool import market_store as store
+from factorpool import market_loader as store
+from factorpool.data_client.contract import FIELDS
+store.FIELDS = FIELDS
 from test_market_loading import _Connection
 
 
@@ -23,10 +25,10 @@ class MatrixProjectionTests(unittest.TestCase):
             for universe in (["D", "A"], "all_a_dynamic"):
                 with self.subTest(pasteurization=pasteurization, universe=universe):
                     data = dict(self.data, universe=universe)
-                    expected = store.load(data, 3, 2, connection=_Connection(self.matrix),
+                    expected = store.load(data, 3, 2, source=_Connection(self.matrix),
                                           pasteurization=pasteurization)
                     with patch.object(store, "_bar_rows", side_effect=AssertionError("bar dicts constructed")):
-                        actual = store.load(data, 3, 2, connection=_Connection(self.matrix),
+                        actual = store.load(data, 3, 2, source=_Connection(self.matrix),
                                             pasteurization=pasteurization, matrix_only=True)
                     self.assertNotIn("quotes", expected)
                     self.assertEqual(actual["symbols"], expected["symbols"])
@@ -53,7 +55,7 @@ class MatrixProjectionTests(unittest.TestCase):
         for pasteurization in ("ON", "OFF"):
             with self.subTest(pasteurization=pasteurization):
                 payload = store.load(dict(self.data, universe=["A", "D"]), 3, 2,
-                                     connection=_Connection(self.matrix),
+                                     source=_Connection(self.matrix),
                                      pasteurization=pasteurization, matrix_only=True)
                 quotes = payload["quotes"]["values"]
                 original = quotes.copy()
@@ -72,7 +74,7 @@ class MatrixProjectionTests(unittest.TestCase):
                 return manifest, symbols, dates, fields
 
         payload = store.load(dict(self.data, universe=["D", "A"]), 3, 2,
-                             connection=InactiveConnection(self.matrix),
+                             source=InactiveConnection(self.matrix),
                              pasteurization="OFF", matrix_only=True)
         self.assertEqual(payload["symbols"], ["A", "D"])
         self.assertEqual(payload["quotes"]["symbols"], ["A", "B", "C"])

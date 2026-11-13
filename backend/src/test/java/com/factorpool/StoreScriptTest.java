@@ -15,7 +15,8 @@ class StoreScriptTest {
   final JdbcTemplate db = mock(JdbcTemplate.class);
   final ObjectMapper json = new ObjectMapper();
   final ScriptResolver scripts = mock(ScriptResolver.class);
-  final Store store = new Store(db, json, mock(PlatformTransactionManager.class), scripts);
+  final DataClient data=mock(DataClient.class);
+  final Store store = new Store(db, json, mock(PlatformTransactionManager.class), scripts,data);
   static final String LATEST = "SELECT id FROM market_snapshots ORDER BY created_at DESC,id DESC LIMIT 1";
   static final String TASK_INSERT = "INSERT INTO research_tasks(id,batch_id,name,snapshot,status) VALUES (?,?,?,?::jsonb,'QUEUED')";
 
@@ -77,7 +78,7 @@ class StoreScriptTest {
     assertEquals(resolved.path("source_config"), saved.path("source_config"));
     assertEquals("MyFactor", saved.path("factor_class").asText());
     assertFalse(saved.has("effective_config"));
-    verify(db, never()).queryForList(LATEST);
+    verify(data,never()).snapshot("");
   }
 
   @Test
@@ -105,7 +106,7 @@ class StoreScriptTest {
         .put("pasteurization", "ON");
     ((ObjectNode)resolved.path("source_config")).putObject("settings").put("decay", 4);
     when(scripts.resolve("script")).thenReturn(resolved);
-    when(db.queryForList(LATEST)).thenReturn(List.of(Map.of("id", "snapshot-new")));
+    when(data.snapshot("")).thenReturn(json.createObjectNode().put("snapshot_id","snapshot-new"));
     store.enqueue(request("script"), null);
     ArgumentCaptor<String> capture = ArgumentCaptor.forClass(String.class);
     verify(db).update(eq(TASK_INSERT), any(), isNull(), eq("Script factor"), capture.capture());
@@ -131,7 +132,7 @@ class StoreScriptTest {
   void taskPinsDataAndKeepsOriginalAndEffectiveConfigsSeparate() {
     ObjectNode resolved = normalized(null);
     when(scripts.resolve("script")).thenReturn(resolved);
-    when(db.queryForList(LATEST)).thenReturn(List.of(Map.of("id", "snapshot-new")));
+    when(data.snapshot("")).thenReturn(json.createObjectNode().put("snapshot_id","snapshot-new"));
     ObjectNode input = request("script");
     store.enqueue(input, null);
     ArgumentCaptor<String> capture = ArgumentCaptor.forClass(String.class);
@@ -158,14 +159,13 @@ class StoreScriptTest {
     ObjectNode two = savedDefinition("script-two", null);
     ObjectNode old = savedDefinition("script-old", "snapshot-old");
     version(first, one); version(second, two); version(explicit, old);
-    when(db.queryForList(LATEST)).thenReturn(List.of(Map.of("id", "snapshot-new")));
-    when(db.queryForList("SELECT id FROM market_snapshots WHERE id=?", "snapshot-old"))
-        .thenReturn(List.of(Map.of("id", "snapshot-old")));
+    when(data.snapshot("")).thenReturn(json.createObjectNode().put("snapshot_id","snapshot-new"));
+    when(data.snapshot("snapshot-old")).thenReturn(json.createObjectNode().put("snapshot_id","snapshot-old"));
     ObjectNode input = json.createObjectNode();
     input.putArray("factors").add(first.toString()).add(second.toString()).add(explicit.toString());
     var result = store.batch(input);
     assertEquals(3, ((List<?>)result.get("tasks")).size());
-    verify(db, times(1)).queryForList(LATEST);
+    verify(data,times(1)).snapshot("");
     ArgumentCaptor<String> capture = ArgumentCaptor.forClass(String.class);
     verify(db, times(3)).update(eq(TASK_INSERT), any(), eq(result.get("id")), eq("Script factor"), capture.capture());
     List<JsonNode> saved = capture.getAllValues().stream().map(store::parse).toList();
@@ -190,7 +190,7 @@ class StoreScriptTest {
     mixed.putArray("factors").add(script.toString()).add(legacy.toString());
     assertThrows(IllegalArgumentException.class, () -> store.batch(mixed));
     verify(db, never()).update(anyString(), any(Object[].class));
-    verify(db, never()).queryForList(LATEST);
+    verify(data,never()).snapshot("");
   }
 
   @Test

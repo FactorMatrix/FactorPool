@@ -40,3 +40,29 @@ CREATE TABLE IF NOT EXISTS market_matrix_blocks (
   PRIMARY KEY(snapshot_id,start_index)
 );
 CREATE INDEX IF NOT EXISTS market_snapshots_created_idx ON market_snapshots(created_at DESC,id);
+
+-- Idempotent service split migration. Existing snapshots/results remain unchanged.
+ALTER TABLE research_tasks ADD COLUMN IF NOT EXISTS execution_attempt integer NOT NULL DEFAULT 0;
+ALTER TABLE research_tasks ADD COLUMN IF NOT EXISTS worker_id text;
+ALTER TABLE research_tasks ADD COLUMN IF NOT EXISTS lease_token uuid;
+ALTER TABLE research_tasks ADD COLUMN IF NOT EXISTS lease_expires_at timestamptz;
+ALTER TABLE research_tasks ADD COLUMN IF NOT EXISTS heartbeat_at timestamptz;
+ALTER TABLE research_tasks ADD COLUMN IF NOT EXISTS result_attempt integer;
+ALTER TABLE research_tasks ADD COLUMN IF NOT EXISTS runner_log text NOT NULL DEFAULT '';
+CREATE INDEX IF NOT EXISTS research_tasks_lease_idx ON research_tasks(lease_expires_at) WHERE status IN ('RUNNING','CANCELLING');
+CREATE TABLE IF NOT EXISTS factor_value_staging (
+  task_id uuid NOT NULL REFERENCES research_tasks(id), attempt bigint NOT NULL, ordinal bigint NOT NULL,
+  trading_date date NOT NULL, symbol text NOT NULL, value double precision,
+  valid boolean NOT NULL, ready boolean NOT NULL, reason text NOT NULL,
+  forward_return double precision, factor_group integer,
+  PRIMARY KEY(task_id,attempt,ordinal), UNIQUE(task_id,attempt,trading_date,symbol)
+);
+CREATE TABLE IF NOT EXISTS factor_value_publications (
+  task_id uuid PRIMARY KEY REFERENCES research_tasks(id), attempt bigint NOT NULL,
+  row_count bigint NOT NULL, sha256 text NOT NULL, receipt uuid NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS factor_value_upload_chunks (
+  task_id uuid NOT NULL REFERENCES research_tasks(id), attempt bigint NOT NULL, ordinal bigint NOT NULL,
+  row_count bigint NOT NULL, sha256 text NOT NULL, PRIMARY KEY(task_id,attempt,ordinal)
+);

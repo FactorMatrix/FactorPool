@@ -43,7 +43,7 @@
         "src/factorpool/operators.py",
         "src/factorpool/factor_matrix.py",
         "src/factorpool/simulation.py",
-        "src/factorpool/market_store.py",
+        "src/factorpool/market_loader.py",
         "src/factorpool/runner.py",
         "src/factorpool/reporting/partition.py",
         "src/factorpool/reporting/pnl.py",

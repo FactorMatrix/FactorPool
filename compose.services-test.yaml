@@ -1,0 +1,79 @@
+name: factorpool-services-test
+x-common: &common
+  FACTORPOOL_INTERNAL_TOKEN: isolated-test-token-with-no-production-access
+  FACTORPOOL_DATA_SERVICE_ADDR: data-service:50051
+  FACTORPOOL_REDIS_URL: redis://redis:6379/0
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: factorpool
+      POSTGRES_DB: factorpool
+      POSTGRES_HOST_AUTH_METHOD: trust
+    tmpfs: [/var/lib/postgresql/data:size=512m]
+    healthcheck:
+      test: [CMD, pg_isready, -U, factorpool, -d, factorpool]
+      interval: 1s
+      timeout: 2s
+      retries: 30
+  redis:
+    image: redis:7.4.12-alpine
+    command: [redis-server, --maxmemory, 128mb, --maxmemory-policy, allkeys-lru, --save, "", --appendonly, "no"]
+    mem_limit: 192m
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 1s
+      timeout: 2s
+      retries: 20
+  data-service:
+    image: factorpool/data-service:${FACTORPOOL_TEST_RELEASE:?}
+    environment:
+      <<: *common
+      FACTORPOOL_DB_PASSWORD: ""
+    depends_on:
+      db: {condition: service_healthy}
+    mem_limit: 1g
+  backend:
+    image: factorpool/backend:${FACTORPOOL_TEST_RELEASE:?}
+    environment:
+      <<: *common
+      FACTORPOOL_DB_PASSWORD: ""
+      FACTORPOOL_MAX_CONCURRENT: 2
+      FACTORPOOL_LEASE_SECONDS: 5
+      FACTORPOOL_TIMEOUT_SECONDS: 120
+    depends_on:
+      db: {condition: service_healthy}
+      data-service: {condition: service_healthy}
+    mem_limit: 1g
+  worker-service:
+    profiles: [worker]
+    image: factorpool/worker-service:${FACTORPOOL_TEST_RELEASE:?}
+    environment:
+      <<: *common
+      FACTORPOOL_BACKEND_URL: http://backend:8080
+      FACTORPOOL_WORKER_HEARTBEAT_SECONDS: 1
+      FACTORPOOL_WORKER_POLL_SECONDS: .2
+      FACTORPOOL_WORKER_CONCURRENCY: 2
+    depends_on:
+      backend: {condition: service_healthy}
+    tmpfs: ["/tmp:size=512m,uid=1000,gid=1000,mode=1777"]
+    mem_limit: 2g
+    stop_grace_period: 15s
+  frontend:
+    profiles: [frontend]
+    image: factorpool/frontend:${FACTORPOOL_TEST_RELEASE:?}
+    ports: ["127.0.0.1:8089:80"]
+    depends_on:
+      backend: {condition: service_healthy}
+  integration:
+    profiles: [test]
+    image: factorpool/worker-service:${FACTORPOOL_TEST_RELEASE:?}
+    entrypoint: [python3, -m, unittest, discover, -s, /opt/factorpool/tests, -p, test_services_integration.py, -v]
+    environment:
+      <<: *common
+      FACTORPOOL_BACKEND_URL: http://backend:8080
+      FACTORPOOL_SERVICE_TESTS: "1"
+      FACTORPOOL_TEST_DB: "1"
+    depends_on:
+      backend: {condition: service_healthy}
+    mem_limit: 1g

@@ -1,244 +1,159 @@
 package com.factorpool;
-import com.fasterxml.jackson.databind.*;
-import jakarta.annotation.PostConstruct;
-import jakarta.annotation.PreDestroy;
-import java.io.*;
-import java.nio.file.*;
+
+import com.fasterxml.jackson.databind.JsonNode;
 import java.util.*;
-import java.util.concurrent.*;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+/** Durable queue and fenced leases. Computation belongs to worker-service. */
 @Component
 public class Tasks {
   final Store store;
-  final Path root;
-  final int workers;
+  final int workers, leaseSeconds, maxAttempts;
   final long timeout;
-  final ExecutorService executor;
-  final ConcurrentHashMap<UUID, Process> processes = new ConcurrentHashMap<>();
-  final Set<UUID> assigned = ConcurrentHashMap.newKeySet();
-  volatile boolean closing = false;
-  Tasks(Store store, @Value("${factorpool.task-root}") String root,
-        @Value("${factorpool.max-concurrent}") int workers,
-        @Value("${factorpool.timeout-seconds}") long timeout)
-      throws IOException {
-    if (workers < 1 || workers > 8 || timeout < 1)
-      throw new IllegalArgumentException(
-          "Invalid worker/timeout configuration");
+  Tasks(Store store, @Value("${factorpool.max-concurrent}") int workers,
+        @Value("${factorpool.timeout-seconds}") long timeout,
+        @Value("${factorpool.lease-seconds:30}") int leaseSeconds,
+        @Value("${factorpool.max-attempts:3}") int maxAttempts) {
+    if (workers < 1 || workers > 8 || timeout < 1 || leaseSeconds < 5 || leaseSeconds > 300 || maxAttempts < 1 || maxAttempts > 10)
+      throw new IllegalArgumentException("Invalid worker/lease/timeout configuration");
     this.store = store;
-    this.root = Path.of(root);
     this.workers = workers;
     this.timeout = timeout;
-    this.executor = Executors.newFixedThreadPool(workers);
-    Files.createDirectories(this.root);
+    this.leaseSeconds = leaseSeconds;
+    this.maxAttempts = maxAttempts;
   }
-  @PostConstruct
+  @Scheduled(fixedDelay = 2000)
   void recover() {
-    store.db.update(
-        "UPDATE research_tasks SET status='INTERRUPTED',error='Backend " +
-        "restarted before completion',finished_at=now() WHERE status IN " +
-        "('RUNNING','CANCELLING')");
-  }
-  @Scheduled(fixedDelay = 500)
-  synchronized void dispatch() {
-    if (closing)
-      return;
-    int capacity = workers - assigned.size();
-    if (capacity <= 0)
-      return;
-    for (var row :
-         store.db.queryForList("SELECT id FROM research_tasks WHERE " +
-                               "status='QUEUED' ORDER BY created_at LIMIT ?",
-                               capacity)) {
-      UUID id = (UUID)row.get("id");
-      if (store.db.update(
-              "UPDATE research_tasks SET status='RUNNING',started_at=now() " +
-              "WHERE id=? AND status='QUEUED'",
-              id) == 1) {
-        assigned.add(id);
-        executor.submit(() -> execute(id));
-      }
-    }
-  }
-  void stop(Process p) throws InterruptedException {
-    var descendants = p.descendants().toList();
-    descendants.forEach(ProcessHandle::destroy);
-    p.destroy();
-    if (!p.waitFor(5, TimeUnit.SECONDS)) {
-      descendants.forEach(ProcessHandle::destroyForcibly);
-      p.destroyForcibly();
-      p.waitFor();
-    }
-    for (var child : descendants)
-      if (child.isAlive())
-        child.destroyForcibly();
-  }
-  void execute(UUID id) {
-    Process process = null;
-    try {
-      Path directory = root.resolve(id.toString());
-      Files.createDirectories(directory);
-      var task = store.task(id, true);
-      if (!task.get("status").equals("RUNNING")) {
-        cancelled(id);
-        return;
-      }
-      Files.writeString(directory.resolve("request.json"),
-                        task.get("snapshot").toString());
-      process = new ProcessBuilder("/usr/local/bin/python3", "-m",
-                                   "factorpool.runner", directory.toString())
-                    .redirectErrorStream(true)
-                    .redirectOutput(directory.resolve("runner.log").toFile())
-                    .start();
-      processes.put(id, process);
-      if (store.task(id, false).get("status").equals("CANCELLING"))
-        stop(process);
-      if (!process.waitFor(timeout, TimeUnit.SECONDS)) {
-        stop(process);
-        throw new IOException("Task timed out after " + timeout + " seconds");
-      }
-      String state = store.task(id, false).get("status").toString();
-      if (state.equals("CANCELLING")) {
-        cancelled(id);
-        return;
-      }
-      if (closing) {
-        finish(id, "INTERRUPTED", "Backend stopped");
-        return;
-      }
-      if (process.exitValue() != 0)
-        throw new IOException("Research process exited " + process.exitValue() +
-                              ". " + logs(id));
-      importResult(id, directory);
-    } catch (Exception e) {
-      if (process != null && process.isAlive())
-        try {
-          stop(process);
-        } catch (InterruptedException interrupted) {
-          Thread.currentThread().interrupt();
-        }
-      var state = store.task(id, false).get("status");
-      if (state.equals("CANCELLING"))
-        cancelled(id);
-      else
-        finish(id, closing ? "INTERRUPTED" : "FAILED", e.getMessage());
-    } finally {
-      processes.remove(id);
-      assigned.remove(id);
-    }
-  }
-  void importResult(UUID id, Path directory) throws IOException {
-    JsonNode result =
-        store.json.readTree(directory.resolve("result.json").toFile());
-    if (!result.has("metadata") || !result.has("summary") ||
-        !result.has("daily"))
-      throw new IOException("Incomplete research result");
     store.tx.execute(status -> {
-      String current = store.db.queryForObject(
-          "SELECT status FROM research_tasks WHERE id=? FOR UPDATE",
-          String.class, id);
-      if (!"RUNNING".equals(current)) {
-        if ("CANCELLING".equals(current))
-          cancelled(id);
-        return null;
-      }
-      store.db.update(
-          "INSERT INTO research_results(task_id,result) VALUES (?,?::jsonb)",
-          id, result.toString());
-      try (var reader =
-               Files.newBufferedReader(directory.resolve("values.jsonl"))) {
-        List<Object[]> batch = new ArrayList<>();
-        String line;
-        long ordinal = 0;
-        while ((line = reader.readLine()) != null) {
-          var row = store.parse(line);
-          batch.add(new Object[] {
-              id, ordinal++, java.sql.Date.valueOf(row.path("date").asText()),
-              row.path("symbol").asText(),
-              row.path("value").isNumber() ? row.get("value").asDouble() : null,
-              row.path("valid").asBoolean(), row.path("ready").asBoolean(),
-              row.path("reason").asText(),
-              row.path("forward_return").isNumber()
-                  ? row.get("forward_return").asDouble()
-                  : null,
-              row.path("group").isNumber() ? row.get("group").asInt() : null});
-          if (batch.size() >= 1000) {
-            insert(batch);
-            batch.clear();
-          }
-        }
-        if (!batch.isEmpty())
-          insert(batch);
-        if (ordinal != result.path("metadata").path("value_count").asLong(-1))
-          throw new IOException("Incomplete factor values");
-      } catch (IOException e) {
-        throw new UncheckedIOException(e);
-      }
-      finish(id, "SUCCEEDED", null);
+      store.db.execute("SELECT pg_advisory_xact_lock(194736281)");
+      recoverLocked();
       return null;
     });
   }
-  void insert(List<Object[]> rows) {
-    store.db.batchUpdate(
-        "INSERT INTO " +
-        "factor_values(task_id,ordinal,trading_date,symbol,value,valid,ready," +
-        "reason,forward_return,factor_group) VALUES (?,?,?,?,?,?,?,?,?,?)",
-        rows);
+  void recoverLocked() {
+    // An API restart does not invalidate healthy workers on another host.
+    store.db.update("UPDATE research_tasks SET status=CASE WHEN status='CANCELLING' THEN 'CANCELLED' "
+        + "WHEN execution_attempt>=? THEN 'INTERRUPTED' ELSE 'QUEUED' END, "
+        + "error=CASE WHEN status='CANCELLING' THEN NULL ELSE 'Worker lease expired' END, "
+        + "finished_at=CASE WHEN status='CANCELLING' OR execution_attempt>=? THEN now() ELSE NULL END, "
+        + "lease_expires_at=NULL WHERE status IN ('RUNNING','CANCELLING') AND "
+        + "(lease_expires_at IS NULL OR lease_expires_at<=clock_timestamp())", maxAttempts, maxAttempts);
+    store.db.update("UPDATE research_tasks SET status='FAILED',error='Task timed out',finished_at=now(), "
+        + "lease_expires_at=NULL WHERE status='RUNNING' AND started_at<clock_timestamp()-(? * interval '1 second')", timeout);
   }
-  void finish(UUID id, String state, String error) {
-    store.db.update("UPDATE research_tasks SET " +
-                    "status=?,error=?,finished_at=now() WHERE id=?",
-                    state,
-                    error == null
-                        ? null
-                        : error.substring(0, Math.min(4000, error.length())),
-                    id);
+  Map<String,Object> claim(String worker) {
+    if (worker == null || !worker.matches("[A-Za-z0-9_.:-]{1,128}"))
+      throw new IllegalArgumentException("Invalid worker_id");
+    return store.tx.execute(status -> {
+      store.db.execute("SELECT pg_advisory_xact_lock(194736281)");
+      recoverLocked();
+      int running = store.db.queryForObject("SELECT count(*) FROM research_tasks WHERE status IN ('RUNNING','CANCELLING')", Integer.class);
+      if (running >= workers) return null;
+      var queued = store.db.queryForList("SELECT id FROM research_tasks WHERE status='QUEUED' ORDER BY created_at,id FOR UPDATE SKIP LOCKED LIMIT 1");
+      if (queued.isEmpty()) return null;
+      UUID id = (UUID)queued.get(0).get("id");
+      UUID token = UUID.randomUUID();
+      var row = store.db.queryForMap("UPDATE research_tasks SET status='RUNNING',execution_attempt=execution_attempt+1, "
+          + "worker_id=?,lease_token=?,lease_expires_at=clock_timestamp()+(? * interval '1 second'),heartbeat_at=clock_timestamp(), "
+          + "started_at=clock_timestamp(),finished_at=NULL,error=NULL,runner_log='' WHERE id=? "
+          + "RETURNING snapshot::text,execution_attempt", worker, token, leaseSeconds, id);
+      return Map.of("task_id",id,"attempt",row.get("execution_attempt"),"lease_token",token,
+          "worker_id",worker,"snapshot",store.parse((String)row.get("snapshot")),
+          "lease_seconds",leaseSeconds,"timeout_seconds",timeout);
+    });
   }
-  void cancelled(UUID id) { finish(id, "CANCELLED", null); }
-  synchronized Map<String, Object> cancel(UUID id) {
-    store.db.update(
-        "UPDATE research_tasks SET status=CASE WHEN status='QUEUED' THEN " +
-        "'CANCELLED' ELSE 'CANCELLING' END,finished_at=CASE WHEN " +
-        "status='QUEUED' THEN now() ELSE finished_at END WHERE id=? AND " +
-        "status IN ('QUEUED','RUNNING')",
-        id);
-    Process p = processes.get(id);
-    if (p != null)
-      try {
-        stop(p);
-      } catch (InterruptedException e) {
-        Thread.currentThread().interrupt();
+  Map<String,Object> lease(JsonNode request) {
+    UUID id = UUID.fromString(request.path("task_id").asText());
+    UUID token = UUID.fromString(request.path("lease_token").asText());
+    if (!request.path("attempt").isIntegralNumber() || !request.path("attempt").canConvertToInt() || request.path("attempt").asLong() < 1)
+      throw new IllegalArgumentException("Invalid attempt");
+    int attempt = request.path("attempt").intValue();
+    var rows = store.db.queryForList("WITH locked AS MATERIALIZED (SELECT id,status,execution_attempt,lease_token,worker_id,lease_expires_at "
+        + "FROM research_tasks WHERE id=? FOR UPDATE) SELECT id,status,execution_attempt,lease_token,worker_id,"
+        + "lease_expires_at>clock_timestamp() AS live FROM locked",id);
+    if (rows.isEmpty()) throw new NoSuchElementException("Task not found");
+    var row = rows.get(0);
+    if (((Number)row.get("execution_attempt")).intValue()!=attempt || !token.equals(row.get("lease_token"))
+        || !request.path("worker_id").asText().equals(row.get("worker_id")))
+      throw new IllegalStateException("Stale worker lease");
+    return row;
+  }
+  Map<String,Object> heartbeat(JsonNode body) {
+    return store.tx.execute(status -> {
+      var row = lease(body);
+      String state = (String)row.get("status");
+      if (!Set.of("RUNNING","CANCELLING").contains(state) || !Boolean.TRUE.equals(row.get("live")))
+        throw new IllegalStateException("Worker lease is no longer active");
+      store.db.update("UPDATE research_tasks SET heartbeat_at=clock_timestamp(),lease_expires_at=clock_timestamp()+(? * interval '1 second') WHERE id=?",leaseSeconds,row.get("id"));
+      return Map.of("status",state,"lease_seconds",leaseSeconds);
+    });
+  }
+  Map<String,Object> complete(JsonNode body) {
+    UUID id = UUID.fromString(body.path("task_id").asText());
+    var result = body.path("result");
+    if (!result.isObject() || !result.has("metadata") || !result.has("summary") || !result.has("daily")
+        || !result.path("metadata").path("value_count").isIntegralNumber()
+        || !result.path("metadata").path("value_count").canConvertToLong()
+        || result.path("metadata").path("value_count").asLong(-1)<0)
+      throw new IllegalArgumentException("Incomplete research result");
+    long expected = result.path("metadata").path("value_count").asLong();
+    // Data service atomically stages/publishes values first. Public readers still
+    // require SUCCEEDED and matching result_attempt, so this receipt is not visibility.
+    store.data.verifyPublication(body,expected);
+    return store.tx.execute(status -> {
+      var row = lease(body);
+      String current = (String)row.get("status");
+      if (current.equals("SUCCEEDED")) {
+        var previous = store.parse(store.db.queryForObject("SELECT result::text FROM research_results WHERE task_id=?",String.class,id));
+        if (!previous.equals(result)) throw new IllegalStateException("Completed result differs from this execution");
+        return store.task(id,false);
       }
-    return store.task(id, false);
+      if (!current.equals("RUNNING") || !Boolean.TRUE.equals(row.get("live")))
+        throw new IllegalStateException("Worker lease is no longer active");
+      store.db.update("INSERT INTO research_results(task_id,result) VALUES (?,?::jsonb) "
+          + "ON CONFLICT(task_id) DO UPDATE SET result=excluded.result",id,result.toString());
+      store.db.update("UPDATE research_tasks SET status='SUCCEEDED',result_attempt=execution_attempt,error=NULL,finished_at=now(),lease_expires_at=NULL WHERE id=?",id);
+      return store.task(id,false);
+    });
   }
-  String logs(UUID id) throws IOException {
-    Path file = root.resolve(id.toString()).resolve("runner.log");
-    if (!Files.exists(file))
-      return "";
-    try (var reader = new RandomAccessFile(file.toFile(), "r")) {
-      long start = Math.max(0, reader.length() - 65536);
-      reader.seek(start);
-      byte[] bytes = new byte[(int)(reader.length() - start)];
-      reader.readFully(bytes);
-      return new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
-    }
+  Map<String,Object> fail(JsonNode body) {
+    String target = body.path("status").asText("FAILED");
+    if (!Set.of("FAILED","INTERRUPTED","CANCELLED").contains(target))
+      throw new IllegalArgumentException("Invalid failure status");
+    String error = body.path("error").asText("");
+    if (error.length()>4000) error=error.substring(0,4000);
+    final String message=error;
+    return store.tx.execute(status -> {
+      var row = lease(body);
+      String current=(String)row.get("status");
+      if (current.equals(target)) return store.task((UUID)row.get("id"),false);
+      if (!Set.of("RUNNING","CANCELLING").contains(current) || !Boolean.TRUE.equals(row.get("live")))
+        throw new IllegalStateException("Worker lease is no longer active");
+      String next=current.equals("CANCELLING") ? "CANCELLED" : target;
+      store.db.update("UPDATE research_tasks SET status=?,error=?,finished_at=now(),lease_expires_at=NULL WHERE id=?",next,
+          next.equals("CANCELLED")?null:message,row.get("id"));
+      return store.task((UUID)row.get("id"),false);
+    });
   }
-  @PreDestroy
-  void close() {
-    closing = true;
-    for (Process p : processes.values())
-      try {
-        stop(p);
-      } catch (InterruptedException e) {
-        Thread.currentThread().interrupt();
-      }
-    executor.shutdown();
-    try {
-      executor.awaitTermination(10, TimeUnit.SECONDS);
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
-    }
+  Map<String,Object> log(JsonNode body) {
+    String text=body.path("text").asText("");
+    if (text.length()>65536) throw new IllegalArgumentException("Log tail exceeds 64 KiB");
+    return store.tx.execute(status -> {
+      var row=lease(body);
+      if (!Set.of("RUNNING","CANCELLING").contains(row.get("status")) || !Boolean.TRUE.equals(row.get("live")))
+        throw new IllegalStateException("Worker lease is no longer active");
+      store.db.update("UPDATE research_tasks SET runner_log=? WHERE id=?",text,row.get("id"));
+      return Map.of("accepted",true);
+    });
+  }
+  Map<String,Object> cancel(UUID id) {
+    store.db.update("UPDATE research_tasks SET status=CASE WHEN status='QUEUED' THEN 'CANCELLED' ELSE 'CANCELLING' END, "
+        + "finished_at=CASE WHEN status='QUEUED' THEN now() ELSE finished_at END WHERE id=? AND status IN ('QUEUED','RUNNING')",id);
+    return store.task(id,false);
+  }
+  String logs(UUID id) {
+    return store.db.queryForObject("SELECT runner_log FROM research_tasks WHERE id=?",String.class,id);
   }
 }
