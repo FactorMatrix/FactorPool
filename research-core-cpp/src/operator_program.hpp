@@ -1,6 +1,9 @@
 #pragma once
 #include "value.hpp"
 #include "calendar_window.hpp"
+#include "brain_temporal.hpp"
+#include "brain_cross.hpp"
+#include <map>
 #include "factortrader/mods/sys_indicator/graph/graph.hpp"
 #include <memory>
 #include <string>
@@ -14,6 +17,8 @@ struct Node {
     std::vector<std::size_t> inputs;
     double value = 0;
     std::size_t dependency = 0;
+    std::map<std::string, double> numbers;
+    std::map<std::string, std::string> strings;
 };
 struct Spec {
     std::vector<Node> nodes;
@@ -29,6 +34,8 @@ class Program {
     std::vector<std::string> symbols_;
     std::vector<std::unique_ptr<graph::Graph>> ports_;
     std::unordered_map<std::size_t, std::unique_ptr<CalendarState>> calendar_;
+    std::unordered_map<std::size_t, std::unique_ptr<BrainTemporal>> brain_ts_;
+    std::unordered_map<std::size_t, std::unique_ptr<BrainCross>> brain_cs_;
     std::vector<double> current_;
     std::vector<std::uint8_t> valid_, ready_;
     std::int64_t time_ = 0;

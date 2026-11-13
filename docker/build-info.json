@@ -7,5 +7,5 @@
   "operator_contract": "pool-indicator-2",
   "shared_primitive_contract": "ft-pool-1",
   "research_kernel": "return-matrix-v3",
-  "factorpool_source_sha256": "bd86d48a021046f495b843b08e90e20bc250951370f4a2081c106d6ec613c0cb"
+  "factorpool_source_sha256": "74fbad01f4060ba3de1c881a74f7f5a1729a05b9819d5788a9f1855b13bf82f5"
 }

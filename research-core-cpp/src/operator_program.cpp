@@ -19,6 +19,7 @@ const std::map<std::string, CalendarOp> calendar_ops{
     {"calendar_std", CalendarOp::Std}, {"calendar_decay_linear", CalendarOp::DecayLinear}};
 std::size_t arity(const std::string& op) {
     if (op == "input" || op == "constant" || op == "valid") return 0;
+    if (op == "brain_ready") return 1;
     if (op == "if_else" || op == "select" || op == "scatter") return 3;
     if (calendar_ops.contains(op) || op == "sqrt" || op == "log" || op == "sign" || op == "is_nan" ||
         op == "neg" || op == "not" || op == "rank" || op == "rank_unit" || op == "zscore" ||
@@ -26,7 +27,9 @@ std::size_t arity(const std::string& op) {
     return 2;
 }
 bool known(const std::string& op) {
-    if (is_extension(op) || calendar_ops.contains(op) || op == "temporal") return true;
+    if (is_extension(op) || calendar_ops.contains(op) || op == "temporal" || op == "brain_ready") return true;
+    if (op.starts_with("brain_ts_")) return is_brain_temporal(op.substr(9));
+    if (op.starts_with("brain_cs_")) return BrainCross::supports(op.substr(9));
     try { shared::parse_op(op); return op != "dependency" && op != "value"; }
     catch (const std::invalid_argument&) { return false; }
 }
@@ -55,7 +58,7 @@ Program::Program(Spec spec, std::vector<std::string> symbols): spec_(std::move(s
         const auto& node = spec_.nodes[index];
         if (!known(node.op)) throw std::invalid_argument("Unknown Pool operator: " + node.op);
         if (!std::isfinite(node.value)) throw std::invalid_argument("Pool IR constants must be finite");
-        if (node.op != "temporal" && node.inputs.size() != arity(node.op))
+        if (node.op != "temporal" && !node.op.starts_with("brain_ts_") && !node.op.starts_with("brain_cs_") && node.inputs.size() != arity(node.op))
             throw std::invalid_argument("Pool operator node has incorrect arity");
         for (auto source : node.inputs) if (source >= index) throw std::invalid_argument("Pool operator IR must be topologically ordered");
         if (node.op == "input" && node.field.empty()) throw std::invalid_argument("Pool input field must be named");
@@ -64,6 +67,27 @@ Program::Program(Spec spec, std::vector<std::string> symbols): spec_(std::move(s
                 throw std::invalid_argument("Invalid Pool calendar window period/ddof");
             auto state = std::make_unique<CalendarState>(calendar_ops.at(node.op), static_cast<std::size_t>(node.value), static_cast<int>(node.dependency));
             state->set_axis(symbols_); calendar_.emplace(index, std::move(state));
+        }
+        if (node.op.starts_with("brain_ts_")) {
+            for (const auto& [key, value] : node.numbers) {
+                if (!std::isfinite(value)) throw std::invalid_argument("Core temporal options must be finite");
+                if ((key == "period" || key == "k" || key == "lag") && (value < 0 || value > 100000 || std::trunc(value) != value))
+                    throw std::invalid_argument("Core temporal index/period exceeds its bounded integer range");
+            }
+            const auto number = [&](const std::string& key, double fallback) { auto found = node.numbers.find(key); return found == node.numbers.end() ? fallback : found->second; };
+            const auto text = [&](const std::string& key, const std::string& fallback) { auto found = node.strings.find(key); return found == node.strings.end() ? fallback : found->second; };
+            BrainTemporalSpec plan; plan.op = node.op.substr(9);
+            plan.period = static_cast<std::size_t>(number("period", node.value));
+            plan.k = static_cast<std::size_t>(number("k", 1)); plan.lag = static_cast<std::size_t>(number("lag", 0));
+            plan.rettype = static_cast<int>(number("rettype", 0)); plan.ddof = static_cast<int>(number("ddof", 0));
+            plan.constant = number("constant", 0); plan.hump = number("hump", .01); plan.dense = number("dense", 0) != 0;
+            plan.valid_observations = text("clock", "trading_days") == "valid_observations";
+            plan.driver = text("driver", "gaussian"); plan.ignore = text("ignore", "NaN");
+            auto state = std::make_unique<BrainTemporal>(std::move(plan)); state->set_axis(symbols_); brain_ts_.emplace(index, std::move(state));
+        }
+        if (node.op.starts_with("brain_cs_")) {
+            auto state = std::make_unique<BrainCross>(BrainCrossSpec{node.op.substr(9), node.numbers, node.strings});
+            state->set_axis(symbols_); brain_cs_.emplace(index, std::move(state));
         }
         if (node.op == "temporal") {
             if (node.dependency >= spec_.temporals.size()) throw std::invalid_argument("Unknown Pool temporal port");
@@ -81,6 +105,8 @@ void Program::set_symbols(std::vector<std::string> symbols) {
     if (symbols == symbols_) return;
     for (auto& port : ports_) port->set_symbols(symbols);
     for (auto& [index, state] : calendar_) { (void)index; state->set_axis(symbols); }
+    for (auto& [index, state] : brain_ts_) { (void)index; state->set_axis(symbols); }
+    for (auto& [index, state] : brain_cs_) { (void)index; state->set_axis(symbols); }
     symbols_ = std::move(symbols);
     current_.assign(symbols_.size(), shared::missing); valid_.assign(symbols_.size(), 0); ready_.assign(symbols_.size(), 0);
 }
@@ -138,7 +164,30 @@ void Program::update(std::int64_t time, std::span<const graph::Column> columns, 
             for (std::size_t row = 0; row < width; ++row) cell.ready[row] &= input.ready[row];
         }
         const auto& op = node.op;
-        if (op == "input") {
+        if (op.starts_with("brain_ts_") || op.starts_with("brain_cs_")) {
+            std::vector<std::vector<double>> data(arguments.size(), std::vector<double>(width, shared::missing));
+            std::vector<std::vector<std::uint8_t>> ready(arguments.size(), std::vector<std::uint8_t>(width));
+            for (std::size_t a = 0; a < arguments.size(); ++a) {
+                const auto& value = *arguments[a];
+                if (value.kind != Kind::Scalar && (value.kind != Kind::Vector || value.axis != shared::RowAxis::identity(width)))
+                    throw std::invalid_argument("Core operators require the complete security axis");
+                for (std::size_t row = 0; row < width; ++row) {
+                    const auto number = number_at(value, row);
+                    data[a][row] = valid_at(value, row) || !std::isfinite(number) ? number : shared::missing;
+                    ready[a][row] = cells.at(node.inputs[a]).ready[row];
+                }
+            }
+            auto result = op.starts_with("brain_ts_")
+                ? brain_ts_.at(cells.size())->update(time, data, ready, std::vector<std::uint8_t>(present.begin(), present.end()))
+                : brain_cs_.at(cells.size())->update(time, data, ready, std::vector<std::uint8_t>(present.begin(), present.end()));
+            cell.value = shared::Value::vector(width); cell.value.values = std::move(result.values);
+            cell.value.valid = std::move(result.valid); cell.ready = std::move(result.ready);
+        } else if (op == "brain_ready") {
+            cell.value = shared::Value::vector(width, true); cell.ready.assign(width, 1);
+            for (std::size_t row = 0; row < width; ++row) {
+                cell.value.values[row] = cells.at(node.inputs[0]).ready[row]; cell.value.valid[row] = present[row];
+            }
+        } else if (op == "input") {
             cell.value = shared::Value::vector(width);
             if (const auto found = by_field.find(node.field); found != by_field.end()) {
                 const auto& source = *found->second;

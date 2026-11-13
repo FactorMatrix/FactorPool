@@ -11,7 +11,8 @@ RUN cmake -S /src/engine-sdk -B /build/shared -G Ninja -DCMAKE_BUILD_TYPE=Releas
 COPY research-core-cpp /src/research-core-cpp
 RUN cmake -S /src/research-core-cpp -B /build/research -G Ninja -DCMAKE_BUILD_TYPE=Release \
       -DCMAKE_CXX_COMPILER=g++-14 -DFT_ROOT=/src -DFT_BUILD=/build/shared \
-    && cmake --build /build/research --parallel 4
+    && cmake --build /build/research --parallel 4 \
+    && /build/research/factorpool_brain_temporal_tests
 
 FROM maven:3.9-eclipse-temurin-17 AS java-build
 WORKDIR /src

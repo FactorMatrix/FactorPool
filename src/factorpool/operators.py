@@ -20,5 +20,8 @@ CONTRACT = {
     "zscore": "Pinned shared batch-program population zscore; constant/singleton section is invalid",
     "ts_clock": "Default pinned shared valid-observation clock; explicit clock='trading_days' retains a slot for each complete input session",
     "calendar_windows": "Strict full window, NaN propagates, upstream unready remains unready, absent bars occupy slots but never publish a fabricated observation; std ddof=0/1; linear decay weights 1..D",
+    "core_coverage": 66,
+    "new_ts_clock": "New core temporal kernels default to completed trading-session slots; existing shared TS calls retain valid-observation compatibility. Explicit clock selects the documented mode.",
+    "vector_inputs": "vec_avg/vec_sum reduce component expressions per security, never the cross-security axis; external vector and industry fields still require real provider data",
     "brain_parity": "not_verified",
 }

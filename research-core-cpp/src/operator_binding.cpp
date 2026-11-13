@@ -8,6 +8,7 @@
 #include <cstring>
 #include <limits>
 #include <stdexcept>
+#include <set>
 
 namespace {
 namespace pool = factorpool::operators;
@@ -86,7 +87,29 @@ pool::Spec read_spec(PyObject* object) {
         pool::Node node;
         node.op = text(required(item, "op")); node.field = text(required(item, "field"));
         node.inputs = indices(required(item, "inputs")); node.value = number(required(item, "value"));
-        node.dependency = index(required(item, "dependency")); result.nodes.push_back(std::move(node));
+        node.dependency = index(required(item, "dependency"));
+        if (auto* options = PyDict_GetItemString(item, "options")) {
+            if (!PyDict_Check(options)) throw std::invalid_argument("Pool options must be a dictionary");
+            PyObject *key, *value; Py_ssize_t position = 0;
+            while (PyDict_Next(options, &position, &key, &value)) {
+                const auto name = text(key);
+                static const std::set<std::string> textual{"driver", "ignore", "range", "buckets", "clock"};
+                static const std::set<std::string> boolean{"filter", "dense", "useStd", "skipBegin", "skipEnd", "skipBoth", "NaNGroup"};
+                static const std::set<std::string> integral{"period", "k", "lag", "rettype", "ddof", "rate"};
+                if (textual.contains(name)) {
+                    if (!PyUnicode_Check(value)) throw std::invalid_argument("Core text option has wrong type: " + name);
+                    node.strings.emplace(name, text(value));
+                } else {
+                    if (PyUnicode_Check(value) || (boolean.contains(name) && !PyBool_Check(value)) ||
+                        (integral.contains(name) && !PyLong_CheckExact(value)))
+                        throw std::invalid_argument("Core numeric option has wrong type: " + name);
+                    const auto numeric = number(value);
+                    if (!std::isfinite(numeric)) throw std::invalid_argument("Core option must be finite");
+                    node.numbers.emplace(name, numeric);
+                }
+            }
+        }
+        result.nodes.push_back(std::move(node));
     });
     result.output = index(required(object, "output")); result.ready = index(required(object, "ready"));
     each(required(object, "temporals"), [&](auto* item) {

@@ -10,11 +10,16 @@ target_compile_options(_factorpool_native PRIVATE -Wall -Wextra -Wpedantic)
 if(FT_ROOT AND FT_BUILD)
   Python3_add_library(_factorpool_operators MODULE
     src/operator_binding.cpp src/operator_program.cpp src/operator_kernels.cpp
-    src/calendar_window.cpp)
+    src/calendar_window.cpp src/brain_temporal.cpp src/brain_cross.cpp)
   target_include_directories(_factorpool_operators PRIVATE
     "${FT_ROOT}/engine-core-cpp/mods/sys_indicator/include"
     "${FT_ROOT}/engine-core-cpp/mods/sys_indicator/src/batch_program")
   target_link_libraries(_factorpool_operators PRIVATE
     "${FT_BUILD}/native/abi/libfactortrader_c.so")
   target_compile_options(_factorpool_operators PRIVATE -Wall -Wextra -Wpedantic)
+  add_executable(factorpool_brain_temporal_tests
+    tests/brain_temporal_test.cpp src/brain_temporal.cpp)
+  target_include_directories(factorpool_brain_temporal_tests PRIVATE src)
+  target_compile_options(factorpool_brain_temporal_tests PRIVATE
+    -Wall -Wextra -Wpedantic -Werror -UNDEBUG)
 endif()

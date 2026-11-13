@@ -68,6 +68,7 @@ sources = api('/data-sources')
 assert next(source for source in sources if source['id'] == 'fixture')['synthetic']
 operators = api('/operators')
 assert len(operators) == 66 and len({row['name'] for row in operators}) == 66
+assert all(row['native'] and row['pool_wiring'] == 'connected' for row in operators)
 catalog = api('/simulation-settings')
 assert catalog['official_schema_complete'] is False and catalog['official_numerical_parity'] is False
 capabilities = {entry['field']: entry for entry in catalog['fields']}

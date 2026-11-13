@@ -3,14 +3,18 @@ import { computed, ref, watch, onMounted, onBeforeUnmount, nextTick } from "vue"
 import { api } from "../api";
 import UiIcon from "./UiIcon.vue";
 import DocCode from "./DocCode.vue";
+import OperatorDetails from "./OperatorDetails.vue";
+import SettingDetails from "./SettingDetails.vue";
 import { operatorDescriptions, settingHints } from "../tutorial-content";
 import { learnGroups, learnArticles } from "../learn-articles";
-import { operatorReference, operatorReferenceConventions } from "../operator-reference";
+import { operatorReference } from "../operator-reference";
 import { operatorCategories, operatorCategoryOf } from "../operator-categories";
 
 const props = defineProps({ operators: { type: Array, default: () => [] } });
 const settingsSnippet = `"settings": {\n    "decay": 0,\n    "neutralization": "MARKET",\n    "truncation": 0,\n    "visualization": True,\n}`;
-const pageId = ref("welcome"), operatorId = ref(""), settingId = ref("");
+const pageId = ref("welcome");
+const expandedOperators = ref(new Set()), expandedSettings = ref(new Set());
+let requestedDetail = null;
 const sidebarOpen = ref(false), query = ref(""), operatorQuery = ref(""), settingsQuery = ref("");
 const catalog = ref(null), loading = ref(false), loadError = ref("");
 const viewport = ref(null), currentSection = ref(""), searchInput = ref(null);
@@ -20,14 +24,11 @@ const connectedCount = computed(() => coreOperators.value.filter(connected).leng
 const navigation = computed(() => learnGroups.flatMap(group => group.items.map(item => ({ ...item, group: group.title }))));
 const activeNav = computed(() => navigation.value.find(item => item.id === pageId.value) || navigation.value[0]);
 const article = computed(() => learnArticles[pageId.value] || learnArticles.welcome);
-const selectedOperator = computed(() => coreOperators.value.find(item => item.name === operatorId.value));
-const reference = computed(() => operatorReference[operatorId.value]);
-const selectedSetting = computed(() => catalog.value?.fields.find(item => item.field === settingId.value));
-const title = computed(() => pageId.value === "operators" ? operatorId.value || "算子参考" : pageId.value === "settings" ? settingId.value || "模拟设置参考" : article.value.title);
-const subtitle = computed(() => pageId.value === "operators" ? operatorId.value ? operatorDescriptions[operatorId.value] || "查看当前调用入口、数据要求和支持状态。" : "按章节阅读各类算子，查看调用方式、参数和计算示例。" : pageId.value === "settings" ? settingId.value ? settingHints[settingId.value] || selectedSetting.value?.stage : "配置决定研究范围、Alpha 权重变换与结果展示。每个参数均保留实际支持状态。" : article.value.subtitle);
+const title = computed(() => pageId.value === "operators" ? "算子参考" : pageId.value === "settings" ? "模拟设置参考" : article.value.title);
+const subtitle = computed(() => pageId.value === "operators" ? "按章节阅读各类算子，点击名称原地展开调用方式、参数和计算示例。" : pageId.value === "settings" ? "点击参数原地展开默认值、允许值和使用说明。" : article.value.subtitle);
 const sections = computed(() => {
-  if (pageId.value === "operators") return operatorId.value ? [{ id: "signature", title: "调用方式" }, { id: "parameters", title: "参数" }, { id: "example", title: "计算示例" }, { id: "boundaries", title: "使用说明" }] : [{ id: "operator-guide", title: "如何使用算子" }, { id: "operator-index", title: "算子索引" }, ...operatorGroups.value.map(group => ({ id: "operators-" + group.id, title: group.label }))];
-  if (pageId.value === "settings") return settingId.value ? [{ id: "setting-overview", title: "参数说明" }, { id: "setting-options", title: "允许值与选项" }, { id: "setting-boundaries", title: "使用说明" }] : [{ id: "settings-guide", title: "配置写在哪里" }, { id: "settings-index", title: "设置索引" }];
+  if (pageId.value === "operators") return [{ id: "operator-guide", title: "如何使用算子" }, { id: "operator-index", title: "算子索引" }, ...operatorGroups.value.map(group => ({ id: "operators-" + group.id, title: group.label }))];
+  if (pageId.value === "settings") return [{ id: "settings-guide", title: "配置写在哪里" }, { id: "settings-index", title: "设置索引" }];
   return article.value.sections;
 });
 const categoryCount = id => coreOperators.value.filter(item => operatorCategoryOf(item) === id).length;
@@ -54,11 +55,41 @@ const status = value => catalog.value?.status_labels?.[value] || value;
 const hasConfigPath = field => field && ["config", "config.settings"].includes(field.location);
 const configPath = field => hasConfigPath(field) ? `${field.location}.${field.field}` : field?.field;
 const statusClass = value => value?.startsWith("implemented_") ? "available" : value === "mixed" ? "partial" : "unavailable";
+function setExpanded(state, name, open) {
+  const next = new Set(state.value);
+  if (open) next.add(name); else next.delete(name);
+  state.value = next;
+}
+function toggleOperator(name) { setExpanded(expandedOperators, name, !expandedOperators.value.has(name)); }
+function toggleSetting(name) { setExpanded(expandedSettings, name, !expandedSettings.value.has(name)); }
+function scrollToEntry(kind, name) {
+  const attribute = kind === "operators" ? "data-operator" : "data-setting";
+  const target = [...(viewport.value?.querySelectorAll(`[${attribute}]`) || [])].find(item => item.getAttribute(attribute) === name);
+  if (target && viewport.value) viewport.value.scrollTo({ top: target.offsetTop - 28 });
+}
+function applyRequestedDetail() {
+  if (!requestedDetail || requestedDetail.page !== pageId.value) return;
+  const { page, name } = requestedDetail;
+  const items = page === "operators" ? coreOperators.value : catalog.value?.fields;
+  if (!items || !items.length) return;
+  requestedDetail = null;
+  const exists = items.some(item => (page === "operators" ? item.name : item.field) === name);
+  if (!exists) return;
+  if (page === "operators") { operatorQuery.value = ""; setExpanded(expandedOperators, name, true); }
+  else { settingsQuery.value = ""; setExpanded(expandedSettings, name, true); }
+  nextTick(() => scrollToEntry(page, name));
+}
 function navigate(page, detail = {}) {
   query.value = ""; sidebarOpen.value = false;
-  if (page === "operators" && !detail.operator) operatorQuery.value = "";
-  const suffix = detail.operator || detail.setting;
-  const hash = `#learn/${page}${suffix ? "/" + encodeURIComponent(suffix) : ""}`;
+  const name = detail.operator || detail.setting;
+  if (name) {
+    requestedDetail = { page, name };
+    if (pageId.value === page) { applyRequestedDetail(); return; }
+  } else {
+    requestedDetail = null;
+    if (page === "operators") operatorQuery.value = "";
+  }
+  const hash = `#learn/${page}`;
   if (window.location.hash === hash) readRoute(); else window.location.hash = hash;
 }
 function readRoute() {
@@ -66,10 +97,14 @@ function readRoute() {
   const valid = navigation.value.some(item => item.id === parts[1]);
   pageId.value = parts[0] === "learn" && valid ? parts[1] : "welcome";
   let detail = ""; try { detail = decodeURIComponent(parts[2] || ""); } catch { /* Invalid links open the index. */ }
-  operatorId.value = pageId.value === "operators" && coreOperators.value.some(item => item.name === detail) ? detail : "";
-  settingId.value = pageId.value === "settings" && (!catalog.value || catalog.value.fields.some(item => item.field === detail)) ? detail : "";
+  if (detail && ["operators", "settings"].includes(pageId.value)) requestedDetail = { page: pageId.value, name: detail };
+  else if (requestedDetail?.page !== pageId.value) requestedDetail = null;
   query.value = ""; sidebarOpen.value = false;
-  nextTick(() => { viewport.value?.scrollTo({ top: 0 }); currentSection.value = sections.value[0]?.id || ""; });
+  nextTick(() => {
+    viewport.value?.scrollTo({ top: 0 });
+    currentSection.value = sections.value[0]?.id || "";
+    applyRequestedDetail();
+  });
 }
 function jumpToCategory(id) {
   operatorQuery.value = "";
@@ -96,7 +131,7 @@ async function loadCatalog() {
   loading.value = true; loadError.value = "";
   try {
     catalog.value = await api("/simulation-settings");
-    if (settingId.value && !catalog.value.fields.some(item => item.field === settingId.value)) settingId.value = "";
+    nextTick(applyRequestedDetail);
   }
   catch (error) { loadError.value = error.message; }
   finally { loading.value = false; }
@@ -107,7 +142,7 @@ function searchShortcut(event) {
   }
   if (event.key === "Escape") { query.value = ""; sidebarOpen.value = false; }
 }
-watch(() => props.operators.length, readRoute);
+watch(() => props.operators.length, () => nextTick(applyRequestedDetail));
 onMounted(() => { readRoute(); loadCatalog(); window.addEventListener("hashchange", readRoute); window.addEventListener("keydown", searchShortcut); });
 onBeforeUnmount(() => { window.removeEventListener("hashchange", readRoute); window.removeEventListener("keydown", searchShortcut); if (scrollFrame) cancelAnimationFrame(scrollFrame); });
 </script>
@@ -128,7 +163,7 @@ onBeforeUnmount(() => { window.removeEventListener("hashchange", readRoute); win
           <h2>{{ group.title }}</h2>
           <template v-for="item in group.items" :key="item.id">
             <button :data-doc-page="item.id" :class="{ active: pageId === item.id }" :aria-current="pageId === item.id ? 'page' : undefined" @click="navigate(item.id)">{{ item.title }}<span v-if="pageId === item.id" aria-hidden="true">›</span></button>
-            <nav v-if="item.id === 'operators' && pageId === 'operators' && !operatorId" class="operator-category-tree" aria-label="算子分类">
+            <nav v-if="item.id === 'operators' && pageId === 'operators'" class="operator-category-tree" aria-label="算子分类">
               <button v-for="category in operatorCategories" :key="category.id" :data-operator-category="category.id" :class="{ active: currentSection === 'operators-' + category.id }" @click="jumpToCategory(category.id)"><span>{{ category.label }}<small>{{ category.english }}</small></span><span class="category-count">{{ categoryCount(category.id) }}</span></button>
             </nav>
           </template>
@@ -143,44 +178,51 @@ onBeforeUnmount(() => { window.removeEventListener("hashchange", readRoute); win
           <article class="docs-article" :data-page="pageId">
             <header class="docs-article-header"><span class="docs-section-label">{{ activeNav.group }}</span><h1 tabindex="-1">{{ title }}</h1><p>{{ subtitle }}</p></header>
             <template v-if="pageId === 'operators'">
-              <template v-if="selectedOperator">
-                <button class="docs-back-link" @click="navigate('operators')">← 返回算子索引</button>
-                <section data-section="signature" class="doc-section"><h2>调用方式</h2><p><span class="doc-status" :class="connected(selectedOperator) ? 'available' : 'unavailable'">{{ connected(selectedOperator) ? '已接通' : '待接通' }}</span><span class="doc-inline-note">{{ reference?.title || '项目调用状态' }}</span></p><DocCode v-if="selectedOperator.frontend" :code="reference?.signature || selectedOperator.frontend" label="算子调用方式" /><p v-else>此算子当前没有可调用入口。</p><p>数据要求：{{ selectedOperator.data }}</p></section>
-                <section data-section="parameters" class="doc-section"><h2>参数</h2><div v-if="reference?.parameters?.length" class="doc-table-wrap"><table class="doc-table"><thead><tr><th>参数</th><th>含义</th></tr></thead><tbody><tr v-for="param in reference.parameters" :key="param.name"><td><code>{{ param.name }}</code></td><td>{{ param.description }}</td></tr></tbody></table></div><p v-else>尚无已验证的项目参数合同，请先选择已接通的算子。</p></section>
-                <section data-section="example" class="doc-section"><h2>计算示例</h2><p class="doc-caption">{{ operatorReferenceConventions[0] }}</p><template v-if="reference?.example && connected(selectedOperator)"><DocCode :code="reference.example.expression" label="算子示例" /><div class="doc-table-wrap"><table class="doc-table"><tbody><tr><th>输入</th><td class="example-value">{{ show(reference.example.input) }}</td></tr><tr><th>输出</th><td class="example-value">{{ show(reference.example.output) }}</td></tr></tbody></table></div><p class="doc-caption">示例用于解释当前项目的计算规则；时序示例展示所列完整窗口的当前输出。</p></template><p v-else>此项尚未接通，不提供可运行示例。</p></section>
-                <section data-section="boundaries" class="doc-section"><h2>使用说明</h2><ul v-if="reference?.notes?.length"><li v-for="note in reference.notes" :key="note">{{ note }}</li></ul><p>{{ connected(selectedOperator) ? '当前调用链可用，仍需满足输入数据和窗口要求。' : '台账中的名称和候选写法不代表该算子已经可用。' }}</p><p class="doc-caption">这里说明 FactorPool 本地计算规则，BRAIN 官方数值一致性尚未核验。</p></section>
-              </template>
-              <template v-else>
-                <section data-section="operator-guide" class="doc-section operator-guide">
-                  <p><code>self.ts</code> 处理单股历史，<code>self.cs</code> 处理同日截面。各类算子按章节列在下方，点击名称查看参数和例子。</p>
-                  <details class="operator-usage"><summary>查看调用示例</summary><DocCode :code="'mean_volume = self.ts.mean(input.volume, 20)\nself.value = self.cs.rank_unit(-mean_volume)\nreturn self.ts.is_ready(mean_volume)'" /></details>
-                  <p class="doc-caption">BRAIN核心清单 {{ coreOperators.length }} 项，当前已接通 {{ connectedCount }} 项。下方按标准分类完整列出，并逐项标明实际支持状态。</p>
+              <section data-section="operator-guide" class="doc-section operator-guide">
+                <p><code>self.ts</code> 处理单股历史，<code>self.cs</code> 处理同日截面。各类算子按章节列在下方，点击名称原地展开参数和例子。</p>
+                <details class="operator-usage"><summary>查看调用示例</summary><DocCode :code="'mean_volume = self.ts.mean(input.volume, 20)\nself.value = self.cs.rank_unit(-mean_volume)\nreturn self.ts.is_ready(mean_volume)'" /></details>
+                <p class="doc-caption">BRAIN核心清单 {{ coreOperators.length }} 项，当前已接通 {{ connectedCount }} 项。下方按标准分类完整列出，并逐项标明实际支持状态。</p>
+              </section>
+              <section data-section="operator-index" class="doc-section">
+                <h2>算子索引</h2>
+                <div class="docs-reference-filters"><input v-model="operatorQuery" type="search" aria-label="算子搜索" placeholder="搜索名称、用途或调用写法" /></div>
+                <p class="doc-caption" role="status">{{ filteredOperators.length }} 个结果</p>
+                <section v-for="group in operatorGroups" :key="group.id" :data-section="'operators-' + group.id" :data-operator-group="group.id" class="operator-category-section">
+                  <header class="operator-category-heading"><div><h3>{{ group.label }}</h3><span>{{ group.english }}</span></div><span>{{ group.items.length }} 项</span></header>
+                  <p class="operator-category-description">{{ group.description }}</p>
+                  <div class="operator-index">
+                    <article v-for="item in group.items" :key="item.name" :data-operator="item.name" class="operator-entry">
+                      <button :id="'operator-toggle-' + item.name" class="reference-toggle" :aria-expanded="expandedOperators.has(item.name)" :aria-controls="'operator-details-' + item.name" @click="toggleOperator(item.name)">
+                        <div><strong>{{ item.name }}</strong><span class="row-badges"><span class="doc-status" :class="connected(item) ? 'available' : 'unavailable'">{{ connected(item) ? '已接通' : '待接通' }}</span><span class="toggle-label">{{ expandedOperators.has(item.name) ? '收起' : '展开' }}<UiIcon name="arrow" :size="14" :class="{ expanded: expandedOperators.has(item.name) }" /></span></span></div>
+                        <code>{{ item.frontend || '暂无可调用入口' }}</code><p>{{ operatorDescriptions[item.name] || '点击查看调用方式与使用说明。' }}</p>
+                      </button>
+                      <OperatorDetails v-if="expandedOperators.has(item.name)" :id="'operator-details-' + item.name" :operator="item" :aria-labelledby="'operator-toggle-' + item.name" />
+                    </article>
+                  </div>
+                  <p v-if="!group.items.length" class="empty-category">当前列表中暂无此类算子。</p>
                 </section>
-                <section data-section="operator-index" class="doc-section">
-                  <h2>算子索引</h2>
-                  <div class="docs-reference-filters"><input v-model="operatorQuery" type="search" aria-label="算子搜索" placeholder="搜索名称、用途或调用写法" /></div>
-                  <p class="doc-caption" role="status">{{ filteredOperators.length }} 个结果</p>
-                  <section v-for="group in operatorGroups" :key="group.id" :data-section="'operators-' + group.id" :data-operator-group="group.id" class="operator-category-section">
-                    <header class="operator-category-heading"><div><h3>{{ group.label }}</h3><span>{{ group.english }}</span></div><span>{{ group.items.length }} 项</span></header>
-                    <p class="operator-category-description">{{ group.description }}</p>
-                    <div class="operator-index"><button v-for="item in group.items" :key="item.name" :data-operator="item.name" @click="navigate('operators', { operator: item.name })"><div><strong>{{ item.name }}</strong><span class="doc-status" :class="connected(item) ? 'available' : 'unavailable'">{{ connected(item) ? '已接通' : '待接通' }}</span></div><code>{{ item.frontend || '暂无可调用入口' }}</code><p>{{ operatorDescriptions[item.name] || '此项暂未接通，点击查看当前状态。' }}</p></button></div>
-                    <p v-if="!group.items.length" class="empty-category">当前列表中暂无此类可用算子；台账保留的项目尚未接通。</p>
-                  </section>
-                  <p v-if="!operatorGroups.length">没有匹配算子，请调整筛选条件。</p>
-                </section>
-              </template>
+                <p v-if="!operatorGroups.length">没有匹配算子，请调整搜索内容。</p>
+              </section>
             </template>
             <template v-else-if="pageId === 'settings'">
-              <div v-if="loading" class="doc-notice" role="status">正在读取当前设置…</div><div v-else-if="loadError" class="doc-notice error-notice" role="status">设置读取失败：{{ loadError }}<button aria-label="重试" @click="loadCatalog">重新读取</button></div>
-              <template v-else-if="selectedSetting">
-                <button class="docs-back-link" @click="navigate('settings')">← 返回设置索引</button>
-                <section data-section="setting-overview" class="doc-section"><h2>参数说明</h2><p><span class="doc-status" :class="statusClass(selectedSetting.status)">{{ status(selectedSetting.status) }}</span></p><div class="doc-table-wrap"><table class="doc-table"><tbody><tr><th>配置位置</th><td><code>{{ hasConfigPath(selectedSetting) ? configPath(selectedSetting) : '项目配置路径尚未确认' }}</code></td></tr><tr><th>类型</th><td>{{ selectedSetting.type }}</td></tr><tr><th>项目默认</th><td><code>{{ show(selectedSetting.project_default) }}</code></td></tr><tr><th>官方默认</th><td>{{ selectedSetting.official_default == null ? '待核实' : show(selectedSetting.official_default) }}</td></tr></tbody></table></div><p>{{ selectedSetting.stage }}</p></section>
-                <section data-section="setting-options" class="doc-section"><h2>允许值与选项</h2><div v-if="selectedSetting.properties" class="doc-table-wrap"><table class="doc-table"><thead><tr><th>子参数</th><th>默认与可选值</th></tr></thead><tbody><tr v-for="(property, name) in selectedSetting.properties" :key="name"><td><code>{{ name }}</code><small>{{ property.required ? '必填' : '可选' }}</small></td><td>{{ property.values ? show(property.values) : show(property.project_default) }}<small>{{ property.default_rule }}</small></td></tr></tbody></table></div><div v-if="selectedSetting.options?.length" class="doc-table-wrap"><table class="doc-table option-table"><thead><tr><th>值</th><th>含义</th><th>状态</th></tr></thead><tbody><tr v-for="(option, index) in selectedSetting.options" :key="index"><td><code>{{ show(option.value) }}</code></td><td>{{ option.meaning }}<small>{{ option.reason }}</small></td><td><span class="doc-status" :class="statusClass(option.status || selectedSetting.status)">{{ status(option.status || selectedSetting.status) }}</span></td></tr></tbody></table></div><details v-if="selectedSetting.legal_values" class="doc-allowed-values"><summary>查看完整范围定义</summary><DocCode :code="JSON.stringify(selectedSetting.legal_values, null, 2)" language="json" label="设置允许值" /></details></section>
-                <section data-section="setting-boundaries" class="doc-section"><h2>使用说明</h2><p>{{ selectedSetting.validation?.scope || '按当前服务返回的状态使用该参数；尚未支持的值会明确拒绝。' }}</p><p v-if="!hasConfigPath(selectedSetting)">此项为平台请求字段或尚未核实的标签，不能直接写入项目 config。</p><p class="doc-caption">项目默认与 BRAIN 官方默认分别记录；未核实的官方默认不会以项目值代替。</p></section>
-              </template>
+              <div v-if="loading" class="doc-notice" role="status">正在读取当前设置…</div>
+              <div v-else-if="loadError" class="doc-notice error-notice" role="status">设置读取失败：{{ loadError }}<button aria-label="重试" @click="loadCatalog">重新读取</button></div>
               <template v-else-if="catalog">
-                <section data-section="settings-guide" class="doc-section"><h2>配置写在哪里</h2><p>研究配置直接写在脚本的 <code>config</code> 中。日期与数据源放在 <code>base / data</code>；构造参数放在 <code>factor</code>；权重变换与展示选项放在 <code>settings</code>。</p><DocCode :code="settingsSnippet" /><p>点击参数查看默认值、可选值和实际作用。支持范围会随当前服务更新。</p></section>
-                <section data-section="settings-index" class="doc-section"><h2>设置索引</h2><input v-model="settingsQuery" type="search" aria-label="设置搜索" placeholder="搜索参数，例如 decay、股票池、factor_price" class="settings-search" /><p class="doc-caption" role="status">{{ filteredSettings.length }} / {{ catalog.fields.length }} 个参数</p><div class="setting-index"><button v-for="field in filteredSettings" :key="field.field" :data-setting="field.field" @click="navigate('settings', { setting: field.field })"><div><strong>{{ field.field }}</strong><span class="doc-status" :class="statusClass(field.status)">{{ status(field.status) }}</span></div><p>{{ settingHints[field.field] || field.stage }}</p><small>{{ hasConfigPath(field) ? configPath(field) : '项目路径待核实' }}</small></button></div><p v-if="!filteredSettings.length">没有匹配设置。</p></section>
+                <section data-section="settings-guide" class="doc-section"><h2>配置写在哪里</h2><p>研究配置直接写在脚本的 <code>config</code> 中。日期与数据源放在 <code>base / data</code>；构造参数放在 <code>factor</code>；权重变换与展示选项放在 <code>settings</code>。</p><DocCode :code="settingsSnippet" /><p>点击参数原地展开默认值、可选值和实际作用。</p></section>
+                <section data-section="settings-index" class="doc-section">
+                  <h2>设置索引</h2><input v-model="settingsQuery" type="search" aria-label="设置搜索" placeholder="搜索参数，例如 decay、股票池、factor_price" class="settings-search" />
+                  <p class="doc-caption" role="status">{{ filteredSettings.length }} / {{ catalog.fields.length }} 个参数</p>
+                  <div class="setting-index">
+                    <article v-for="field in filteredSettings" :key="field.field" :data-setting="field.field" class="setting-entry">
+                      <button :id="'setting-toggle-' + field.field" class="reference-toggle" :aria-expanded="expandedSettings.has(field.field)" :aria-controls="'setting-details-' + field.field" @click="toggleSetting(field.field)">
+                        <div><strong>{{ field.field }}</strong><span class="row-badges"><span class="doc-status" :class="statusClass(field.status)">{{ status(field.status) }}</span><span class="toggle-label">{{ expandedSettings.has(field.field) ? '收起' : '展开' }}<UiIcon name="arrow" :size="14" :class="{ expanded: expandedSettings.has(field.field) }" /></span></span></div>
+                        <p>{{ settingHints[field.field] || field.stage }}</p><small>{{ hasConfigPath(field) ? configPath(field) : '项目路径待核实' }}</small>
+                      </button>
+                      <SettingDetails v-if="expandedSettings.has(field.field)" :id="'setting-details-' + field.field" :field="field" :status-labels="catalog.status_labels" :aria-labelledby="'setting-toggle-' + field.field" />
+                    </article>
+                  </div>
+                  <p v-if="!filteredSettings.length">没有匹配设置。</p>
+                </section>
               </template>
             </template>
             <template v-else>
@@ -254,18 +296,25 @@ onBeforeUnmount(() => { window.removeEventListener("hashchange", readRoute); win
 .doc-status.partial { background: #faf3e7; color: #9a8151; }
 .doc-inline-note { font-size: 15px; color: #8a96a5; margin-left: 12px; }
 .doc-section .doc-caption { font-size: 13px; color: #98a2af; line-height: 1.8; }
-.docs-back-link { font-size: 15px; color: #4e7ca7; border: 0; padding: 0; background: none; margin-bottom: 2px; }
 .docs-reference-filters { display: flex; flex-wrap: wrap; gap: 9px; margin: 18px 0 8px; }
 .docs-reference-filters input { flex: 1 1 190px; }
 .docs-reference-filters input, .docs-reference-filters select, .settings-search { padding: 9px 11px; border: 1px solid #dfe5ec; border-radius: 4px; font-size: 13px; }
 .docs-reference-filters select { flex: 0 1 auto; }
 .operator-index { border-top: 1px solid #e6ebf0; }
-.operator-index > button, .setting-index > button { display: block; width: 100%; border: 0; border-radius: 0; border-bottom: 1px solid #e8edf2; background: transparent; text-align: left; padding: 17px 3px; }
-.operator-index > button:hover, .setting-index > button:hover { background: #f8fafc; }
-.operator-index > button > div, .setting-index > button > div { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
+.operator-entry > button, .setting-entry > button { display: block; width: 100%; border: 0; border-radius: 0; border-bottom: 1px solid #e8edf2; background: transparent; text-align: left; padding: 17px 3px; }
+.operator-entry > button:hover, .setting-entry > button:hover { background: #f8fafc; }
+.operator-entry > button > div, .setting-entry > button > div { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
 .operator-index strong, .setting-index strong { color: #345d86; font-family: "Liberation Mono", Consolas, monospace; font-weight: 600; font-size: 18px; }
 .operator-index code { display: block; font-size: 14px; color: #697c90; margin: 8px 0 0; overflow-wrap: anywhere; }
 .operator-index p, .setting-index p { color: #62758b; font-size: 16px; margin: 6px 0 0; }
+.operator-entry, .setting-entry { min-width: 0; border-bottom: 1px solid #e8edf2; }
+.operator-entry > button, .setting-entry > button { border-bottom: 0; }
+.reference-toggle[aria-expanded="true"] { background: #f5f9fc; }
+.reference-toggle > div > strong { min-width: 0; overflow-wrap: anywhere; }
+.row-badges { display: inline-flex; align-items: center; gap: 13px; flex-shrink: 0; }
+.toggle-label { display: inline-flex; align-items: center; gap: 5px; color: #8b9cad; font-family: Arial, sans-serif; font-size: 12px; font-weight: 400; }
+.toggle-label svg { transition: transform .15s; }
+.toggle-label svg.expanded { transform: rotate(90deg); }
 .settings-search { width: 100%; }
 .setting-index { border-top: 1px solid #e6ebf0; }
 .setting-index small { color: #a1aab6; display: block; margin-top: 8px; }
@@ -328,6 +377,8 @@ onBeforeUnmount(() => { window.removeEventListener("hashchange", readRoute); win
   .docs-start-links { grid-template-columns: 1fr; }
   .doc-table { min-width: 360px; }
   .option-table { min-width: 510px; }
+  .row-badges { gap: 7px; }
+  .toggle-label { font-size: 11px; }
   .docs-reference-filters select { flex: 1; }
 }
 </style>

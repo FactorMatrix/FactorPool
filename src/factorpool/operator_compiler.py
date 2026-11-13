@@ -8,13 +8,32 @@ import builtins
 import copy
 from dataclasses import replace
 import inspect
+import json
 import math
 import textwrap
 
 from factortrader.indicator.compiler import check_native_contract, UnsupportedIndicator, _TimeSeries, _Compiler
 from factortrader.indicator.update_compiler import _UpdateCompiler, _CrossSection
 from .operators import CONTRACT_VERSION, EXTENSIONS
+from .brain_schema import TS, CS, NEW_TS, NEW_CS, VARIADIC, VECTOR, prepare_core_call
 
+
+def _core_call(domain, method, syntax):
+    if domain == "cs":
+        if method in NEW_CS | VARIADIC | VECTOR: return True
+        if method in CS:
+            if method == "rank": return any(k.arg == "rate" for k in syntax.keywords)
+            required = CS[method][1]
+            return len(syntax.args) > required or bool(syntax.keywords)
+    if domain == "ts":
+        if method in NEW_TS: return True
+        if method in TS:
+            names = {keyword.arg for keyword in syntax.keywords}
+            if names & {"dense", "constant", "d", "lookback"}: return True
+            if method == "zscore" and "ddof" in names: return True
+            if len(syntax.args) > (3 if method == "std" else 2): return True
+            if "clock" in names and method not in {"mean", "sum", "std", "delay", "delta", "decay_linear"}: return True
+    return False
 
 def _locals(function):
     code = function.__code__
@@ -64,6 +83,8 @@ def _declares_extension(syntax, function):
                 return True
         elif isinstance(node.func, ast.Attribute):
             owner, method = node.func.value, node.func.attr
+            if _core_call(domain(owner), method, node):
+                return True
             if domain(owner) == "cs" and method in EXTENSIONS:
                 return True
             if domain(owner) == "ts" and any(keyword.arg == "clock" for keyword in node.keywords):
@@ -100,6 +121,16 @@ class PoolCompiler(_UpdateCompiler):
         locals_ = _locals(function) if inspect.isfunction(function) else set()
         if isinstance(syntax.func, ast.Attribute):
             owner = syntax.func.value
+            if syntax.func.attr in (set(TS) | set(CS) | VARIADIC | VECTOR | {"is_ready"}):
+                source = self.expression(owner, variables)
+                domain = "ts" if isinstance(source, _TimeSeries) else "cs" if isinstance(source, _CrossSection) else None
+                if domain == "ts" and syntax.func.attr == "is_ready" and len(syntax.args) == 1 and not syntax.keywords:
+                    from factortrader.indicator.update_compiler import _Value
+                    value = self.expression(syntax.args[0], variables)
+                    if isinstance(value, _Value):
+                        return self.node("brain_ready", (value.node,))
+                if _core_call(domain, syntax.func.attr, syntax):
+                    return prepare_core_call(self, domain, syntax.func.attr, syntax, variables)
             clocks = [keyword for keyword in syntax.keywords if keyword.arg == "clock"]
             if clocks:
                 if len(clocks) != 1 or not isinstance(clocks[0].value, ast.Constant) or clocks[0].value.value not in ("trading_days", "valid_observations"):
@@ -197,14 +228,26 @@ def compile_pool_indicator(indicator):
     if result.dependencies:
         raise UnsupportedIndicator("Pool expression extensions require a self-contained Indicator")
     depths = []
-    for node in result.nodes:
+    for index, node in enumerate(result.nodes):
         depth = max((depths[source] for source in node.inputs), default=1)
         if node.op.startswith("calendar_"):
             depth += int(node.value) - (0 if node.op in ("calendar_delay", "calendar_delta") else 1)
         elif node.op == "temporal":
             depth += result.temporals[node.dependency].warm_up_period - 1
+        elif node.op.startswith("brain_ts_") or node.op == "brain_cs_group_backfill":
+            # compile() compacts the node list; derive core lookback from the
+            # compact node itself instead of indexing pre-compaction warmups.
+            options = json.loads(node.field)
+            name = node.op[9:]
+            if name not in ("hump", "days_from_last_change", "ts_step"):
+                depth += int(options.get("period", 1)) - 1 + int(options.get("lag", 0))
+                if name in ("ts_delay", "ts_delta"): depth += 1
         if depth > 2147483647:
             raise compiler.error(syntax, "Pool expression warmup exceeds the supported range")
         depths.append(depth)
     result = replace(result, warm_up_period=max(depths[result.output], depths[result.ready]))
-    return result, {**result.to_dict(), "version": CONTRACT_VERSION}
+    payload = {**result.to_dict(), "version": CONTRACT_VERSION}
+    for node in payload["nodes"]:
+        if node["op"].startswith(("brain_ts_", "brain_cs_")):
+            node["options"] = json.loads(node["field"])
+    return result, payload
