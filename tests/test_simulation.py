@@ -247,7 +247,7 @@ if __name__ == "__main__":
                 adapter = IndicatorAdapter(indicator); held.append(adapter); return adapter
             with tempfile.TemporaryDirectory() as temporary, \
                     patch('factorpool.market_store.load', return_value=payload) as load, \
-                    patch('factorpool.runner.IndicatorAdapter', side_effect=capture), \
+                    patch('factorpool.factor_matrix.IndicatorAdapter', side_effect=capture), \
                     patch('factortrader.Engine', side_effect=AssertionError('Trading Engine constructed')):
                 directory = Path(temporary)
                 (directory/'request.json').write_text(json.dumps(dict(name='calculation axis', source_mode='script', source_code=source)))
@@ -256,8 +256,8 @@ if __name__ == "__main__":
                 self.assertEqual([row['symbol'] for row in values], ['A', 'B'])
                 results[mode] = [row['value'] for row in values]
                 if mode == 'OFF':
-                    self.assertEqual(load.call_args.kwargs, dict(pasteurization='OFF'))
-                    adapter = held[0]
+                    self.assertEqual(load.call_args.kwargs, dict(matrix_only=True,pasteurization='OFF'))
+                    adapter = held[-1]
                     state = adapter.binding.graph_snapshot(adapter.graph)
                     self.assertEqual(list(state['symbols']), ['A', 'B', 'C'])
                     np.testing.assert_equal(NativeVector._view(adapter.binding, state['samples']).to_numpy(), [1, 1, 1])

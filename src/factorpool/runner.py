@@ -35,9 +35,9 @@ def validate(request):
     if data.get("provider") not in ("fixture", "market_matrix"):
         raise ValueError("Supported providers: market_matrix or fixture")
     if data.get("frequency", "1d") != "1d" or data.get("adjustment", "raw") != "raw":
-        raise ValueError("This release supports daily, raw prices only")
-    if data.get("factor_price", "raw") not in ("raw", "quote_adjusted"):
-        raise ValueError("factor_price must be raw or quote_adjusted")
+        raise ValueError("Daily basic source quotes are required")
+    if data.get("factor_price", "quote_adjusted") != "quote_adjusted":
+        raise ValueError("Factor prices only support forward adjustment (quote_adjusted)")
     if analysis.get("entry", "signal_close") != "signal_close" or analysis.get("exit", "next_close") != "next_close":
         raise ValueError("Supported return interval: signal_close to next_close, using close / prev_close - 1; legacy open-based requests are unsupported")
     if analysis.get("annualize_icir", False) or analysis.get("group_weight", "equal") != "equal":
@@ -108,11 +108,7 @@ def run(directory, *, factory=None):
     # research never creates an Engine/Runtime or a trading account.
     indicator = factory()
     data = request["data"]
-    if data.get("factor_price", "raw") == "quote_adjusted":
-        from .quote_adjusted_indicator import QuoteAdjustedIndicatorAdapter
-        adapter = QuoteAdjustedIndicatorAdapter(indicator)
-    else:
-        adapter = IndicatorAdapter(indicator)
+    adapter = IndicatorAdapter(indicator)
     warmup = indicator.warm_up_period
     settings = request.get("brain_settings")
     simulation_warmup = max(0, settings["decay"] - 1) if settings is not None else 0
@@ -127,7 +123,8 @@ def run(directory, *, factory=None):
     elif provider == "market_matrix":
         from .market_store import load
         extra = {"pasteurization": "OFF"} if settings is not None and settings["pasteurization"] == "OFF" else {}
-        payload = load(data, max(1, warmup + simulation_warmup), max(horizons)*decay_steps, **extra)
+        payload = load(data, max(1, warmup + simulation_warmup), max(horizons)*decay_steps,
+                       matrix_only=True, **extra)
     else:
         raise ValueError(f"Unknown/unconfigured provider: {provider}")
     timings["read"] = time.perf_counter() - checkpoint
@@ -141,12 +138,21 @@ def run(directory, *, factory=None):
     if len(source_symbols) != len(set(source_symbols)):
         raise ValueError("Input symbols must be unique")
     symbols = sorted(source_symbols)
+    from .factor_matrix import FactorMatrix, signal_indices
+    evaluator = FactorMatrix(payload, indicator, factory, data['factor_end'])
+    first_signal = next((i for i, frame in enumerate(evaluator.frames)
+                         if frame['date'] >= data['factor_start']), None)
+    if first_signal is None:
+        raise ValueError("No factor observations in requested date range")
+    rebalance = signal_indices(len(evaluator.frames)-first_signal, horizons)
     matrices, rows, dates, membership = [], [], [], []
     warm_factors, warm_membership = [], []
     for index, frame in enumerate(frames):
         if frame["date"] > data["factor_end"]:
             continue  # Future prices never enter Indicator state.
-        values = adapter.update(frame, factory)
+        offset = index - first_signal
+        needed = offset in rebalance or simulation_warmup > 0
+        values = evaluator.evaluate(index) if needed else []
         lookup = {r["symbol"]: r for r in values}
         current_members = set(frame.get("research_symbols", frame["symbols"]))
         current_factors = [lookup[s]["value"] if s in current_members and s in lookup else None for s in symbols]
@@ -156,9 +162,11 @@ def run(directory, *, factory=None):
             warm_membership.append(current_membership)
         if frame["date"] < data["factor_start"]:
             continue
-        matrices.append(current_factors)
+        matrices.append(current_factors if offset in rebalance else [None]*len(symbols))
         dates.append(frame["date"])
-        membership.append(current_membership)
+        membership.append(current_membership if offset in rebalance else [False]*len(symbols))
+        if offset not in rebalance:
+            continue
         for symbol in symbols:
             cell = lookup.get(symbol) if symbol in current_members else None
             if cell is None:
@@ -218,9 +226,12 @@ def run(directory, *, factory=None):
     result = native.analyze(prepared, None, options.get("groups", 3), options.get("min_ic_pairs", 3), options.get("icir_ddof", 1))
     trace_info = dict(indices=trace_indices, symbols=symbols, transforms=transforms,
                       factor_rows=rows) if trace_indices else None
-    result["diagnostics"] = build_diagnostics(prepared, None, None, dates, [f["date"] for f in tail], options, primary=result, trace_info=trace_info)
+    result["diagnostics"] = build_diagnostics(prepared, None, None, dates, [f["date"] for f in tail], options,
+                                             primary=result, trace_info=trace_info, rebalance_only=True)
     conventions = result["diagnostics"]["conventions"]
-    conventions.update(return_policy=deepcopy(return_policy), daily_return=daily_return,
+    conventions.update(factor_sampling="per-horizon rebalance dates; primary 1D IC uses their union",
+                       price_adjustment="forward only: historical price times Q ratio; volume divided by the same ratio",
+                       return_policy=deepcopy(return_policy), daily_return=daily_return,
                        return_price=return_price,
                        return_matrix="signal t uses daily returns R[t+1]..R[t+h]; derivation follows return_policy",
                        missing_returns="missing nonzero position daily returns remain invalid; no reader-side zero filling or hindsight reweighting; source derivation follows return_policy")
@@ -234,7 +245,7 @@ def run(directory, *, factory=None):
         constraints = []
         for item in settings_details.get("constraints", []):
             index = item["index"]-offset
-            if index >= 0:
+            if index in rebalance:
                 constraints.append(dict(item, date=dates[index], index=index))
         if settings["truncation"] > 0:
             result["diagnostics"]["alpha_constraints"] = dict(
@@ -248,9 +259,11 @@ def run(directory, *, factory=None):
     for date, day in zip(dates, result["daily"]):
         day["date"] = date
     returns, groups = result.pop("forward_returns"), result.pop("groups")
+    result['daily'] = [day for i, day in enumerate(result['daily']) if i in rebalance]
+    date_positions, symbol_positions = {day: i for i, day in enumerate(dates)}, {s: i for i, s in enumerate(symbols)}
     with (directory / "values.jsonl").open("w") as output:
-        for index, row in enumerate(rows):
-            t, n = divmod(index, len(symbols))
+        for row in rows:
+            t, n = date_positions[row['date']], symbol_positions[row['symbol']]
             row.update(forward_return=returns[t][n], group=groups[t][n])
             output.write(json.dumps(row, allow_nan=False) + "\n")
     timings["analysis_export"] = time.perf_counter() - checkpoint
@@ -267,9 +280,12 @@ def run(directory, *, factory=None):
     if getattr(indicator, "_pool_ir", None) is not None:
         from .operators import CONTRACT
         result["metadata"]["pool_operator_contract"] = deepcopy(CONTRACT)
-    result["metadata"]["factor_price"] = data.get("factor_price", "raw")
-    result["metadata"]["price_contract"] = (deepcopy(adapter.contract) if hasattr(adapter, "contract") else dict(
-        mode="raw", history="original OHLC/previous-close quotes", volume="raw", returns="stored independent daily return matrix"))
+    result["metadata"]["factor_price"] = 'quote_adjusted'
+    result["metadata"]["price_contract"] = evaluator.contract
+    result["metadata"]["rebalance_dates"] = [dates[i] for i in sorted(rebalance)]
+    result["metadata"]["factor_sampling"] = 'rebalance dates only; each holding horizon uses its own signal dates'
+    result["metadata"]["factor_state_inputs"] = ('daily factor observations required by configured Alpha decay'
+        if simulation_warmup > 0 else 'only the history needed at rebalance signals')
     result["metadata"]["signal_clock"] = dict(
         date_axis="signal session", price_basis="same signal session close",
         visibility="only completed input frames through the signal session",

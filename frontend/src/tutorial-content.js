@@ -8,7 +8,7 @@ config = {
         "end_date": "2024-01-08",
         "frequency": "1d",
     },
-    "data": {"provider": "fixture", "universe": "fixture"},
+    "data": {"provider": "fixture", "universe": "fixture", "factor_price": "quote_adjusted"},
     "factor": {"period": 3},
     "analysis": {"groups": 3, "horizons": [1, 5]},
     "settings": {
@@ -105,7 +105,7 @@ export const operatorDescriptions = {
 export const settingHints = {
   type: "当前使用 REGULAR 单因子研究；SUPER 需要尚未接入的选择与组合合同。",
   base: "研究起止日期包含边界，只支持日线；预热由窗口自动准备。",
-  data: "选择已发布行情矩阵或合成数据、股票池与价格基准；提交固定快照，不导入或更新行情。",
+  data: "选择已发布行情矩阵或合成数据与股票池；因子统一使用当前信号日基准的前复权输入，提交固定快照，不导入或更新行情。",
   factor: "传给因子类构造函数。例如 period=20 对应 __init__(period=20)。",
   analysis: "控制 IC、分组、多期收益和报告。与 settings 的 Alpha 权重变换分开。",
   decay: "Alpha 目标生成前的线性衰减：0 关闭、1 恒等、2..512 越近期权重越高。它与 analysis.decay_steps 的预测力诊断不同。",

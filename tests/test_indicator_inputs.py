@@ -1,5 +1,7 @@
 """Base quote fields, scalar availability and unchanged proportional returns."""
 from copy import deepcopy
+from pathlib import Path
+import tempfile
 import unittest
 import numpy as np
 from factorpool import PythonIndicator
@@ -93,20 +95,25 @@ class IndicatorInputTests(unittest.TestCase):
         np.testing.assert_allclose(returns_matrix(source,['A']),[[.02],[0.]],atol=1e-15)
         self.assertEqual(source,before)
         legacy=deepcopy(config);legacy['data'].pop('factor_price')
-        self.assertNotIn('factor_price',normalize_config(legacy)['data'])
+        self.assertEqual(normalize_config(legacy)['data']['factor_price'],'quote_adjusted')
         bad=deepcopy(config);bad['data']['factor_price']='external_dividends'
         with self.assertRaisesRegex(ValueError,'factor_price'):normalize_config(bad)
 
     def test_quote_bridges_equal_current_basis_cumulative_close_previous_close_returns(self):
-        from factorpool.quote_adjustment import QuoteAdjustment
+        from factorpool.factor_matrix import FactorMatrix
+        from factorpool.runner import load_factor
         closes=np.array([100.,102.,51.,52.])
         previous=np.array([100.,100.,51.,51.])
         cumulative=np.cumprod(closes/previous)
         source=[frame(i+2,float(close),float(prev)) for i,(close,prev) in enumerate(zip(closes,previous))]
-        before=deepcopy(source);quotes=QuoteAdjustment()
-        for basis,current in enumerate(source):
-            quotes.advance(current)
-            actual=[quotes.view(source[i],i)['rows']['A']['close'] for i in range(basis+1)]
-            expected=cumulative[:basis+1]*(closes[basis]/cumulative[basis])
-            np.testing.assert_allclose(actual,expected,rtol=1e-12,atol=1e-12)
+        before=deepcopy(source)
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'factor.py'
+            path.write_text('from factorpool import PythonIndicator\nclass Factor(PythonIndicator):\n    def update(self,input):\n        value=self.ts.mean(input.close,2)\n        self.value=value\n        return self.ts.is_ready(value)\n')
+            factory=load_factor(path,'Factor',{})
+            matrix=FactorMatrix(dict(frames=source),factory(),factory,source[-1]['date'])
+            for basis in range(len(source)):
+                actual=[matrix._frame(i,basis)['rows']['A']['close'] for i in range(basis+1)]
+                expected=cumulative[:basis+1]*(closes[basis]/cumulative[basis])
+                np.testing.assert_allclose(actual,expected,rtol=1e-12,atol=1e-12)
         self.assertEqual(source,before)

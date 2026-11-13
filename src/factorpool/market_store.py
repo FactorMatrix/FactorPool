@@ -134,6 +134,16 @@ def _bar_rows(values, symbols):
     return rows
 
 
+def _quote_view(values, dates, symbols, research_symbols):
+    """Historical raw matrix for task-local, as-of signal evaluation."""
+    historical = values[:, :len(dates)].view()
+    historical.setflags(write=False)
+    lookup = {symbol: n for n, symbol in enumerate(symbols)}
+    return dict(fields=FIELDS, values=historical, dates=list(dates), symbols=list(symbols),
+                research_columns=np.array([lookup.get(symbol, -1) for symbol in research_symbols],
+                                          dtype=np.intp))
+
+
 def _axis(values, label):
     if (not isinstance(values, list) or not values
             or any(not isinstance(value, str) or not value for value in values)
@@ -142,7 +152,15 @@ def _axis(values, label):
     return values
 
 
-def load(data, warmup, future, *, connection=None, pasteurization="ON"):
+def load(data, warmup, future, *, connection=None, pasteurization="ON", matrix_only=False):
+    """Read full daily R; optionally expose quotes without per-stock bar dicts.
+
+    matrix_only keeps the full frame/calendar and universe metadata, with empty
+    rows. Its quotes matrix contains history through factor_end only; future
+    valuations remain available solely on the independent returns matrix.
+    """
+    if type(matrix_only) is not bool:
+        raise ValueError("matrix_only must be bool")
     if pasteurization not in ("ON", "OFF"):
         raise ValueError("pasteurization must be ON or OFF")
     snapshot_id = data.get("snapshot_id")
@@ -211,7 +229,7 @@ def load(data, warmup, future, *, connection=None, pasteurization="ON"):
         if pasteurization == "OFF":
             return _load_unpasteurized(
                 conn, snapshot_id, manifest, all_symbols, dates, fields,
-                selected, columns, dynamic, initial, finish, stop, return_policy,
+                selected, columns, dynamic, initial, finish, stop, return_policy, matrix_only,
             )
         matrices = np.full((len(FIELDS), stop - initial, len(columns)), np.nan)
         covered = initial
@@ -246,20 +264,30 @@ def load(data, warmup, future, *, connection=None, pasteurization="ON"):
     frames = []
     for t, day in enumerate(dates[initial:stop]):
         if day > last:
-            frames.append(dict(date=day, session_index=initial+t, symbols=[], rows={}))
+            frame = dict(date=day, session_index=initial+t, symbols=[], rows={})
+            if matrix_only:
+                frame["research_symbols"] = []
+            frames.append(frame)
             continue
         axis = ([s for n, s in enumerate(selected) if matrices[8, t, n] > 0]
                 if dynamic else selected.copy())
-        rows = _bar_rows(matrices[:, t], selected)
-        frames.append(dict(date=day, session_index=initial+t, symbols=axis, rows=rows))
-    return dict(provider="market_matrix", adjustment="raw", symbols=selected,
-                frames=frames, returns=np.ascontiguousarray(matrices[7]),
-                snapshot_id=snapshot_id, synthetic=False,
-                return_policy=deepcopy(return_policy))
+        rows = {} if matrix_only else _bar_rows(matrices[:, t], selected)
+        frame = dict(date=day, session_index=initial+t, symbols=axis, rows=rows)
+        if matrix_only:
+            frame["research_symbols"] = axis.copy()
+        frames.append(frame)
+    result = dict(provider="market_matrix", adjustment="raw", symbols=selected,
+                  frames=frames, returns=np.ascontiguousarray(matrices[7]),
+                  snapshot_id=snapshot_id, synthetic=False,
+                  return_policy=deepcopy(return_policy))
+    if matrix_only:
+        result["quotes"] = _quote_view(matrices, dates[initial:finish], selected, selected)
+        result["returns"] = result["returns"].copy(order="C")
+    return result
 
 
 def _load_unpasteurized(conn, snapshot_id, manifest, all_symbols, dates, fields,
-                       selected, columns, dynamic, initial, finish, stop, return_policy):
+                       selected, columns, dynamic, initial, finish, stop, return_policy, matrix_only):
     """Expand only Indicator inputs; research and future-return axes stay fixed."""
     lifetimes = manifest.get("instrument_lifetimes")
     if (not isinstance(lifetimes, list) or len(lifetimes) != len(all_symbols)
@@ -333,9 +361,12 @@ def _load_unpasteurized(conn, snapshot_id, manifest, all_symbols, dates, fields,
         research_axis = ([symbol for symbol, column in zip(selected, research_columns)
                           if calculation[8, t, column] > 0]
                          if dynamic else selected.copy())
-        rows = _bar_rows(calculation[:, t], calculation_symbols)
+        rows = {} if matrix_only else _bar_rows(calculation[:, t], calculation_symbols)
         frames.append(dict(date=day, session_index=initial+t, symbols=axis, rows=rows, research_symbols=research_axis))
-    return dict(provider="market_matrix", adjustment="raw", symbols=selected,
-                frames=frames, returns=np.ascontiguousarray(returns),
-                snapshot_id=snapshot_id, synthetic=False,
-                return_policy=deepcopy(return_policy))
+    result = dict(provider="market_matrix", adjustment="raw", symbols=selected,
+                  frames=frames, returns=np.ascontiguousarray(returns),
+                  snapshot_id=snapshot_id, synthetic=False,
+                  return_policy=deepcopy(return_policy))
+    if matrix_only:
+        result["quotes"] = _quote_view(calculation, dates[initial:finish], calculation_symbols, selected)
+    return result

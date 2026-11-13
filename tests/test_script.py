@@ -13,6 +13,7 @@ from unittest.mock import patch
 import numpy as np
 from factortrader import PythonIndicator as SharedIndicator
 from factorpool import PythonIndicator
+from factorpool.config import effective_config
 from factorpool.runner import run
 from factorpool.script import parse_source
 
@@ -57,6 +58,7 @@ class ScriptParserTests(unittest.TestCase):
         self.assertEqual(parsed['data']['factor_end'], '2024-01-04')
         self.assertEqual(parsed['data']['frequency'], '1d')
         self.assertEqual(parsed['data']['adjustment'], 'raw')
+        self.assertEqual(parsed['data']['factor_price'], 'quote_adjusted')
         self.assertEqual(parsed['analysis']['groups'], 3)
         self.assertEqual(parsed['analysis']['horizons'], [1, 5])
         self.assertEqual(parsed['source_config'], config)
@@ -75,6 +77,26 @@ class ScriptParserTests(unittest.TestCase):
         wide['analysis']['min_ic_pairs'] += 1
         with self.assertRaisesRegex(ValueError, 'min_ic_pairs'):
             parse_source(full_script(wide))
+
+    def test_forward_adjustment_is_default_and_the_only_factor_price_mode(self):
+        for explicit in (False, True):
+            with self.subTest(explicit=explicit):
+                config = source_config()
+                if explicit:
+                    config['data']['factor_price'] = 'quote_adjusted'
+                original = copy.deepcopy(config)
+                parsed = parse_source(full_script(config))
+                self.assertEqual(parsed['data']['factor_price'], 'quote_adjusted')
+                self.assertEqual(parsed['data']['adjustment'], 'raw')
+                self.assertEqual(effective_config(parsed)['data']['factor_price'], 'quote_adjusted')
+                self.assertEqual(parsed['source_config'], original)
+                self.assertEqual(config, original)
+        for basis in ('raw', 'forward', 'backward', '', None, False, 1, []):
+            with self.subTest(basis=basis):
+                config = source_config()
+                config['data']['factor_price'] = basis
+                with self.assertRaisesRegex(ValueError, 'factor_price'):
+                    parse_source(full_script(config))
 
     def test_config_extraction_uses_ast_without_executing_imports_or_code(self):
         source = full_script()
@@ -141,6 +163,7 @@ class ScriptExecutionTests(unittest.TestCase):
         self.assertEqual(effective['factor']['period'], 3)
         self.assertEqual(effective['base']['start_date'], '2024-01-04')
         self.assertEqual(effective['data']['provider'], 'fixture')
+        self.assertEqual(effective['data']['factor_price'], 'quote_adjusted')
         self.assertEqual([row['date'] for row in values], ['2024-01-04']*3)
         self.assertAlmostEqual(values[0]['value'], (10+11+12.1)/3)
         one_day, one_day_values = self.execute(full_script(source_config(period=1)))

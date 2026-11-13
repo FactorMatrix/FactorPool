@@ -41,8 +41,7 @@
         "src/factorpool/settings.py",
         "src/factorpool/operator_compiler.py",
         "src/factorpool/operators.py",
-        "src/factorpool/quote_adjustment.py",
-        "src/factorpool/quote_adjusted_indicator.py",
+        "src/factorpool/factor_matrix.py",
         "src/factorpool/simulation.py",
         "src/factorpool/market_store.py",
         "src/factorpool/runner.py",
@@ -57,7 +56,7 @@
     "local_tests": {
       "evidence_class": "project_tests",
       "source_url": null,
-      "paths": ["tests/test_script.py","tests/test_settings.py","tests/test_simulation.py","tests/test_pnl_reporting.py","tests/test_pnl_trace.py","tests/test_synchronization.py","tests/test_pool_operators.py","tests/test_calendar_clock.py","tests/test_quote_adjustment.py","tests/test_diagnostics.py","tests/test_return_matrix.py","tests/test_market_database.py"],
+      "paths": ["tests/test_script.py","tests/test_settings.py","tests/test_simulation.py","tests/test_pnl_reporting.py","tests/test_pnl_trace.py","tests/test_synchronization.py","tests/test_pool_operators.py","tests/test_calendar_clock.py","tests/test_factor_matrix.py","tests/test_diagnostics.py","tests/test_return_matrix.py","tests/test_market_database.py"],
       "scope": "所列测试覆盖的本地小矩阵、共享Indicator对照、轴隔离和失败路径；不是所有参数边界的全覆盖，也未对账官方BRAIN账户oracle"
     }
   },
@@ -997,7 +996,7 @@
       "legal_values": {
         "providers": ["market_matrix","fixture"],
         "adjustment": ["raw"],
-        "factor_price": ["raw","quote_adjusted"]
+        "factor_price": ["quote_adjusted"]
       },
       "official_default": null,
       "project_default": null,
@@ -1005,7 +1004,7 @@
       "data_dependencies": ["PostgreSQL行情矩阵；合成fixture可离线验证"],
       "evidence": ["implementation","local_tests"],
       "status": "implemented_verified",
-      "validation": {"scope": "入队固定快照ID；批量未指定ID只选一次；factor_price=quote_adjusted只用close/prev_close等基础行情换算历史价格，原R/量额不改；不自动导入、刷新或补行情","official_numerical_parity": false},
+      "validation": {"scope": "入队固定快照ID；批量未指定ID只选一次；只支持前复权；换仓日历史价格乘Q比、成交量除Q比，其他因子不变；R独立用于每日收盘估值；不自动导入、刷新或补行情","official_numerical_parity": false},
       "options": [],
       "properties": {
         "provider": {
@@ -1015,7 +1014,7 @@
           "required": true
         },
         "universe": {"type": "local_pool_or_symbol_array","project_default": null,"required": true},
-        "factor_price": {"type": "enum","values": ["raw","quote_adjusted"],"project_default": "raw","required": false},
+        "factor_price": {"type": "enum","values": ["quote_adjusted"],"project_default": "quote_adjusted","required": false},
         "adjustment": {
           "type": "enum",
           "values": ["raw"],
@@ -1075,7 +1074,7 @@
         "pnl_unit": "BOOK",
         "trace_dates": []
       },
-      "stage": "原始IC/IR、分组和多期研究",
+      "stage": "换仓日IC/IR、分组和多期研究",
       "data_dependencies": ["原始因子、收益矩阵和历史研究成员"],
       "evidence": ["implementation","local_tests"],
       "status": "implemented_verified",

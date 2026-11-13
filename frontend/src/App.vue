@@ -190,6 +190,7 @@ function request() {
                 .filter(Boolean),
       frequency: "1d",
       adjustment: "raw",
+      factor_price: "quote_adjusted",
       factor_start: start.value,
       factor_end: end.value,
       ...(provider.value === "market_matrix" && snapshotId.value

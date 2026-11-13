@@ -27,7 +27,7 @@ class IndicatorAdapter:
         self.binding = select_operator_binding(indicator, self.binding)
         self.graph = None
 
-    def update(self, frame, factory):
+    def update(self, frame, factory, *, emit=True):
         ids = tuple(sorted(frame["symbols"]))
         if len(ids) != len(set(ids)):
             raise ValueError("Duplicate symbol in frame")
@@ -49,19 +49,32 @@ class IndicatorAdapter:
                 if missing:
                     raise ValueError(f"Provider has no point-in-time fields: {sorted(missing)}")
             self.axis = ids
-            columns = {field: [rows.get(s, {}).get(field, float("nan")) for s in ids] for field in self.fields}
-            columns = {k: [float("nan") if x is None else x for x in v] for k, v in columns.items()}
-            present = [s in rows for s in ids]
+            matrix = "columns" in frame
+            if matrix:
+                if tuple(frame['symbols']) != ids:
+                    raise ValueError("Matrix columns must follow the sorted symbol axis")
+                columns = {field: np.asarray(frame['columns'][field], dtype=np.float64)
+                           for field in self.fields}
+                observed = np.asarray(frame['present'], dtype=bool)
+                if observed.shape != (len(ids),) or any(v.shape != observed.shape for v in columns.values()):
+                    raise ValueError("Matrix input columns do not match their symbol axis")
+            else:
+                columns = {field: [rows.get(s, {}).get(field, float("nan")) for s in ids] for field in self.fields}
+                columns = {k: [float("nan") if x is None else x for x in v] for k, v in columns.items()}
+                observed = np.array([s in rows for s in ids], dtype=bool)
+            present = observed.copy()
             if indicator._batch_ir is None and getattr(indicator, "_pool_ir", None) is None:
                 # A scalar shared Graph requires visible inputs to be finite.
                 # Preserve the axis, but do not feed invalid observations into
                 # its valid-observation clock. Pool operators keep column masks
                 # separately so is_nan/if_else can inspect an observed NaN.
-                present = [exists and all(math.isfinite(columns[f][n]) for f in self.fields)
-                           for n, exists in enumerate(present)]
+                for field in self.fields:
+                    present &= np.isfinite(columns[field])
             binding = self.binding
             binding.graph_set_symbols(self.graph, ids)
             binding.graph_update(self.graph, int(stamp.strftime("%Y%m%d%H%M%S")), columns, present)
+            if not emit:
+                return None
             state = binding.graph_snapshot(self.graph)
             # One native snapshot/column transfer per time frame.
             arrays = {name: np.frombuffer(binding.native_vector_export(state[name]), dtype="float64" if name == "current" else "bool").tolist() for name in ("current", "valid", "ready")}
@@ -69,9 +82,9 @@ class IndicatorAdapter:
             for i, symbol in enumerate(state["symbols"]):
                 value = arrays["current"][i]
                 valid, ready = bool(arrays["valid"][i]), bool(arrays["ready"][i])
-                usable = valid and ready and math.isfinite(value) and symbol in rows
-                reason = ("ok" if usable else "missing_bar" if symbol not in rows else
-                          "source_missing" if any(rows[symbol].get(f) is None or not math.isfinite(rows[symbol][f]) for f in self.fields) else
+                usable = bool(valid and ready and math.isfinite(value) and observed[i])
+                reason = ("ok" if usable else "missing_bar" if not observed[i] else
+                          "source_missing" if any(not math.isfinite(columns[f][i]) for f in self.fields) else
                           "not_ready" if valid and not ready else "native_unavailable")
                 out.append(dict(symbol=symbol, value=value if usable else None, valid=usable, ready=ready, reason=reason))
             return out
@@ -99,6 +112,7 @@ class IndicatorAdapter:
                         setattr(bar, field, row[field])
                 slot.update(bar)
                 usable = slot._wrapped_is_ready() and math.isfinite(slot.current.value)
-            out.append(dict(symbol=symbol, value=slot.current.value if usable else None,
-                            valid=usable, ready=usable, reason="ok" if usable else "missing_bar" if row is None else "unready_or_invalid"))
+            if emit:
+                out.append(dict(symbol=symbol, value=slot.current.value if usable else None,
+                                valid=usable, ready=usable, reason="ok" if usable else "missing_bar" if row is None else "unready_or_invalid"))
         return out

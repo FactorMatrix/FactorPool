@@ -36,7 +36,9 @@ class StoreTest {
     assertDoesNotThrow(() -> Store.validate(request));
     ((ObjectNode) request.get("data")).put("factor_price", "external_adjustments");
     assertThrows(IllegalArgumentException.class, () -> Store.validate(request));
-    ((ObjectNode) request.get("data")).put("factor_price", "raw").put("adjustment", "pre");
+    ((ObjectNode) request.get("data")).put("factor_price", "raw");
+    assertThrows(IllegalArgumentException.class, () -> Store.validate(request));
+    ((ObjectNode) request.get("data")).put("adjustment", "pre");
     assertThrows(IllegalArgumentException.class, () -> Store.validate(request));
     verifyNoInteractions(db);
   }

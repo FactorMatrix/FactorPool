@@ -97,6 +97,7 @@ public class Store {
   UUID insertTask(ObjectNode normalized, UUID batch, String defaultSnapshot) {
     ObjectNode pinned = normalized.deepCopy();
     pinned.set("data", pinMarketData(normalized.path("data"), defaultSnapshot));
+    ((ObjectNode)pinned.path("data")).put("factor_price", "quote_adjusted");
     if (isScript(pinned)) {
       ObjectNode effective = pinned.path("source_config").deepCopy();
       var data = pinned.path("data");
@@ -275,8 +276,8 @@ public class Store {
         !d.path("adjustment").asText("raw").equals("raw"))
       throw new IllegalArgumentException("Only daily/raw input is supported");
     if (d.has("factor_price") && (!d.get("factor_price").isTextual() ||
-        !Set.of("raw", "quote_adjusted").contains(d.get("factor_price").asText())))
-      throw new IllegalArgumentException("factor_price must be raw or quote_adjusted");
+        !d.get("factor_price").asText().equals("quote_adjusted")))
+      throw new IllegalArgumentException("Only forward-adjusted factor prices (quote_adjusted) are supported");
     if (!a.path("entry").asText("signal_close").equals("signal_close") ||
         !a.path("exit").asText("next_close").equals("next_close"))
       throw new IllegalArgumentException(

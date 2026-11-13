@@ -80,20 +80,24 @@ def portfolio_calendar(dates, returns, width=7):
     return output
 
 
-def build(factors, returns, membership, dates, price_dates, analysis, *, primary=None, trace_info=None):
+def build(factors, returns, membership, dates, price_dates, analysis, *, primary=None, trace_info=None,
+          rebalance_only=False):
     periods, annual_days, steps = options(analysis)
     ddof, groups, minimum = analysis.get("icir_ddof", 1), analysis.get("groups", 3), analysis.get("min_ic_pairs", 3)
     prepared = factors if returns is None else native.prepare_research(factors, returns, membership)
     out = {}
     for h in periods:
+        stride = h if rebalance_only else 1
+        signal_dates = dates[::stride]
         if h == 1 and primary is not None:
             ics = [day["ic"] for day in primary["daily"]]
             rics = [day["rank_ic"] for day in primary["daily"]]
         else:
-            series = native.ic_series(prepared, h, minimum)
+            series = native.ic_series(prepared, h, minimum, stride)
             ics, rics = series["ic"], series["rank_ic"]
-        ic = inference(ics, ddof, h-1)
-        rank_ic = inference(rics, ddof, h-1)
+        lag = 0 if rebalance_only else h-1
+        ic = inference(ics, ddof, lag)
+        rank_ic = inference(rics, ddof, lag)
         trace_indices = trace_info.get("indices", []) if trace_info else []
         args = (prepared, None, None, groups, h, annual_days)
         portfolios = native.portfolio_report(*args, trace_indices) if trace_indices else native.portfolio_report(*args)
@@ -106,12 +110,12 @@ def build(factors, returns, membership, dates, price_dates, analysis, *, primary
         for strategy in portfolios["strategies"].values():
             strategy["monthly"] = portfolio_calendar(portfolio_dates, strategy["returns"])
             strategy["yearly"] = portfolio_calendar(portfolio_dates, strategy["returns"], 4)
-        out[str(h)] = dict(horizon=h, dates=dates, ic=ic, rank_ic=rank_ic,
+        out[str(h)] = dict(horizon=h, dates=signal_dates, ic=ic, rank_ic=rank_ic,
             series=dict(ic=ics, rank_ic=rics, ic_rolling30=rolling_mean(ics), rank_ic_rolling30=rolling_mean(rics),
                         ic_cumulative=cumulative_sum(ics), rank_ic_cumulative=cumulative_sum(rics)),
-            monthly=dict(ic=grouped_moments(dates, ics, 7, ddof),rank_ic=grouped_moments(dates, rics, 7, ddof)),
-            yearly=dict(ic=grouped_moments(dates, ics, 4, ddof),rank_ic=grouped_moments(dates, rics, 4, ddof)),
-            decay=native.ic_decay(prepared, None, None, h, steps, minimum),
+            monthly=dict(ic=grouped_moments(signal_dates, ics, 7, ddof),rank_ic=grouped_moments(signal_dates, rics, 7, ddof)),
+            yearly=dict(ic=grouped_moments(signal_dates, ics, 4, ddof),rank_ic=grouped_moments(signal_dates, rics, 4, ddof)),
+            decay=native.ic_decay(prepared, None, None, h, steps, minimum, stride),
             portfolio_dates=portfolio_dates, portfolio_signal_dates=signals, portfolio_exit_dates=exits, portfolios=portfolios["strategies"])
         if trace_info and trace_indices:
             from .pnl import format_trace

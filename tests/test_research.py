@@ -119,11 +119,11 @@ class Factor(PythonIndicator):
             return adapter
         with tempfile.TemporaryDirectory() as directory, patch('factorpool.market_store.load', return_value=payload) as load, \
                 patch('factorpool.runner.returns_matrix', side_effect=AssertionError('Stored returns must be reused')), \
-                patch('factorpool.runner.IndicatorAdapter', side_effect=create):
+                patch('factorpool.factor_matrix.IndicatorAdapter', side_effect=create):
             path = Path(directory)
             (path/'request.json').write_text(json.dumps(request))
             run(directory)
-            load.assert_called_once_with(request['data'], 3, 1)
+            load.assert_called_once_with(request['data'], 3, 1, matrix_only=True)
             values = [json.loads(line) for line in (path/'values.jsonl').read_text().splitlines()]
             self.assertEqual([row['symbol'] for row in values], ['A', 'B', 'C'])
             np.testing.assert_allclose([row['forward_return'] for row in values], [1, 2, -.5])
@@ -221,9 +221,9 @@ class Factor(PythonIndicator):
         held=[]
         def create(indicator):
             value=IndicatorAdapter(indicator);held.append(value);return value
-        with tempfile.TemporaryDirectory() as d,patch('factorpool.runner.IndicatorAdapter',side_effect=create):
+        with tempfile.TemporaryDirectory() as d,patch('factorpool.factor_matrix.IndicatorAdapter',side_effect=create):
             path=Path(d);(path/'request.json').write_text(json.dumps(request));run(d)
-        binding,graph=held[0].binding,held[0].graph
+        binding,graph=held[-1].binding,held[-1].graph
         state=binding.graph_snapshot(graph)
         np.testing.assert_equal(NativeVector._view(binding,state['samples']).to_numpy(),[20,20,20])
         np.testing.assert_equal(NativeVector._view(binding,state['end_time']).to_numpy(),[20240129150000]*3)

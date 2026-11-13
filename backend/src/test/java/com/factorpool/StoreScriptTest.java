@@ -208,7 +208,10 @@ class StoreScriptTest {
     ArgumentCaptor<String> capture = ArgumentCaptor.forClass(String.class);
     verify(db).update(eq(TASK_INSERT), any(), eq(result.get("id")), eq("Legacy"), capture.capture());
     JsonNode saved = store.parse(capture.getValue());
-    assertEquals(input.path("data"), saved.path("data"));
+    ObjectNode expectedData = input.path("data").deepCopy();
+    expectedData.put("factor_price", "quote_adjusted");
+    assertEquals(expectedData, saved.path("data"));
+    assertFalse(input.path("data").has("factor_price"));
     assertEquals(input.path("analysis"), saved.path("analysis"));
     assertFalse(saved.has("effective_config"));
     verifyNoInteractions(scripts);

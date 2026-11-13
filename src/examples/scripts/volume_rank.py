@@ -11,6 +11,7 @@ config = {
     'data': {
         'provider': 'market_matrix',
         'universe': ['000001.XSHE', '000002.XSHE', '600000.XSHG'],
+        'factor_price': 'quote_adjusted',
     },
     'factor': {
         'volume_period': 20,

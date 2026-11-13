@@ -7,11 +7,11 @@ using namespace fp;
 PyObject *ic_decay(PyObject *, PyObject *args) {
   try {
     PyObject *factor, *daily_returns, *members;
-    int h, steps, minimum;
-    if (!PyArg_ParseTuple(args, "OOOiii", &factor, &daily_returns, &members, &h, &steps,
-                          &minimum))
+    int h, steps, minimum, signal_stride = 1;
+    if (!PyArg_ParseTuple(args, "OOOiii|i", &factor, &daily_returns, &members, &h, &steps,
+                          &minimum, &signal_stride))
       return nullptr;
-    if (h < 1 || h > 252 || steps < 1 || steps > 10 || minimum < 2)
+    if (h < 1 || h > 252 || steps < 1 || steps > 10 || minimum < 2 || signal_stride < 1)
       throw std::invalid_argument("Invalid decay options");
     InputRef holder(factor, daily_returns, members);
     const auto &input = *holder.value;
@@ -19,7 +19,7 @@ PyObject *ic_decay(PyObject *, PyObject *args) {
     Owned out{PyList_New(0)};
     for (int k = 0; k < steps; ++k) {
       std::vector<double> ics, rankics;
-      for (std::size_t t = 0; t < f.size(); ++t) {
+      for (std::size_t t = 0; t < f.size(); t += signal_stride) {
         const auto signal = t + k * h;
         std::vector<double> a, b;
         std::vector<std::size_t> symbols;
@@ -41,8 +41,9 @@ PyObject *ic_decay(PyObject *, PyObject *args) {
       Owned item{PyDict_New()};
       put(item.p, "step", PyLong_FromLong(k + 1));
       put(item.p, "entry_lag", PyLong_FromLong(k * h));
-      put(item.p, "ic", moments(ics, 1, h - 1));
-      put(item.p, "rank_ic", moments(rankics, 1, h - 1));
+      const int overlap_lag = (h - 1) / signal_stride;
+      put(item.p, "ic", moments(ics, 1, overlap_lag));
+      put(item.p, "rank_ic", moments(rankics, 1, overlap_lag));
       PyList_Append(out.p, item.p);
     }
     return Py_NewRef(out.p);

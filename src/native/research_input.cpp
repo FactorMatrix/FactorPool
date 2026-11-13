@@ -221,16 +221,16 @@ PyObject *ic_series(PyObject *, PyObject *args) {
   using namespace fp;
   try {
     PyObject *prepared;
-    int h, minimum;
-    if (!PyArg_ParseTuple(args, "Oii", &prepared, &h, &minimum))
+    int h, minimum, signal_stride = 1;
+    if (!PyArg_ParseTuple(args, "Oii|i", &prepared, &h, &minimum, &signal_stride))
       return nullptr;
-    if (h < 1 || h > 252 || minimum < 2)
+    if (h < 1 || h > 252 || minimum < 2 || signal_stride < 1)
       throw std::invalid_argument("Invalid correlation options");
     InputRef holder(prepared, Py_None, nullptr);
     const auto &input = *holder.value;
     const auto &f = input.factors, &forward = input.forward(h);
     std::vector<double> ics, rankics;
-    for (std::size_t t = 0; t < f.size(); ++t) {
+    for (std::size_t t = 0; t < f.size(); t += signal_stride) {
       std::vector<double> a, b;
       std::vector<std::size_t> symbols;
       for (std::size_t n = 0; n < f[t].size(); ++n) {

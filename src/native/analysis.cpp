@@ -14,12 +14,12 @@ using namespace fp;
 PyObject *analyze(PyObject *, PyObject *args) {
   try {
     PyObject *factor, *daily_returns, *eligible = nullptr;
-    int groups, minimum, ddof, horizon = 1;
-    if (!PyArg_ParseTuple(args, "OOiii|Oi", &factor, &daily_returns, &groups, &minimum,
-                          &ddof, &eligible, &horizon))
+    int groups, minimum, ddof, horizon = 1, signal_stride = 1;
+    if (!PyArg_ParseTuple(args, "OOiii|Oii", &factor, &daily_returns, &groups, &minimum,
+                          &ddof, &eligible, &horizon, &signal_stride))
       return nullptr;
     if (horizon < 1 || horizon > 252 || groups < 1 || groups > 100 ||
-        minimum < 2 || ddof < 0 || ddof > 1)
+        minimum < 2 || ddof < 0 || ddof > 1 || signal_stride < 1)
       throw std::invalid_argument("Invalid analysis options");
     InputRef holder(factor, daily_returns, eligible);
     const auto &input = *holder.value;
@@ -29,7 +29,7 @@ PyObject *analyze(PyObject *, PyObject *args) {
     std::vector<double> ics, rankics, cumulative(groups, 1.0);
     std::vector<bool> started(groups, false), broken(groups, false);
     std::size_t covered = 0, total = 0, pairs = 0;
-    for (std::size_t t = 0; t < f.size(); ++t) {
+    for (std::size_t t = 0; t < f.size(); t += signal_stride) {
       std::vector<double> r(f[t].size(), missing), a, b,
           labels(f[t].size(), missing);
       const auto &order = input.order[t];

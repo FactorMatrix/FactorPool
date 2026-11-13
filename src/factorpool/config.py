@@ -5,6 +5,7 @@ import calendar
 import math
 import re
 from .settings import normalize_settings
+from .reporting_options import monetary_options, trace_dates
 
 
 def test_period_start(end, period):
@@ -92,9 +93,9 @@ def normalize_config(config):
         raise ValueError("config.data.provider must be market_matrix or fixture")
     if data.get("adjustment", "raw") != "raw":
         raise ValueError("Only raw source quotes are supported")
-    factor_price = data.get("factor_price", "raw")
-    if factor_price not in ("raw", "quote_adjusted") or type(factor_price) is not str:
-        raise ValueError("config.data.factor_price must be raw or quote_adjusted")
+    factor_price = data.get("factor_price", "quote_adjusted")
+    if type(factor_price) is not str or factor_price != "quote_adjusted":
+        raise ValueError("config.data.factor_price only supports quote_adjusted (forward-adjusted factor inputs)")
     universe = data.get("universe")
     if data["provider"] == "fixture":
         if universe != "fixture":
@@ -107,11 +108,7 @@ def normalize_config(config):
     if "snapshot_id" in data and (not isinstance(data["snapshot_id"], str) or not data["snapshot_id"]):
         raise ValueError("snapshot_id must be a nonempty string")
     data.update(factor_start=normalized_dates["start_date"], factor_end=normalized_dates["end_date"],
-                frequency="1d", adjustment="raw")
-    # Preserve old immutable script definitions: an omitted additive option
-    # keeps its old shape. The runner records its effective raw price contract.
-    if "factor_price" in data:
-        data["factor_price"] = factor_price
+                frequency="1d", adjustment="raw", factor_price=factor_price)
     params = deepcopy(_object(config.get("factor", {}), "config.factor"))
     analysis = dict(entry="signal_close", exit="next_close", groups=3,
                     group_weight="equal", min_ic_pairs=3, icir_ddof=1,
@@ -134,7 +131,6 @@ def normalize_config(config):
     if (analysis["entry"] != "signal_close" or analysis["exit"] != "next_close"
             or analysis["group_weight"] != "equal" or analysis["annualize_icir"] is not False):
         raise ValueError("Only signal-close returns, equal groups and unannualized ICIR are supported")
-    from .reporting_options import monetary_options, trace_dates
     monetary_options(analysis)
     analysis["trace_dates"] = trace_dates(analysis, normalized_dates["start_date"], normalized_dates["end_date"])
     settings = normalize_settings(config.get("settings", {}), data)

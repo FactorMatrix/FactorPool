@@ -9,7 +9,7 @@ export const learnGroups = [
   ] },
   { id: "data-computation", title: "数据与计算", items: [
     { id: "data-fields", title: "行情字段与股票池", description: "选择数据范围和因子输入" },
-    { id: "price-adjustment", title: "因子价格与复权", description: "用基础报价统一历史价格基准" },
+    { id: "price-adjustment", title: "因子前复权", description: "用基础报价换算当前信号日的价量输入" },
     { id: "windows", title: "窗口、缺失与时钟", description: "区分有效观测和交易日窗口" },
     { id: "backtest", title: "收益与回测口径", description: "从收盘信号到比例组合" },
   ] },
@@ -37,7 +37,7 @@ export const learnArticles = {
         ["3. 检查结果", "核对因子值，再阅读统计和组合收益", "解读研究结果 → 常见问题"],
       ] } },
       { id: "reading-path", title: "找到你需要的内容", paragraphs: [
-        "第一次使用时，按左侧“入门”章节完成合成样例。准备使用真实数据时，再阅读“数据与计算”，先确定股票池、价格基准和缺失处理。",
+        "第一次使用时，按左侧“入门”章节完成合成样例。准备使用真实数据时，再阅读“数据与计算”，了解股票池、前复权输入和缺失处理。",
         "写因子时可直接打开“算子参考”查调用方式；调整参数时使用“参数参考”核对默认值与支持状态。搜索也可以按算子名、参数名或问题查找。",
       ] },
       { id: "research-scope", title: "当前研究范围", paragraphs: [
@@ -106,14 +106,14 @@ return self.ts.is_ready(mean_volume)`, codeLabel: "update 内的组合表达式"
       { id: "quote-fields", title: "可用的基础字段", table: { columns: ["字段", "含义", "使用提示"], rows: [
         ["input.open / high / low / close", "日线开、高、低、收盘价", "在代码中分别写 input.open、input.high 等"],
         ["input.prev_close", "当前日行情中的前收盘价", "收益率与报价价格桥使用这个字段"],
-        ["input.volume", "成交量", "真实零量和缺失成交量需要区分"],
+        ["input.volume", "前复权成交量", "按价格倍率的倒数换算；真实零量和缺失仍区分"],
         ["input.total_turnover", "成交额", "保持基础行情原值"],
         ["input.is_st / is_suspended", "ST 与停牌状态", "按所选快照中的实际字段使用"],
       ] } },
       { id: "market-config", title: "配置一个明确股票池", code: `"data": {
     "provider": "market_matrix",
     "universe": ["000001.XSHE", "000002.XSHE", "600000.XSHG"],
-    "factor_price": "raw"
+    "factor_price": "quote_adjusted"
 }`, codeLabel: "config 中的 data 部分", paragraphs: [
         "证券列表必须非空且不重复。日期和股票数会影响有效配对数量；单日 IC 默认至少需要 3 组有效的因子值与未来收益配对。",
       ] },
@@ -124,34 +124,39 @@ return self.ts.is_ready(mean_volume)`, codeLabel: "update 内的组合表达式"
     ],
   },
   "price-adjustment": {
-    id: "price-adjustment", title: "因子价格与复权", subtitle: "只用收盘价和前收盘价，把历史价格换到当前信号日的基准。", readingTime: "5 分钟",
+    id: "price-adjustment", title: "因子前复权", subtitle: "用收盘价和前收盘价计算倍率，在信号日统一历史价量基准。", readingTime: "5 分钟",
     sections: [
-      { id: "select-price-basis", title: "选择因子价格基准", table: { columns: ["factor_price", "因子看到的历史价格", "用途"], rows: [
-        ["raw（默认）", "快照中的原始基础报价", "保持原有因子和脚本行为"],
-        ["quote_adjusted", "以当前信号日为基准换算的历史价格", "有限价格窗口跨基准变化时保持可比"],
+      { id: "select-price-basis", title: "统一使用前复权输入", paragraphs: [
+        "因子只使用前复权输入。factor_price 省略时默认为 quote_adjusted，有效配置会明确记录它；不支持切换成原始价或后复权。",
+      ], table: { columns: ["factor_price", "因子看到的历史价格", "用途"], rows: [
+        ["quote_adjusted（默认）", "以当前信号日为基准前复权的历史价格", "在同一基准计算窗口与截面信号"],
       ] }, code: `"data": {
     "provider": "market_matrix",
     "universe": ["000001.XSHE", "000002.XSHE", "600000.XSHG"],
     "factor_price": "quote_adjusted"
-}`, codeLabel: "启用报价推导复权" },
+}`, codeLabel: "前复权配置" },
       { id: "quote-bridge", title: "倍率如何计算", paragraphs: [
         "相邻有效交易日之间，用当前前收盘价除以上一日收盘价，得到价格桥 q。累计这些倍率得到 Q；历史价格再乘以“当前 Q / 历史 Q”。这个过程只使用信号日及之前已经完成的基础行情。",
       ], code: `q[t] = prev_close[t] / close[t-1]
 Q[t] = Q[t-1] * q[t]
-历史价格在当前基准下 = raw_price[s] * Q[t] / Q[s]`, codeLabel: "计算公式", table: { columns: ["项目", "示例数值"], rows: [
+价格倍率 = Q[t] / Q[s]
+历史价格在当前基准下 = raw_price[s] * 价格倍率
+历史成交量在当前基准下 = raw_volume[s] / 价格倍率`, codeLabel: "计算公式", table: { columns: ["项目", "示例数值"], rows: [
         ["上一日收盘价", "102"],
         ["当前前收盘价 / 当前收盘价", "51 / 51"],
         ["报价桥", "51 / 102 = 0.5"],
         ["历史收盘价换到当前基准", "102 × 0.5 = 51"],
+        ["历史成交量换到当前基准", "100 / 0.5 = 200"],
         ["当前基准下的两期均价", "(51 + 51) / 2 = 51"],
       ] } },
-      { id: "unchanged-returns", title: "价格窗口与收益矩阵分别处理", paragraphs: [
-        "报价复权改变的是本次因子计算的历史价格视图。成交量和成交额保持原始值；研究日收益仍直接使用 close / prev_close - 1。",
+      { id: "unchanged-returns", title: "收益矩阵 R 与调整矩阵 Q", paragraphs: [
+        "基础矩阵分为收益 R 和调整倍率 Q。收盘信号需要计算因子时，用 Q 将历史开高低收和前收换到当前基准，成交量按价格倍率的倒数调整；成交额、状态字段及因子公式和算子接口不变。",
+        "组合在非换仓日只用 R 计算收益和净值，不重新计算因子或前复权。R 独立遵循快照收益规则，正常成交使用 close / prev_close - 1。",
         "不需要另外读取分红明细、公司行为或外部复权因子表，也不会改写原行情、历史任务或已发布因子结果。",
       ] },
       { id: "price-boundaries", title: "未知倍率与支持范围", paragraphs: [
         "缺 Bar、无量或关键报价不可信时，程序不会猜倍率为 1，也不会跨缺口拼接价格。受影响股票建立新的可比价格段，相应价格窗口重新预热。",
-        "可从纯价格均线、延迟、标准差等已支持的有限窗口开始。递归指标、独立价格与非价格历史、复杂价格 TS→CS→TS，以及报价复权与新增数学算子或交易日窗口混用，目前会明确拒绝。",
+        "换仓日计算窗口时仍保留窗口内所需的日观测，时序算子不会把两个换仓日误当成相邻交易日。不支持的表达式或状态会明确报错，不通过改成原始价绕过。",
       ] },
     ],
   },
@@ -207,7 +212,7 @@ value = self.ts.delay(input.close, 1, clock="trading_days")`, codeLabel: "在 up
     sections: [
       { id: "config-sections", title: "五个配置部分", table: { columns: ["部分", "控制什么", "例子"], rows: [
         ["base", "因子研究日期和频率", "start_date、end_date、frequency"],
-        ["data", "数据源、股票池和因子价格基准", "provider、universe、factor_price"],
+        ["data", "数据源、股票池和前复权因子输入", "provider、universe、factor_price=quote_adjusted"],
         ["factor", "因子类构造参数", "period 会传入 __init__(period=...)"],
         ["analysis", "分组、持有期与报告诊断", "groups、horizons、decay_steps"],
         ["settings", "Alpha 权重变换与展示", "decay、neutralization、truncation"],
@@ -222,7 +227,7 @@ value = self.ts.delay(input.close, 1, clock="trading_days")`, codeLabel: "在 up
     "data": {
         "provider": "market_matrix",
         "universe": ["000001.XSHE", "000002.XSHE", "600000.XSHG"],
-        "factor_price": "raw",
+        "factor_price": "quote_adjusted",
     },
     "factor": {"period": 20},
     "analysis": {"groups": 3, "horizons": [1, 5, 20]},
@@ -340,7 +345,7 @@ value = self.ts.delay(input.close, 1, clock="trading_days")`, codeLabel: "在 up
       ] },
       { id: "values-missing", title: "任务成功，为什么因子值为空？", paragraphs: [
         "先看 Factor Values 的 ready 和 reason。not_ready 通常表示预热未完成；missing_bar 表示当天没有该股票的 Bar；source_missing 表示表达式所需字段缺失。",
-        "ready 已完成仍可能没有有效值，例如除以零、对非正数取 log，或对常量截面做 zscore。切换为交易日时钟或报价复权后，也要重新检查对应的缺失与预热规则。",
+        "ready 已完成仍可能没有有效值，例如除以零、对非正数取 log，或对常量截面做 zscore。使用交易日时钟或遇到前复权价格段重置时，也要检查对应的缺失与预热规则。",
       ] },
       { id: "statistics-missing", title: "为什么 IC、ICIR 或 Sharpe 显示 --？", paragraphs: [
         "统计量需要满足自己的样本和分母条件：有效配对不足或截面常量时 IC 不可用；单日或 IC 标准差为零时 ICIR 不可用；PnL 标准差为零时 Sharpe 不可用。",
@@ -348,7 +353,7 @@ value = self.ts.delay(input.close, 1, clock="trading_days")`, codeLabel: "在 up
       ] },
       { id: "unsupported-fields", title: "为什么台账有这个选项，却不能运行？", paragraphs: [
         "台账同时列出已接通能力和待实现、缺数据或待核实项。请按具体条目的状态使用；例如行业中性化需要历史分类，向量算子需要实际向量数据，delay=0 需要当前日线模型尚未支持的执行价格。",
-        "若提示报价复权不支持该表达式，可先用 raw 检查算子本身，再把价格部分简化为已支持的有限窗口。不要通过填零或改写原始行情绕过不可用状态。",
+        "若提示前复权不支持该表达式，先检查错误中指出的窗口、状态与输入依赖，再用已支持的表达式复现。不要通过填零、切换原始价或改写行情绕过不可用状态。",
       ] },
       { id: "compare-results", title: "两次结果不同，怎么比较？", bullets: [
         "对照 Source 中的原始源码、构造参数与 effective_config。",
