@@ -219,7 +219,7 @@ if __name__ == "__main__":
             with tempfile.TemporaryDirectory() as temporary, \
                     patch('factortrader.Engine', side_effect=AssertionError('Trading Engine constructed')):
                 directory = Path(temporary)
-                (directory/'request.json').write_text(json.dumps(dict(name='settings integration', source_mode='script', source_code=source)))
+                (directory/'request.json').write_text(json.dumps(dict(name='settings integration', source_code=source)))
                 run(directory)
                 report = json.loads((directory/'result.json').read_text())
                 reports.append(report)
@@ -314,7 +314,7 @@ if __name__ == "__main__":
                     patch('factorpool.market_loader.load', return_value=payload) as load, \
                     patch('factortrader.Engine', side_effect=AssertionError('Trading Engine constructed')):
                 directory = Path(temporary)
-                (directory/'request.json').write_text(json.dumps(dict(name='calculation axis', source_mode='script', source_code=source)))
+                (directory/'request.json').write_text(json.dumps(dict(name='calculation axis', source_code=source)))
                 run(directory)
                 values = [json.loads(line) for line in (directory/'values.jsonl').read_text().splitlines()]
                 self.assertEqual([row['symbol'] for row in values], ['A', 'B'])

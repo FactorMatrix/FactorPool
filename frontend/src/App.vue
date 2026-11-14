@@ -7,25 +7,29 @@ import WorkspaceSettings from "./components/WorkspaceSettings.vue";
 import SimulationResults from "./components/SimulationResults.vue";
 import TutorialPanel from "./components/TutorialPanel.vue";
 import { api } from "./api";
-const source = ref(""),
-  sourceMode = ref("script"),
-  name = ref("20日低成交量因子"),
-  factorClass = ref("LowVolumeFactor"),
-  params = ref('{"period":20}');
-const resolvedScript = ref(null),
-  resolveError = ref(""),
-  resolving = ref(false);
+const source = ref(""), name = ref("20日低成交量因子");
+const defaults = () => ({
+  type: "REGULAR",
+  base: { start_date: "2016-01-01", end_date: "2026-01-01", frequency: "1d" },
+  data: { provider: "market_matrix", universe: "all_a_dynamic", adjustment: "raw", factor_price: "quote_adjusted" },
+  factor: {},
+  analysis: { groups: 3, horizons: [1, 5, 20], decay_steps: 10, annual_days: 252,
+    min_ic_pairs: 3, icir_ddof: 1, book_size: 1, pnl_unit: "BOOK", trace_dates: [] },
+  settings: { decay: 0, truncation: 0, neutralization: "MARKET", pasteurization: "ON",
+    testPeriod: "P0Y0M", visualization: true },
+});
+const clone = value => JSON.parse(JSON.stringify(value));
+function workspaceDefaults(value = {}) {
+  const result = defaults();
+  for (const key of ["base", "data", "analysis", "settings"])
+    result[key] = { ...result[key], ...clone(value[key] || {}) };
+  result.type = value.type ?? result.type;
+  result.factor = clone(value.factor || {});
+  return result;
+}
+const settings = ref(defaults());
+const resolvedScript = ref(null), resolveError = ref(""), resolving = ref(false);
 let resolveRevision = 0;
-const scriptMode = computed(() => sourceMode.value === "script");
-const provider = ref("market_matrix"),
-  snapshotId = ref(null),
-  universe = ref(""),
-  dynamic = ref(true);
-const start = ref("2016-01-01"),
-  end = ref("2026-01-01"),
-  groups = ref(3);
-const horizons = ref("1,5,20"),
-  decaySteps = ref(10);
 const tab = ref(window.location.hash.startsWith("#learn/") ? "learn" : "research"),
   error = ref(""),
   busy = ref(false);
@@ -72,43 +76,19 @@ const workspaces = ref([
 ]);
 const workspaceId = ref(1);
 let workspaceSequence = 1;
-watch([source, sourceMode, workspaceId], () => {
+watch([source, settings, workspaceId], () => {
   ++resolveRevision;
   resolvedScript.value = null;
   resolveError.value = "";
   resolving.value = false;
 });
-const settings = computed(() => ({
-  provider: provider.value,
-  snapshotId: snapshotId.value,
-  universe: universe.value,
-  dynamic: dynamic.value,
-  start: start.value,
-  end: end.value,
-  groups: groups.value,
-  horizons: horizons.value,
-  decaySteps: decaySteps.value,
-  factorClass: factorClass.value,
-  params: params.value,
-}));
-function applySettings(d) {
-  snapshotId.value = d.provider === provider.value ? d.snapshotId || null : null;
-  provider.value = d.provider;
-  universe.value = d.universe;
-  dynamic.value = d.dynamic;
-  start.value = d.start;
-  end.value = d.end;
-  groups.value = d.groups;
-  horizons.value = d.horizons;
-  decaySteps.value = d.decaySteps;
-  factorClass.value = d.factorClass;
-  params.value = d.params;
+function applySettings(value) {
+  settings.value = clone(value);
 }
 function captureWorkspace() {
   const current = workspaces.value.find((w) => w.id === workspaceId.value);
   current.draft = {
-    ...settings.value,
-    sourceMode: sourceMode.value,
+    settings: clone(settings.value),
     source: source.value,
     name: name.value,
     factorId: factorId.value,
@@ -130,8 +110,7 @@ async function selectWorkspace(id) {
     captureWorkspace();
     const next = workspaces.value.find((w) => w.id === id);
     workspaceId.value = id;
-    sourceMode.value = next.draft.sourceMode || "legacy";
-    applySettings(next.draft);
+    applySettings(next.draft.settings);
     source.value = next.draft.source;
     name.value = next.draft.name;
     factorId.value = next.draft.factorId;
@@ -162,55 +141,10 @@ function newWorkspace(copy = false) {
   showCode.value = true;
 }
 function request() {
-  if (scriptMode.value)
-    return { name: name.value, source_mode: "script", source_code: source.value };
-  const factorParams = JSON.parse(params.value);
-  if (
-    !factorParams ||
-    Array.isArray(factorParams) ||
-    typeof factorParams !== "object"
-  )
-    throw new Error("因子参数应为 JSON 对象");
-  return {
-    name: name.value,
-    source_code: source.value,
-    factor_class: factorClass.value,
-    factor_params: factorParams,
-    data: {
-      provider: provider.value,
-      universe:
-        provider.value === "fixture"
-          ? "fixture"
-          : dynamic.value
-            ? "all_a_dynamic"
-            : universe.value
-                .split(",")
-                .map((s) => s.trim())
-                .filter(Boolean),
-      frequency: "1d",
-      adjustment: "raw",
-      factor_price: "quote_adjusted",
-      factor_start: start.value,
-      factor_end: end.value,
-      ...(provider.value === "market_matrix" && snapshotId.value
-        ? { snapshot_id: snapshotId.value }
-        : {}),
-    },
-    analysis: {
-      entry: "signal_close",
-      exit: "next_close",
-      groups: Number(groups.value),
-      horizons: horizons.value.split(",").map((x) => Number(x.trim())),
-      decay_steps: Number(decaySteps.value),
-      annual_days: 252,
-      min_ic_pairs: 3,
-      icir_ddof: 1,
-      annualize_icir: false,
-      group_weight: "equal",
-    },
-  };
+  return { name: name.value, source_code: source.value,
+    workspace_config: clone(settings.value) };
 }
-async function resolveScript() {
+async function resolveScript(workspaceConfig = settings.value) {
   const token = ++resolveRevision,
     text = source.value,
     workspace = workspaceId.value;
@@ -218,8 +152,8 @@ async function resolveScript() {
   resolveError.value = "";
   resolvedScript.value = null;
   try {
-    const resolved = await api("/script/resolve", { source_code: text });
-    if (token === resolveRevision && source.value === text && workspaceId.value === workspace && scriptMode.value)
+    const resolved = await api("/script/resolve", { source_code: text, workspace_config: clone(workspaceConfig) });
+    if (token === resolveRevision && source.value === text && workspaceId.value === workspace)
       resolvedScript.value = resolved;
   } catch (e) {
     if (token === resolveRevision && source.value === text && workspaceId.value === workspace)
@@ -243,7 +177,6 @@ async function refreshLists() {
   factors.value = await api("/factors");
 }
 function example(item) {
-  sourceMode.value = "script";
   source.value = item.source_code;
   name.value = item.name.includes("volume_rank")
     ? "成交量多阶段截面"
@@ -275,9 +208,7 @@ async function loadFactor(id) {
 }
 function clearDraft() {
   factorId.value = null;
-  sourceMode.value = "script";
-  provider.value = "market_matrix";
-  snapshotId.value = null;
+  settings.value = defaults();
   name.value = "新因子";
   notice.value = "";
   if (examples.value.length)
@@ -346,38 +277,17 @@ async function cancel() {
 }
 async function runBatch() {
   await action(async () => {
-    let body = { factors: selected.value };
-    if (!scriptMode.value) {
-      const r = request();
-      body = { ...body, data: r.data, analysis: r.analysis };
-    }
+    const body = { factors: selected.value, workspace_config: clone(settings.value) };
     const batch = await api("/tasks/batch", body);
     notice.value = `批次 ${batch.id} · ${batch.tasks.length} 个任务已提交`;
     await refreshLists();
   });
 }
 function restoreSnapshot(r) {
-  sourceMode.value = r.source_mode === "script" ? "script" : "legacy";
   source.value = r.source_code;
   name.value = r.name;
-  factorClass.value = r.factor_class;
-  params.value = JSON.stringify(r.factor_params || {});
+  settings.value = workspaceDefaults(r.workspace_config);
   factorId.value = null;
-  if (!scriptMode.value && r.data) {
-    const migrated = r.data.provider === "ft_daily_mmap";
-    provider.value = migrated ? "market_matrix" : r.data.provider;
-    snapshotId.value = migrated ? null : r.data.snapshot_id || null;
-    dynamic.value = r.data.universe === "all_a_dynamic";
-    if (Array.isArray(r.data.universe))
-      universe.value = r.data.universe.join(",");
-    start.value = r.data.factor_start;
-    end.value = r.data.factor_end;
-  }
-  if (!scriptMode.value && r.analysis) {
-    groups.value = r.analysis.groups;
-    horizons.value = (r.analysis.horizons || [1]).join(",");
-    decaySteps.value = r.analysis.decay_steps || 10;
-  }
 }
 function loadSnapshot() {
   const r = task.value?.snapshot;
@@ -442,7 +352,7 @@ onBeforeUnmount(() => {
         <button
           v-for="[key, icon, title, label] in [
             ['research', 'terminal', 'Simulate', '研究'],
-            ['library', 'alpha', 'Factors', '因子库'],
+            ['library', 'factor', 'Factors', '因子库'],
             ['learn', 'book', 'Learn', '使用说明'],
             ['data', 'data', 'Data', '数据'],
           ]"
@@ -525,17 +435,8 @@ onBeforeUnmount(() => {
                 :aria-expanded="settingsOpen"
                 @click="settingsOpen = !settingsOpen"
               >
-                <UiIcon name="settings" :size="16" />Settings</button
-              ><span v-if="scriptMode">Python · config · MyFactor.run(config)</span
-              ><span v-else
-                >{{ provider === "fixture" ? "SYNTHETIC" : "CHN" }} / D1 /
-                {{
-                  provider === "fixture"
-                    ? "A, B, C"
-                    : dynamic
-                      ? "All A Dynamic"
-                      : "Custom universe"
-                }}</span
+                <UiIcon name="settings" :size="16" />设置</button
+              ><span>PythonIndicator · config 覆盖设置中的同名字段</span
               ><button
                 class="icon-button"
                 aria-label="复制为新模拟"
@@ -550,11 +451,8 @@ onBeforeUnmount(() => {
               <input
                 v-model="name"
                 aria-label="因子名称"
-                placeholder="Alpha name"
-              /><select v-model="sourceMode" aria-label="运行入口">
-                <option value="script">config 脚本</option>
-                <option value="legacy">历史类入口</option>
-              </select>
+                placeholder="Factor name"
+              />
             </div>
             <div class="editor-stage">
               <FactorEditor
@@ -565,7 +463,6 @@ onBeforeUnmount(() => {
                 v-if="settingsOpen"
                 :values="settings"
                 :sources="sources"
-                :source-mode="sourceMode"
                 :resolved="resolvedScript"
                 :resolve-error="resolveError"
                 :resolving="resolving"
@@ -575,12 +472,8 @@ onBeforeUnmount(() => {
               />
             </div>
             <div class="editor-status">
-              <span><span class="status-dot"></span>{{ scriptMode ? resolvedScript?.factor_class || 'PythonIndicator.run(config)' : factorClass }}</span
-              ><span v-if="scriptMode">{{ resolvedScript ? `${resolvedScript.data.factor_start} — ${resolvedScript.data.factor_end}` : '日期、股票池与参数以代码中的 config 为准' }}</span
-              ><span v-else
-                >{{ provider === "fixture" ? "合成样例" : "行情只读" }} ·
-                {{ start }} — {{ end }}</span
-              >
+              <span><span class="status-dot"></span>{{ resolvedScript?.factor_class || 'PythonIndicator' }}</span
+              ><span>未写入 config 的参数使用设置值</span>
             </div>
             <div class="editor-actions">
               <select
@@ -648,7 +541,7 @@ onBeforeUnmount(() => {
         </button>
       </div>
       <p class="muted">
-        {{ scriptMode ? '批量任务使用每个已保存脚本自己的 config；每个子任务保留独立源码与配置快照。' : '历史因子模式：批量任务使用工作台当前数据与研究参数；每个子任务保留独立源码快照。' }}
+        批量任务以当前设置为默认值，各脚本 config 按字段覆盖；每个子任务保留独立源码与配置快照。
       </p>
       <table>
         <thead>

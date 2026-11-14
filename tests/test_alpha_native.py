@@ -261,7 +261,7 @@ class NativeAlphaTests(unittest.TestCase):
                             patch('factorpool.simulation.alpha_targets', function):
                         path = Path(directory)
                         (path/'request.json').write_text(json.dumps(dict(
-                            name='native-alpha-full-report', source_mode='script', source_code=source)))
+                            name='native-alpha-full-report', source_code=source)))
                         run(path)
                         result = json.loads((path/'result.json').read_text())
                         result.pop('metadata')

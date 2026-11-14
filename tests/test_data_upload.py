@@ -35,12 +35,13 @@ class DataUploadTests(unittest.TestCase):
                 '87654321-4321-4321-4321-cba987654321',path,count)
 
     def test_real_runner_jsonl_round_trips_through_actual_generated_protobuf(self):
-        request=dict(name='upload-group-protocol',factor_class='Factor',factor_params={},
+        request=dict(name='upload-group-protocol',
             source_code='from factorpool import PythonIndicator\nclass Factor(PythonIndicator):\n'
-                        '    def update(self, input):\n        self.value = input.volume\n        return True\n',
-            data=dict(provider='fixture',universe='fixture',frequency='1d',adjustment='raw',
-                      factor_start='2024-01-02',factor_end='2024-01-04'),
-            analysis=dict(groups=3,horizons=[1],decay_steps=1,entry='signal_close',exit='next_close'))
+                        '    def update(self, input):\n        self.value = input.volume\n        return True\n'
+                        'if __name__ == "__main__":\n    Factor.run()\n',
+            workspace_config=dict(base=dict(start_date='2024-01-02',end_date='2024-01-04'),
+                data=dict(provider='fixture',universe='fixture'),
+                analysis=dict(groups=3,horizons=[1],decay_steps=1,entry='signal_close',exit='next_close')))
         with tempfile.TemporaryDirectory() as directory:
             path=Path(directory)
             (path/'request.json').write_text(json.dumps(request))

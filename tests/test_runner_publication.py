@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from factorpool import runner
 from factorpool.result_matrix import iter_result_chunks
+from script_fixtures import example_source
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -17,11 +18,10 @@ class RunnerPublicationTests(unittest.TestCase):
     def request(self):
         return dict(
             name='early-artifact',
-            source_code=(ROOT/'src/examples/factors/low_volume.py').read_text(),
-            factor_class='LowVolumeFactor', factor_params={'period': 3},
-            data=dict(provider='fixture', universe='fixture', frequency='1d',
-                      adjustment='raw', factor_start='2024-01-04', factor_end='2024-01-18'),
-            analysis=dict(groups=3, horizons=[5, 20], decay_steps=3))
+            source_code=example_source('low_volume'),
+            workspace_config=dict(base=dict(start_date='2024-01-04', end_date='2024-01-18'),
+                factor={'period': 3}, data=dict(provider='fixture', universe='fixture'),
+                analysis=dict(groups=3, horizons=[5, 20], decay_steps=3)))
 
     def prepare(self, directory):
         (directory/'request.json').write_text(json.dumps(self.request()))

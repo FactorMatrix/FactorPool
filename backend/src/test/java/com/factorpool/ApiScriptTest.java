@@ -19,22 +19,36 @@ class ApiScriptTest {
   void resolveEndpointAcceptsSourceWithoutExternalFactorClass() throws Exception {
     var normalized = json.createObjectNode().put("source_mode", "script").put("factor_class", "MyFactor");
     normalized.putObject("source_config");
-    when(scripts.resolve("source only")).thenReturn(normalized);
+    when(scripts.resolve("source only", null)).thenReturn(normalized);
     var api = MockMvcBuilders.standaloneSetup(new Api(store, mock(Tasks.class))).build();
     api.perform(post("/api/script/resolve").contentType("application/json")
         .content("{\"source_code\":\"source only\"}"))
         .andExpect(status().isOk()).andExpect(jsonPath("$.factor_class").value("MyFactor"));
-    verify(scripts).resolve("source only");
+    verify(scripts).resolve("source only", null);
     verifyNoInteractions(store.db);
   }
 
   @Test
   void badScriptIsA400WithItsLineNumber() throws Exception {
-    when(scripts.resolve("bad")).thenThrow(new IllegalArgumentException("line 3: config must be literal"));
+    when(scripts.resolve("bad", null)).thenThrow(new IllegalArgumentException("line 3: config must be literal"));
     var api = MockMvcBuilders.standaloneSetup(new Api(store, mock(Tasks.class))).build();
     api.perform(post("/api/script/resolve").contentType("application/json")
         .content("{\"source_code\":\"bad\"}"))
         .andExpect(status().isBadRequest()).andExpect(jsonPath("$.error").value("line 3: config must be literal"));
     verifyNoInteractions(store.db);
   }
+  @Test
+  void resolveEndpointPassesWorkspaceDefaultsWithoutInterpretingSource() throws Exception {
+    var workspace = json.createObjectNode();
+    workspace.putObject("settings").put("decay", 5);
+    var normalized = json.createObjectNode().put("factor_class", "MyFactor");
+    when(scripts.resolve("config = {}", workspace)).thenReturn(normalized);
+    var body = json.createObjectNode().put("source_code", "config = {}");
+    body.set("workspace_config", workspace);
+    var api = MockMvcBuilders.standaloneSetup(new Api(store, mock(Tasks.class))).build();
+    api.perform(post("/api/script/resolve").contentType("application/json").content(body.toString()))
+        .andExpect(status().isOk()).andExpect(jsonPath("$.factor_class").value("MyFactor"));
+    verify(scripts).resolve("config = {}", workspace);
+  }
+
 }

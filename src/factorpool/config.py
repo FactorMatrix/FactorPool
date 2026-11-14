@@ -62,6 +62,30 @@ def _json(value):
     raise ValueError("Configuration must contain finite JSON values only")
 
 
+DEFAULT_CONFIG = {
+    "base": {"start_date": "2016-01-01", "end_date": "2026-01-01", "frequency": "1d"},
+    "data": {"provider": "market_matrix", "universe": "all_a_dynamic", "factor_price": "quote_adjusted"},
+}
+
+
+def merge_config(workspace_config, source_config):
+    """Source keys override workspace values recursively, including false/zero/empty."""
+    workspace = deepcopy(_object(workspace_config, "workspace_config"))
+    source = deepcopy(_object(source_config, "config"))
+    _json(workspace)
+    _json(source)
+
+    def overlay(target, supplied):
+        for key, value in supplied.items():
+            if isinstance(value, dict) and isinstance(target.get(key), dict):
+                overlay(target[key], value)
+            else:
+                target[key] = deepcopy(value)
+        return target
+
+    return overlay(overlay(deepcopy(DEFAULT_CONFIG), workspace), source)
+
+
 def normalize_config(config):
     config = deepcopy(_object(config, "config"))
     _json(config)
@@ -142,7 +166,8 @@ def normalize_config(config):
 def effective_config(request):
     data = request["data"]
     result = deepcopy(request.get("source_config", {}))
-    result.update(base=dict(start_date=data["factor_start"], end_date=data["factor_end"],
+    result.update(type=request["simulation_type"],
+                  base=dict(start_date=data["factor_start"], end_date=data["factor_end"],
                             frequency=data["frequency"]),
                   data={key: deepcopy(data[key]) for key in
                         ("provider", "universe", "adjustment", "factor_price", "snapshot_id") if key in data},

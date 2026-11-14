@@ -9,7 +9,7 @@ export function fixtureConfig({period=20, start='2024-01-29', end=start, horizon
   return config
 }
 
-function pythonLiteral(value, depth=0) {
+export function pythonLiteral(value, depth=0) {
   if (value === true) return 'True'
   if (value === false) return 'False'
   if (value === null) return 'None'
@@ -59,13 +59,27 @@ export async function setSource(page, source) {
 export async function readSource(page) {
   const settings = page.getByRole('region', {name:'模拟设置'})
   const alreadyOpen = await settings.isVisible()
-  if (!alreadyOpen) await page.getByRole('button', {name:'Settings', exact:true}).click()
+  if (!alreadyOpen) await page.getByRole('button', {name:'设置', exact:true}).click()
   const request = page.waitForRequest(value => value.method() === 'POST' && value.url().endsWith('/api/script/resolve'))
   const response = page.waitForResponse(value => value.request().method() === 'POST' && value.url().endsWith('/api/script/resolve'))
   await settings.getByRole('button', {name:'校验源码配置', exact:true}).click()
   const [submitted, preview] = await Promise.all([request, response])
   if (!preview.ok()) throw new Error(`Source preview failed (${preview.status()}): ${await preview.text()}`)
-  await settings.getByLabel('源码配置', {exact:true}).waitFor()
+  await settings.getByLabel('有效配置', {exact:true}).waitFor()
   if (!alreadyOpen) await settings.getByRole('button', {name:'关闭设置', exact:true}).click()
   return submitted.postDataJSON().source_code
+}
+
+// A fast fixture may finish before the old result badge disappears. Bind the
+// wait to this POST's task id before inspecting any rendered result or snapshot.
+export async function runResearch(page, timeout=40000) {
+  const response = page.waitForResponse(value => value.request().method() === 'POST' && value.url().endsWith('/api/tasks'))
+  await page.getByRole('button', {name:'运行研究',exact:true}).click()
+  const submitted = await response
+  if (!submitted.ok()) throw new Error(`Task submission failed (${submitted.status()}): ${await submitted.text()}`)
+  const {id} = await submitted.json()
+  if (!id) throw new Error('Task submission did not return an id')
+  await page.waitForFunction(expected => sessionStorage.getItem('factorpool.task') === expected, id, {timeout})
+  await page.locator('.badge.SUCCEEDED').waitFor({timeout})
+  return id
 }

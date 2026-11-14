@@ -15,6 +15,8 @@ from factortrader.binding.loading import _load_native_rows
 from factorpool.adapter import IndicatorAdapter
 from factorpool.datasource import fixture
 from factorpool.runner import run, load_factor, validate, returns_matrix
+from factorpool.script import parse_source
+from script_fixtures import example_source
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -70,11 +72,12 @@ class Factor(PythonIndicator):
         payload['frames'][1]['rows']['A']['prev_close'] = 50
         payload['frames'][1]['rows']['B']['prev_close'] = 100/1.5
         payload['frames'][1]['rows']['C']['prev_close'] = 200
-        request = dict(name='previous-close', source_code=source, factor_class='Factor', factor_params={},
-                       data=dict(provider='fixture', universe='fixture', frequency='1d', adjustment='raw',
-                                 factor_start='2024-01-02', factor_end='2024-01-02'),
-                       analysis=dict(groups=3, horizons=[1], decay_steps=1,
-                                     entry='signal_close', exit='next_close'))
+        source += '\nif __name__ == "__main__":\n    Factor.run()\n'
+        request = dict(name='previous-close', source_code=source,
+                       workspace_config=dict(base=dict(start_date='2024-01-02', end_date='2024-01-02'),
+                           data=dict(provider='fixture', universe='fixture'),
+                           analysis=dict(groups=3, horizons=[1], decay_steps=1,
+                                         entry='signal_close', exit='next_close')))
         with tempfile.TemporaryDirectory() as directory, patch('factorpool.runner.fixture', return_value=payload):
             path = Path(directory)
             (path/'request.json').write_text(json.dumps(request))
@@ -84,9 +87,10 @@ class Factor(PythonIndicator):
             result = json.loads((path/'result.json').read_text())
             self.assertEqual(result['metadata']['report_version'], 3)
             self.assertEqual(result['diagnostics']['version'], 3)
-        request['analysis'].update(entry='next_open', exit='following_open')
+        normalized = parse_source(source, request['workspace_config'])
+        normalized['analysis'].update(entry='next_open', exit='following_open')
         with self.assertRaises(ValueError):
-            validate(request)
+            validate(normalized)
 
     def test_return_matrix_rejects_invalid_prices_without_zero_filling(self):
         rows = dict(A=dict(close=0, prev_close=10), B=dict(close=10, prev_close=0),
@@ -107,11 +111,12 @@ class Factor(PythonIndicator):
         for frame in payload['frames']:
             for row in frame['rows'].values():
                 row.update(close=100, prev_close=100)  # Recomputing instead of using stored R would yield zero.
-        source = (ROOT/'src/examples/factors/low_volume.py').read_text()
-        request = dict(name='db-return-matrix', source_code=source, factor_class='LowVolumeFactor', factor_params={'period':3},
-                       data=dict(provider='market_matrix', snapshot_id='test-db-snapshot', universe=['A', 'B', 'C'],
-                                 frequency='1d', adjustment='raw', factor_start='2024-01-04', factor_end='2024-01-04'),
-                       analysis=dict(groups=3, horizons=[1], decay_steps=1))
+        source = example_source('low_volume')
+        request = dict(name='db-return-matrix', source_code=source,
+                       workspace_config=dict(base=dict(start_date='2024-01-04', end_date='2024-01-04'),
+                           factor={'period':3},
+                           data=dict(provider='market_matrix', snapshot_id='test-db-snapshot', universe=['A', 'B', 'C']),
+                           analysis=dict(groups=3, horizons=[1], decay_steps=1)))
         adapters = []
         def create(indicator):
             adapter = IndicatorAdapter(indicator)
@@ -125,7 +130,8 @@ class Factor(PythonIndicator):
             path = Path(directory)
             (path/'request.json').write_text(json.dumps(request))
             run(directory)
-            load.assert_called_once_with(request['data'], 3, 1, matrix_only=True, fields=('volume',))
+            load.assert_called_once_with(parse_source(source, request['workspace_config'])['data'],
+                                         3, 1, matrix_only=True, fields=('volume',))
             values = [json.loads(line) for line in (path/'values.jsonl').read_text().splitlines()]
             self.assertEqual([row['symbol'] for row in values], ['A', 'B', 'C'])
             np.testing.assert_allclose([row['forward_return'] for row in values], [1, 2, -.5])
@@ -224,7 +230,7 @@ class Factor(PythonIndicator):
         np.testing.assert_allclose([r['value'] for r in final],[1/3,2/3,1])
 
     def test_python_callback_and_native_agree_after_warmup(self):
-        factory=load_factor(ROOT/'src/examples/factors/close_mean_python.py','CloseMeanPython',{'period':3})
+        factory=load_factor(ROOT/'src/examples/scripts/close_mean_python.py','CloseMeanPython',{'period':3})
         adapter=IndicatorAdapter(factory());self.assertEqual(adapter.mode,'python')
         frames=fixture()['frames'][:3]
         for i,frame in enumerate(frames):
@@ -234,9 +240,11 @@ class Factor(PythonIndicator):
         self.assertEqual([r['value'] for r in rows],[2,2,2])
 
     def test_future_price_padding_never_advances_indicator_graph(self):
-        source=(ROOT/'src/examples/factors/low_volume.py').read_text()
-        request=dict(name='future-padding',source_code=source,factor_class='LowVolumeFactor',factor_params={'period':20},
-                     data=dict(provider='fixture',universe='fixture',frequency='1d',adjustment='raw',factor_start='2024-01-29',factor_end='2024-01-29'),analysis=dict(groups=3,horizons=[1,5,20],decay_steps=10))
+        source=example_source('low_volume')
+        request=dict(name='future-padding',source_code=source,
+                     workspace_config=dict(base=dict(start_date='2024-01-29',end_date='2024-01-29'),
+                         factor={'period':20}, data=dict(provider='fixture',universe='fixture'),
+                         analysis=dict(groups=3,horizons=[1,5,20],decay_steps=10)))
         held=[]
         def create(indicator):
             value=IndicatorAdapter(indicator);value.binding=Mock(wraps=value.binding);held.append(value);return value
@@ -257,9 +265,11 @@ class Factor(PythonIndicator):
             self.assertEqual(matrix.shape, (20, 3))
 
     def test_runner_never_constructs_engine_and_future_never_enters_factor(self):
-        source=(ROOT/'src/examples/factors/low_volume.py').read_text()
-        request=dict(name='matrix',source_code=source,factor_class='LowVolumeFactor',factor_params={'period':20},
-                     data=dict(provider='fixture',universe='fixture',frequency='1d',adjustment='raw',factor_start='2024-01-29',factor_end='2024-01-29'),analysis=dict(groups=3))
+        source=example_source('low_volume')
+        request=dict(name='matrix',source_code=source,
+                     workspace_config=dict(base=dict(start_date='2024-01-29',end_date='2024-01-29'),
+                         factor={'period':20}, data=dict(provider='fixture',universe='fixture'),
+                         analysis=dict(groups=3)))
         with tempfile.TemporaryDirectory() as d,patch('factortrader.Engine',side_effect=AssertionError('Trading Engine constructed')):
             path=Path(d);(path/'request.json').write_text(json.dumps(request))
             run(d)

@@ -1,9 +1,10 @@
 import { createRequire } from 'node:module'
 import assert from 'node:assert/strict'
-import { fixtureScript, readSource, setSource } from './browser-script-utils.mjs'
+import { fixtureScript, readSource, runResearch, setSource } from './browser-script-utils.mjs'
+const base = process.env.FACTORPOOL_URL
+if (!base?.trim()) throw new Error('FACTORPOOL_URL must name an isolated browser test stack; no default target is allowed')
 const require = createRequire(import.meta.url)
 const { chromium } = require(process.env.FACTORPOOL_PLAYWRIGHT_MODULE || 'playwright')
-const base = process.env.FACTORPOOL_URL || 'http://127.0.0.1:8088'
 const output = process.env.FACTORPOOL_BROWSER_OUTPUT || '/tmp'
 const browser = await chromium.launch({ headless: true })
 const page = await browser.newPage({ viewport: { width: 1512, height: 1050 } })
@@ -195,8 +196,7 @@ try {
   // research/draft persistence with the short deterministic fixture instead.
   const fixtureSource = fixtureScript({ period: 3, start: '2024-01-04', end: '2024-01-08' })
   await setSource(page, fixtureSource)
-  await page.getByRole('button', { name: '运行研究', exact: true }).click()
-  await page.locator('.badge.SUCCEEDED').waitFor({ timeout: 40000 })
+  await runResearch(page)
   await page.getByRole('button', { name: 'Factor Values', exact: true }).click()
   const task = await page.evaluate(() => sessionStorage.getItem('factorpool.task'))
   const report = await (await page.request.get(`${base}/api/tasks/${task}/result`)).json()

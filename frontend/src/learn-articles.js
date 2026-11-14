@@ -30,7 +30,7 @@ export const learnArticles = {
     id: "welcome", title: "FactorPool 文档", subtitle: "从一份因子脚本开始，完成可复现的矩阵研究。", readingTime: "2 分钟",
     sections: [
       { id: "workflow", title: "一次研究，分三步", paragraphs: [
-        "先在 Simulate 编写 config 和 PythonIndicator，再运行因子，最后检查逐股值、IC、分组与组合表现。源码、配置和结果会一起保存在任务快照里。",
+        "先在 Simulate 编写 PythonIndicator，点击“设置”确定默认研究参数；脚本 config 中写出的字段会覆盖设置，再运行因子并检查结果。源码、设置和最终有效配置会一起保存在任务快照里。",
       ], table: { columns: ["步骤", "做什么", "从哪里开始"], rows: [
         ["1. 定义因子", "选择输入字段，用时序和截面算子构造信号", "创建第一个因子 → 编写 Indicator"],
         ["2. 确定研究范围", "设置日期、股票池、持有期和 Alpha 权重变换", "配置脚本 → 模拟设置指南"],
@@ -218,7 +218,7 @@ value = self.ts.delay(input.close, 1, clock="trading_days")`, codeLabel: "在 up
     ],
   },
   config: {
-    id: "config", title: "配置脚本", subtitle: "所有研究参数跟随源码保存，明确每一项配置影响哪里。", readingTime: "5 分钟",
+    id: "config", title: "配置脚本", subtitle: "使用设置提供默认参数，脚本 config 按字段覆盖。", readingTime: "5 分钟",
     sections: [
       { id: "config-sections", title: "五个配置部分", table: { columns: ["部分", "控制什么", "例子"], rows: [
         ["base", "因子研究日期和频率", "start_date、end_date、frequency"],
@@ -256,8 +256,9 @@ value = self.ts.delay(input.close, 1, clock="trading_days")`, codeLabel: "在 up
         ["analysis.trace_dates", "需要逐股权重 / PnL 追踪的信号日", "最多 5 个日期；默认空"],
       ] } },
       { id: "source-config", title: "源码配置与有效配置", paragraphs: [
-        "config 必须是源码中的字面量对象；使用 Python 的 True、False 和 None。不要把配置藏进文件读取、函数调用或顶层动态表达式。",
-        "Settings 会校验并展示解析配置，后台在提交时再次校验。原始 source_config 保留你的写法，effective_config 记录补齐默认值和固定行情快照后的实际配置。",
+        "点击策略框上方的“设置”配置日期、股票池、因子参数、分析周期和权重处理。脚本 config = {} 使用全部设置；config 只写部分字段时，仅覆盖对应字段，其他字段继续使用设置。也可省略 config 并调用 因子类.run()。",
+        "config 是源码中的字面量对象，使用 Python 的 True、False 和 None。字段按嵌套层级合并，显式的 0、False 和空列表同样是覆盖值，不会因真假值被跳过。",
+        "设置中的“查看有效配置”展示合并结果，保存和运行由后台重新解析。source_config 保留源码中的 config，workspace_config 保存界面设置，effective_config 记录最终执行参数与固定行情快照。",
         "type 当前使用 REGULAR。其他模式或未支持的选项会在校验时明确报错，不会被当作一个已经生效的开关。",
       ] },
     ],
@@ -349,7 +350,7 @@ value = self.ts.delay(input.close, 1, clock="trading_days")`, codeLabel: "在 up
     sections: [
       { id: "config-fails", title: "配置校验失败，先查哪里？", bullets: [
         "确认 config 是字面量字典，日期为 YYYY-MM-DD，Python 布尔值使用 True / False。",
-        "确认末尾使用受 __main__ 保护的 因子类.run(config)，没有在顶层启动其他运行入口。",
+        "有 config 时使用受 __main__ 保护的 因子类.run(config)；不写 config 时使用 因子类.run()，由设置提供参数。",
         "核对 factor 的键与 __init__ 参数名是否一致；不认识的配置项不会被忽略。",
         "先用默认历史动态全 A 案例确认流程，再按需要调整表达式和股票池。",
       ] },

@@ -56,7 +56,7 @@ if __name__ == "__main__":
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
             (directory/'request.json').write_text(json.dumps(dict(
-                name='delisting-pipeline', source_mode='script', source_code=source)))
+                name='delisting-pipeline', source_code=source)))
             with patch.object(runner, 'fixture', return_value=self.payload()), \
                     patch.object(native, 'prepare_research', wraps=prepare) as prepared, \
                     patch.object(native, 'portfolio_report', wraps=portfolio) as reports:

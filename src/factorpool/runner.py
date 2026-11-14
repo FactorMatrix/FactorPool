@@ -99,9 +99,8 @@ def run(directory, *, factory=None, values_format="jsonl"):
     if values_format not in ("matrix", "jsonl"):
         raise ValueError("values_format must be matrix or jsonl")
     request = json.loads((directory / "request.json").read_text())
-    if request.get("source_mode") == "script":
-        from .script import bind_request
-        request = bind_request(request)
+    from .script import bind_request
+    request = bind_request(request)
     validate(request)
     horizons, annual_days, decay_steps = report_options(request["analysis"])
     started = time.perf_counter()
@@ -405,11 +404,10 @@ def run(directory, *, factory=None, values_format="jsonl"):
         date_axis="signal session", price_basis="same signal session close",
         visibility="only completed input frames through the signal session",
         delay=1, returns="next trading session onward; no additional input shift")
-    result["metadata"]["source_mode"] = request.get("source_mode", "class")
-    if request.get("source_mode") == "script":
-        for key in ("source_config", "effective_config", "brain_settings"):
-            result["metadata"][key] = deepcopy(request[key])
-        result["metadata"]["simulation_warm_up_period"] = simulation_warmup
+    result["metadata"]["source_mode"] = "script"
+    for key in ("source_config", "workspace_config", "effective_config", "brain_settings"):
+        result["metadata"][key] = deepcopy(request[key])
+    result["metadata"]["simulation_warm_up_period"] = simulation_warmup
     temporary = directory / "result.tmp.json"
     temporary.write_text(json.dumps(result, ensure_ascii=False, allow_nan=False))
     temporary.rename(directory / "result.json")

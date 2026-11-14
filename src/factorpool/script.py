@@ -4,7 +4,7 @@ from copy import deepcopy
 import json
 import re
 import sys
-from .config import normalize_config
+from .config import merge_config, normalize_config
 
 
 class ScriptError(ValueError):
@@ -49,7 +49,7 @@ def validate_frontend_source(source):
         raise ScriptError(str(error)) from None
 
 
-def parse_source(source):
+def parse_source(source, workspace_config=None):
     validate_frontend_source(source)
     try:
         module = ast.parse(source)
@@ -61,24 +61,26 @@ def parse_source(source):
             definitions.append(node)
         elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.target.id == "config":
             definitions.append(node)
-    if len(definitions) != 1:
-        _fail(definitions[-1] if definitions else module, "Define one literal config dictionary")
-    definition = definitions[0]
-    if isinstance(definition, ast.Assign) and len(definition.targets) != 1:
-        _fail(definition, "Assign config to one name only")
-    try:
-        config = ast.literal_eval(definition.value)
-    except (ValueError, TypeError, SyntaxError, RecursionError):
-        _fail(definition, "config must be a literal dictionary; dynamic configuration is unsupported")
-    for node in ast.walk(definition.value):
-        if isinstance(node, ast.Dict):
-            seen = set()
-            for key in node.keys:
-                if not isinstance(key, ast.Constant) or not isinstance(key.value, str):
-                    _fail(key or node, "Configuration dictionaries need literal string keys")
-                if key.value in seen:
-                    _fail(key, "Duplicate configuration option")
-                seen.add(key.value)
+    if len(definitions) > 1:
+        _fail(definitions[-1], "Define at most one literal config dictionary")
+    definition = definitions[0] if definitions else None
+    config = {}
+    if definition is not None:
+        if isinstance(definition, ast.Assign) and len(definition.targets) != 1:
+            _fail(definition, "Assign config to one name only")
+        try:
+            config = ast.literal_eval(definition.value)
+        except (ValueError, TypeError, SyntaxError, RecursionError):
+            _fail(definition, "config must be a literal dictionary; dynamic configuration is unsupported")
+        for node in ast.walk(definition.value):
+            if isinstance(node, ast.Dict):
+                seen = set()
+                for key in node.keys:
+                    if not isinstance(key, ast.Constant) or not isinstance(key.value, str):
+                        _fail(key or node, "Configuration dictionaries need literal string keys")
+                    if key.value in seen:
+                        _fail(key, "Duplicate configuration option")
+                    seen.add(key.value)
     candidates = []
     guards = [node for node in module.body if _main_guard(node)]
     for node in module.body:
@@ -89,9 +91,10 @@ def parse_source(source):
         _fail(candidates[-1] if candidates else module, "Use one guarded IndicatorClass.run(config) entry")
     entry = candidates[0]
     guarded = any(entry in tuple(_calls(guard.body)) for guard in guards)
-    if (not guarded or not isinstance(entry.func.value, ast.Name) or len(entry.args) != 1
-            or not isinstance(entry.args[0], ast.Name) or entry.args[0].id != "config" or entry.keywords):
-        _fail(entry, "Entry must be IndicatorClass.run(config) inside the __main__ guard")
+    valid_args = (len(entry.args) == 1 and isinstance(entry.args[0], ast.Name)
+                  and entry.args[0].id == "config") if definition is not None else not entry.args
+    if not guarded or not isinstance(entry.func.value, ast.Name) or not valid_args or entry.keywords:
+        _fail(entry, "Use guarded IndicatorClass.run(config), or IndicatorClass.run() without a config definition")
     name = entry.func.value.id
     classes = {node.name: node for node in module.body if isinstance(node, ast.ClassDef)}
     if name not in classes or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
@@ -120,20 +123,28 @@ def parse_source(source):
     if any(isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "run"
            for node in classes[name].body):
         _fail(classes[name], "Do not override the research run entry")
-    allowed_config_nodes = {id(node) for node in ast.walk(definition)} | {id(entry.args[0])}
+    allowed_config_nodes = ({id(node) for node in ast.walk(definition)} | {id(entry.args[0])}
+                            if definition is not None else set())
     for node in ast.walk(module):
         if isinstance(node, ast.Name) and node.id == "config" and id(node) not in allowed_config_nodes:
             _fail(node, "Keep config literal; edit the dictionary instead of mutating or aliasing it")
+    workspace = {} if workspace_config is None else workspace_config
     try:
-        result = normalize_config(config)
+        result = normalize_config(merge_config(workspace, config))
     except ValueError as error:
         _fail(definition, str(error))
-    return dict(source_mode="script", factor_class=name, **result)
+    result["source_config"] = deepcopy(config)
+    parsed = dict(source_mode="script", factor_class=name, workspace_config=deepcopy(workspace), **result)
+    from .config import effective_config
+    parsed["effective_config"] = effective_config(parsed)
+    return parsed
 
 
 def bind_request(request):
     """Recheck source authority in the worker; only a newly pinned ID may differ."""
-    parsed = parse_source(request["source_code"])
+    if request.get("source_mode", "script") != "script":
+        raise ScriptError("line 1: only the Python script research entry is supported")
+    parsed = parse_source(request["source_code"], request.get("workspace_config"))
     for key in ("factor_class", "factor_params", "analysis", "source_config", "brain_settings"):
         if key in request and request[key] != parsed[key]:
             raise ScriptError(f"line 1: {key} conflicts with source config")
@@ -158,11 +169,7 @@ def main():
         body = json.loads(sys.stdin.read(1048577))
         if not isinstance(body, dict):
             raise ScriptError("line 1: expected a source_code object")
-        if body.get("frontend_only") is True:
-            validate_frontend_source(body.get("source_code"))
-            result = {"valid": True}
-        else:
-            result = parse_source(body.get("source_code"))
+        result = parse_source(body.get("source_code"), body.get("workspace_config"))
         print(json.dumps(result, ensure_ascii=False, allow_nan=False))
     except (ValueError, RecursionError):
         error = sys.exc_info()[1]

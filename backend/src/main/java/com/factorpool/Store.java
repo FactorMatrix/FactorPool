@@ -105,25 +105,24 @@ public class Store {
     ObjectNode pinned = normalized.deepCopy();
     pinned.set("data", pinMarketData(normalized.path("data"), defaultSnapshot));
     ((ObjectNode)pinned.path("data")).put("factor_price", "quote_adjusted");
-    if (isScript(pinned)) {
-      ObjectNode effective = pinned.path("source_config").deepCopy();
-      var data = pinned.path("data");
-      ObjectNode base = json.createObjectNode();
-      base.set("start_date", data.path("factor_start").deepCopy());
-      base.set("end_date", data.path("factor_end").deepCopy());
-      base.set("frequency", data.path("frequency").deepCopy());
-      effective.set("base", base);
-      ObjectNode effectiveData = json.createObjectNode();
-      for (String key : List.of("provider", "universe", "adjustment", "factor_price", "snapshot_id"))
-        if (data.has(key))
-          effectiveData.set(key, data.get(key).deepCopy());
-      effective.set("data", effectiveData);
-      effective.set("factor", pinned.path("factor_params").deepCopy());
-      effective.set("analysis", pinned.path("analysis").deepCopy());
-      if (pinned.has("brain_settings"))
-        effective.set("settings", pinned.path("brain_settings").deepCopy());
-      pinned.set("effective_config", effective);
-    }
+    ObjectNode effective = pinned.path("source_config").deepCopy();
+    effective.put("type", pinned.path("simulation_type").asText("REGULAR"));
+    var data = pinned.path("data");
+    ObjectNode base = json.createObjectNode();
+    base.set("start_date", data.path("factor_start").deepCopy());
+    base.set("end_date", data.path("factor_end").deepCopy());
+    base.set("frequency", data.path("frequency").deepCopy());
+    effective.set("base", base);
+    ObjectNode effectiveData = json.createObjectNode();
+    for (String key : List.of("provider", "universe", "adjustment", "factor_price", "snapshot_id"))
+      if (data.has(key))
+        effectiveData.set(key, data.get(key).deepCopy());
+    effective.set("data", effectiveData);
+    effective.set("factor", pinned.path("factor_params").deepCopy());
+    effective.set("analysis", pinned.path("analysis").deepCopy());
+    if (pinned.has("brain_settings"))
+      effective.set("settings", pinned.path("brain_settings").deepCopy());
+    pinned.set("effective_config", effective);
     UUID id = UUID.randomUUID();
     db.update("INSERT INTO research_tasks(id,batch_id,name,snapshot,status) "
                   + "VALUES (?,?,?,?::jsonb,'QUEUED')",
@@ -161,34 +160,34 @@ public class Store {
         request.path("factors").size() > 100)
       throw new IllegalArgumentException("Select 1..100 factors");
     return tx.execute(status -> {
+      if (request.has("data") || request.has("analysis") || request.has("factor_class"))
+        throw new IllegalArgumentException("Use workspace_config for batch settings");
+      if (request.has("workspace_config") && !request.get("workspace_config").isObject())
+        throw new IllegalArgumentException("workspace_config must be an object");
       List<ObjectNode> definitions = new ArrayList<>();
-      for (JsonNode fid : request.path("factors"))
-        definitions.add(validateDefinition(factor(UUID.fromString(fid.asText())).path("latest")));
-      boolean script = isScript(definitions.get(0));
-      if (definitions.stream().anyMatch(value -> isScript(value) != script))
-        throw new IllegalArgumentException("Script and legacy factors cannot be mixed in one batch");
+      for (JsonNode fid : request.path("factors")) {
+        ObjectNode definition = (ObjectNode)factor(UUID.fromString(fid.asText())).path("latest").deepCopy();
+        if (request.has("workspace_config")) {
+          if (definition.has("workspace_config") && !definition.get("workspace_config").isObject())
+            throw new IllegalArgumentException("workspace_config must be an object");
+          ObjectNode workspace = definition.has("workspace_config")
+              ? definition.path("workspace_config").deepCopy() : json.createObjectNode();
+          overlay(workspace, request.path("workspace_config"));
+          definition.set("workspace_config", workspace);
+          for (String key : List.of("factor_class", "factor_params", "data", "analysis", "source_config", "brain_settings", "simulation_type"))
+            definition.remove(key);
+        }
+        definitions.add(validateDefinition(definition));
+      }
       ObjectNode config = request.deepCopy();
       String defaultSnapshot = null;
-      if (script) {
-        if (request.has("data") || request.has("analysis"))
-          throw new IllegalArgumentException("Script batches use each source config; omit shared data and analysis");
-        for (ObjectNode definition : definitions)
-          validate(definition);
-        if (definitions.stream().anyMatch(value -> value.path("data").path("provider").asText().equals("market_matrix")
-                                                  && !value.path("data").has("snapshot_id"))) {
-          defaultSnapshot = pinMarketData(json.createObjectNode().put("provider", "market_matrix"))
-                                .path("snapshot_id").asText();
-          config.put("default_snapshot_id", defaultSnapshot);
-        }
-        config.put("source_mode", "script");
-      } else {
-        ObjectNode shared = pinMarketData(request.path("data"));
-        config.set("data", shared);
-        for (ObjectNode definition : definitions) {
-          definition.set("data", shared.deepCopy());
-          definition.set("analysis", request.path("analysis").deepCopy());
-          validate(definition);
-        }
+      for (ObjectNode definition : definitions)
+        validate(definition);
+      if (definitions.stream().anyMatch(value -> value.path("data").path("provider").asText().equals("market_matrix")
+                                                && !value.path("data").has("snapshot_id"))) {
+        defaultSnapshot = pinMarketData(json.createObjectNode().put("provider", "market_matrix"))
+                              .path("snapshot_id").asText();
+        config.put("default_snapshot_id", defaultSnapshot);
       }
       UUID id = UUID.randomUUID();
       db.update("INSERT INTO research_batches(id,config) VALUES (?,?::jsonb)", id, config.toString());
@@ -229,8 +228,15 @@ public class Store {
     source.set("snapshot", snapshot);
     return source;
   }
-  static boolean isScript(JsonNode r) {
-    return r.path("source_mode").asText().equals("script");
+  static void overlay(ObjectNode target, JsonNode supplied) {
+    supplied.fields().forEachRemaining(field -> {
+      String key = field.getKey();
+      JsonNode value = field.getValue();
+      if (value.isObject() && target.path(key).isObject())
+        overlay((ObjectNode)target.get(key), value);
+      else
+        target.set(key, value.deepCopy());
+    });
   }
   ObjectNode validateDefinition(JsonNode r) {
     if (!r.isObject() || r.path("name").asText().isBlank() ||
@@ -238,28 +244,21 @@ public class Store {
         r.path("source_code").asText().length() > 131072)
       throw new IllegalArgumentException(
           "A name and source_code (max 128 KiB) are required");
-    if (r.has("source_mode") &&
-        (!r.path("source_mode").isTextual() || !Set.of("script", "class").contains(r.path("source_mode").asText())))
-      throw new IllegalArgumentException("source_mode must be script or class");
+    if (r.has("source_mode") && !r.path("source_mode").asText().equals("script"))
+      throw new IllegalArgumentException("Only the Python script research entry is supported");
     ObjectNode normalized = r.deepCopy();
     normalized.remove("effective_config");
-    if (isScript(r)) {
-      ObjectNode parsed = scripts.resolve(r.path("source_code").asText());
-      for (String key : List.of("factor_class", "factor_params", "data", "analysis", "source_config", "brain_settings")) {
-        if (r.has(key) && !r.get(key).equals(parsed.get(key)))
-          throw new IllegalArgumentException("Script " + key + " conflicts with source config; edit the source config instead");
-        if (parsed.has(key))
-          normalized.set(key, parsed.get(key).deepCopy());
-        else
-          normalized.remove(key);
-      }
-      normalized.put("source_mode", "script");
-      validate(normalized);
-    } else {
-      scripts.validateFrontend(normalized.path("source_code").asText());
+    ObjectNode parsed = scripts.resolve(r.path("source_code").asText(), r.get("workspace_config"));
+    for (String key : List.of("factor_class", "factor_params", "data", "analysis", "source_config", "brain_settings", "workspace_config", "simulation_type")) {
+      if (!key.equals("workspace_config") && r.has(key) && !r.get(key).equals(parsed.get(key)))
+        throw new IllegalArgumentException(key + " conflicts with resolved config; edit config or workspace_config");
+      if (parsed.has(key))
+        normalized.set(key, parsed.get(key).deepCopy());
+      else
+        normalized.remove(key);
     }
-    if (!normalized.path("factor_class").asText().matches("[A-Za-z_][A-Za-z0-9_]*"))
-      throw new IllegalArgumentException("Invalid factor_class");
+    normalized.put("source_mode", "script");
+    validate(normalized);
     return normalized;
   }
   static void validate(JsonNode r) {

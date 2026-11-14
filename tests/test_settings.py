@@ -101,7 +101,7 @@ class SettingsTests(unittest.TestCase):
         effective['settings']['truncation'] = .9
         self.assertEqual(parsed['brain_settings']['truncation'], .2)
         self.assertEqual(parsed['source_config'], config)
-        request = dict(name='settings fixture', source_mode='script', source_code=source,
+        request = dict(name='settings fixture', source_code=source,
                        brain_settings=dict(parsed['brain_settings'], truncation=.9))
         with self.assertRaisesRegex(ValueError, 'brain_settings'):
             bind_request(request)

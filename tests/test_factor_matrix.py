@@ -420,11 +420,13 @@ class FactorMatrixTests(unittest.TestCase):
         payload = split_payload(12, future=5)
         raw_quotes, stored_returns = payload["quotes"]["values"].copy(), payload["returns"].copy()
         _, _, source = self.factor("input.volume")
-        request = dict(name="signal-only-fixture", source_code=source, factor_class="Factor", factor_params={},
-                       data=dict(provider="fixture", universe="fixture", frequency="1d", adjustment="raw",
-                                 factor_start=payload["frames"][0]["date"],
-                                 factor_end=payload["quotes"]["dates"][-1]),
-                       analysis=dict(groups=3, horizons=[5], decay_steps=1))
+        source += '\nif __name__ == "__main__":\n    Factor.run()\n'
+        request = dict(name="signal-only-fixture", source_code=source,
+                       workspace_config=dict(
+                           base=dict(start_date=payload["frames"][0]["date"],
+                                     end_date=payload["quotes"]["dates"][-1]),
+                           data=dict(provider="fixture", universe="fixture"),
+                           analysis=dict(groups=3, horizons=[5], decay_steps=1)))
         with tempfile.TemporaryDirectory() as directory, patch("factorpool.runner.fixture", return_value=payload):
             path = Path(directory)
             (path/"request.json").write_text(json.dumps(request))

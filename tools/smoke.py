@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise deployed scripts, legacy factors, snapshots and cancellation on fixtures."""
+"""Exercise unified scripts, workspace overrides and snapshots on an isolated fixture stack."""
 import argparse
 import hashlib
 import json
@@ -9,7 +9,7 @@ import urllib.error
 import urllib.request
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--base', default='http://127.0.0.1:8088')
+parser.add_argument('--base', required=True, help='explicit isolated test-stack URL; this check writes fixture tasks')
 parser.add_argument('--output')
 args = parser.parse_args()
 
@@ -86,7 +86,7 @@ for setting in ('nanHandling', 'unitHandling', 'maxTrade'):
     assert setting in rejected['error']
 invalid = api('/script/resolve', dict(source_code=script_source+'\ndef bad(:\n'), status=400)
 assert 'line' in invalid['error'].lower() or '行' in invalid['error']
-script_request = dict(name='验收 · 完整研究脚本', source_mode='script', source_code=script_source)
+script_request = dict(name='验收 · 完整研究脚本', source_code=script_source)
 script_factor = api('/factors', script_request)
 script_factor2 = api('/factors', dict(script_request, id=script_factor['id']))
 assert script_factor2['version'] == script_factor['version']+1
@@ -106,7 +106,7 @@ assert script_result['metadata']['effective_config']['factor']['period'] == 3
 assert script_result['metadata']['effective_config']['base']['start_date'] == '2024-01-04'
 assert abs(script_values[0]['value']-(10+11+12.1)/3) < 1e-12
 one_source, one_config = research_script(1)
-one_request = dict(name='验收 · 脚本参数1', source_mode='script', source_code=one_source)
+one_request = dict(name='验收 · 脚本参数1', source_code=one_source)
 one_factor = api('/factors', one_request)
 one_id = api('/tasks', one_request)['id']
 wait(one_id)
@@ -122,7 +122,37 @@ for index, child in enumerate(script_batch['tasks']):
     assert child_task['snapshot']['source_config'] == [config, one_config][index]
 api('/tasks/batch', dict(factors=[script_factor['id']], data=resolved['data'], analysis=resolved['analysis']), status=400)
 
-# Class-only submissions use the same Pool frontend as complete scripts.
+# Deep merges preserve omitted fields and explicit zero/False/empty-list values.
+workspace_source, _ = research_script(3)
+partial_config = dict(base=dict(start_date='2024-01-04'), factor=dict(period=1),
+                      analysis=dict(trace_dates=[]), settings=dict(decay=0, truncation=0, visualization=False))
+workspace_config = dict(base=dict(start_date='2024-01-01', end_date='2024-01-08', frequency='1d'),
+                        data=dict(provider='fixture', universe='fixture'), factor=dict(period=3),
+                        analysis=dict(groups=3, horizons=[1,5], decay_steps=2, trace_dates=['2024-01-04']),
+                        settings=dict(decay=5, truncation=.1, neutralization='NONE', visualization=True))
+partial_source = workspace_source.replace(repr(config), repr(partial_config))
+partial = api('/script/resolve', dict(source_code=partial_source, workspace_config=workspace_config))
+assert partial['source_config'] == partial_config
+assert partial['factor_params'] == dict(period=1)
+assert partial['data']['factor_start'] == '2024-01-04' and partial['data']['factor_end'] == '2024-01-08'
+assert partial['brain_settings']['decay'] == 0 and partial['brain_settings']['truncation'] == 0
+assert partial['brain_settings']['visualization'] is False
+assert partial['brain_settings']['neutralization'] == 'NONE'
+assert partial['analysis']['trace_dates'] == [] and partial['analysis']['horizons'] == [1,5]
+partial_id = api('/tasks', dict(name='验收 · 部分config覆盖设置', source_code=partial_source,
+                              workspace_config=workspace_config))['id']
+partial_task = wait(partial_id)
+partial_result = api('/tasks/'+partial_id+'/result')
+assert partial_task['snapshot']['source_config'] == partial_config
+assert partial_task['snapshot']['workspace_config'] == workspace_config
+assert partial_result['metadata']['effective_config']['settings']['visualization'] is False
+empty_source = workspace_source.replace(repr(config), '{}')
+empty = api('/script/resolve', dict(source_code=empty_source, workspace_config=workspace_config))
+assert empty['source_config'] == {} and empty['factor_params'] == workspace_config['factor']
+assert empty['data']['factor_start'] == '2024-01-01'
+assert empty['brain_settings']['decay'] == 5
+
+# No config uses the settings panel. Class-only requests are rejected.
 source = '''from factorpool import PythonIndicator
 class LowVolumeFactor(PythonIndicator):
     def __init__(self, period=20):
@@ -132,12 +162,22 @@ class LowVolumeFactor(PythonIndicator):
         mean_volume=self.ts.mean(input.volume,self.period)
         self.value=self.cs.rank_unit(-mean_volume)
         return self.ts.is_ready(mean_volume)
+
+if __name__ == "__main__":
+    LowVolumeFactor.run()
 '''
-request = dict(name='验收 · 旧版矩阵研究', source_code=source, factor_class='LowVolumeFactor', factor_params={'period': 20},
-               data=dict(provider='fixture', universe='fixture', frequency='1d', adjustment='raw',
-                         factor_start='2024-01-29', factor_end='2024-01-29'),
-               analysis=dict(groups=3, min_ic_pairs=3, icir_ddof=1))
-saved = api('/factors', {key: value for key, value in request.items() if key not in ('data', 'analysis')})
+workspace = dict(base=dict(start_date='2024-01-29', end_date='2024-01-29', frequency='1d'),
+                 data=dict(provider='fixture', universe='fixture'), factor=dict(period=20),
+                 analysis=dict(groups=3, horizons=[1,5,20], min_ic_pairs=3, icir_ddof=1))
+request = dict(name='验收 · 设置面板研究', source_code=source, workspace_config=workspace)
+old_class = dict(name='验收 · 已删除类入口', source_code=source.split('if __name__')[0],
+                 factor_class='LowVolumeFactor', factor_params=dict(period=20),
+                 data=dict(provider='fixture', universe='fixture', frequency='1d', adjustment='raw',
+                           factor_start='2024-01-29', factor_end='2024-01-29'), analysis=dict(groups=3))
+api('/tasks', old_class, status=400)
+api('/factors', old_class, status=400)
+api('/tasks', dict(request, source_mode='class'), status=400)
+saved = api('/factors', request)
 saved2 = api('/factors', dict(request, id=saved['id']))
 assert saved2['version'] == saved['version']+1
 assert len(api('/factors/'+saved['id'])['versions']) == 2
@@ -160,13 +200,16 @@ failed = api('/tasks', missing_data)['id']
 wait(failed, ('FAILED',))
 api('/tasks/'+failed+'/result', status=409)
 # An ordinary Python callback makes queueing/cancellation observable.
-slow = dict(request, name='验收 · 停止运行进程', factor_class='Slow', factor_params={}, source_code='''import time
+slow = dict(request, name='验收 · 停止运行进程', workspace_config=dict(workspace, factor={}), source_code='''import time
 from factorpool import PythonIndicator
 class Slow(PythonIndicator):
     def update(self,input):
         time.sleep(60)
         self.value=input.close
         return True
+
+if __name__ == "__main__":
+    Slow.run()
 ''')
 running = api('/tasks', slow)['id']
 wait(running, ('RUNNING',))
@@ -176,15 +219,21 @@ api('/tasks/'+queued+'/cancel', {})
 wait(queued, ('CANCELLED',))
 api('/tasks/'+running+'/cancel', {})
 wait(running, ('CANCELLED',))
-batch = api('/tasks/batch', dict(factors=[saved['id'], saved['id']], data=request['data'], analysis=request['analysis']))
+batch = api('/tasks/batch', dict(factors=[saved['id'], saved['id']]))
 for child in batch['tasks']:
     wait(child)
 assert all(task['status'] == 'SUCCEEDED' for task in api('/batches/'+batch['id'])['tasks'])
-api('/tasks/batch', dict(factors=[saved['id'], script_factor['id']], data=request['data'], analysis=request['analysis']), status=400)
+saved_before = api('/factors/'+saved['id'])
+batch_override = api('/tasks/batch', dict(factors=[saved['id'], script_factor['id']],
+    workspace_config=dict(base=dict(start_date='2024-01-04', end_date='2024-01-04'), factor=dict(period=1))))
+for expected_period, child in zip((1, 3), batch_override['tasks']):
+    assert wait(child)['snapshot']['factor_params']['period'] == expected_period
+assert api('/factors/'+saved['id']) == saved_before
+api('/tasks/batch', dict(factors=[saved['id'], script_factor['id']], data={'provider':'fixture'}), status=400)
 for field, value in (('frequency', '1m'), ('adjustment', 'adjusted')):
-    api('/tasks', dict(request, data=dict(request['data'], **{field: value})), status=400)
+    api('/tasks', dict(request, workspace_config=dict(workspace, **{'base' if field == 'frequency' else 'data': dict(workspace['base' if field == 'frequency' else 'data'], **{field:value})})), status=400)
 report = dict(task=task_id, factor=saved['id'], batch=batch['id'], failed=failed, cancelled=[running, queued],
-              script_tasks=[script_id, one_id], script_batch=script_batch['id'], script_summary=script_result['summary'],
+              script_tasks=[script_id, one_id, partial_id], script_batch=script_batch['id'], batch_override=batch_override['id'], script_summary=script_result['summary'],
               summary=result['summary'], result=result)
 if args.output:
     Path(args.output).write_text(json.dumps(report, ensure_ascii=False, indent=2))

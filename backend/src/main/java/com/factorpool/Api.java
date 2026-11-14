@@ -34,7 +34,7 @@ public class Api {
   Object resolve(@RequestBody JsonNode body) {
     if (!body.path("source_code").isTextual())
       throw new IllegalArgumentException("source_code is required");
-    return store.scripts.resolve(body.path("source_code").asText());
+    return store.scripts.resolve(body.path("source_code").asText(), body.get("workspace_config"));
   }
   @GetMapping("/factors/{id}")
   Object factor(@PathVariable UUID id) {

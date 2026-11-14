@@ -15,7 +15,7 @@ from factortrader import PythonIndicator as SharedIndicator
 from factorpool import PythonIndicator
 from factorpool.config import effective_config
 from factorpool.runner import run
-from factorpool.script import parse_source
+from factorpool.script import bind_request, parse_source
 
 
 def source_config(period=3):
@@ -98,6 +98,67 @@ class ScriptParserTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'factor_price'):
                     parse_source(full_script(config))
 
+    def test_workspace_defaults_are_overlaid_by_explicit_source_fields(self):
+        workspace = source_config(period=8)
+        workspace['base']['end_date'] = '2024-01-05'
+        workspace['analysis'].update(groups=5, icir_ddof=1, annualize_icir=False,
+                                      trace_dates=['2024-01-04'])
+        workspace['settings'] = dict(decay=7, truncation=.2, neutralization='MARKET')
+        original = copy.deepcopy(workspace)
+        source = dict(factor=dict(period=2), analysis=dict(groups=3, icir_ddof=0, trace_dates=[]),
+                      settings=dict(decay=0, truncation=0))
+        parsed = parse_source(full_script(source), workspace)
+        self.assertEqual(parsed['source_config'], source)
+        self.assertEqual(parsed['workspace_config'], original)
+        self.assertEqual(parsed['data']['factor_end'], '2024-01-05')
+        self.assertEqual(parsed['factor_params'], {'period': 2})
+        self.assertEqual(parsed['analysis']['horizons'], [1, 5])
+        self.assertEqual(parsed['analysis']['groups'], 3)
+        self.assertEqual(parsed['analysis']['icir_ddof'], 0)
+        self.assertEqual(parsed['analysis']['trace_dates'], [])
+        self.assertIs(parsed['analysis']['annualize_icir'], False)
+        self.assertEqual(parsed['brain_settings']['decay'], 0)
+        self.assertEqual(parsed['brain_settings']['truncation'], 0)
+        self.assertEqual(parsed['brain_settings']['neutralization'], 'MARKET')
+        self.assertEqual(parsed['effective_config']['factor'], {'period': 2})
+        self.assertEqual(parsed['effective_config']['type'], 'REGULAR')
+        self.assertEqual(workspace, original)
+        request = dict(name='merged', source_code=full_script(source), **parsed)
+        rebound = bind_request(request)
+        self.assertEqual(rebound, request)
+        request['workspace_config']['analysis']['horizons'] = [20]
+        with self.assertRaisesRegex(ValueError, 'conflicts'):
+            bind_request(request)
+
+    def test_empty_or_absent_source_config_uses_workspace_without_class_mode(self):
+        workspace = source_config(period=4)
+        empty = parse_source(full_script({}), workspace)
+        without = full_script({}).replace('config = {}', '').replace('.run(config)', '.run()')
+        absent = parse_source(without, workspace)
+        for parsed in (empty, absent):
+            self.assertEqual(parsed['source_config'], {})
+            self.assertEqual(parsed['factor_class'], 'MatrixFactor')
+            self.assertEqual(parsed['factor_params'], {'period': 4})
+            self.assertEqual(parsed['data']['provider'], 'fixture')
+        with self.assertRaisesRegex(ValueError, 'Python script'):
+            bind_request(dict(source_code=without, workspace_config=workspace, source_mode='class'))
+        with self.assertRaisesRegex(ValueError, 'guarded'):
+            parse_source(without.replace('    MatrixFactor.run()', '    pass'), workspace)
+        defaults = parse_source(full_script({}))
+        self.assertEqual(defaults['data']['universe'], 'all_a_dynamic')
+        self.assertEqual(defaults['data']['factor_start'], '2016-01-01')
+        self.assertEqual(defaults['data']['factor_end'], '2026-01-01')
+
+    def test_invalid_explicit_values_are_not_replaced_by_defaults(self):
+        workspace = source_config()
+        invalid = [dict(analysis=dict(horizons=[])), dict(base=dict(start_date=None)),
+                   dict(settings=dict(delay=False)), dict(data=None)]
+        for supplied in invalid:
+            with self.subTest(config=supplied), self.assertRaises(ValueError):
+                parse_source(full_script(supplied), workspace)
+        with self.assertRaisesRegex(ValueError, 'workspace_config'):
+            parse_source(full_script({}), [])
+
     def test_config_extraction_uses_ast_without_executing_imports_or_code(self):
         source = full_script()
         with patch('builtins.exec', side_effect=AssertionError('AST resolution must not execute code')), \
@@ -149,6 +210,21 @@ class ScriptExecutionTests(unittest.TestCase):
         self.assertEqual((directory/'factor.py').read_text(), source)
         self.assertEqual(result['metadata']['source_sha256'], hashlib.sha256(source.encode()).hexdigest())
         return result, values
+
+    def test_workspace_settings_drive_execution_and_source_overrides_are_immutable(self):
+        workspace = source_config(period=1)
+        workspace['analysis'] = dict(groups=2, horizons=[1], decay_steps=1)
+        result, values = self.execute(full_script(dict(factor=dict(period=3))), workspace_config=workspace)
+        self.assertEqual(result['metadata']['warm_up_period'], 3)
+        self.assertEqual(result['metadata']['report_horizons'], [1])
+        self.assertEqual(result['metadata']['source_config'], {'factor': {'period': 3}})
+        self.assertEqual(result['metadata']['workspace_config'], workspace)
+        self.assertEqual(result['metadata']['effective_config']['analysis']['groups'], 2)
+        self.assertEqual(len(values), 3)
+        absent = full_script({}).replace('config = {}', '').replace('.run(config)', '.run()')
+        result, _ = self.execute(absent, workspace_config=workspace)
+        self.assertEqual(result['metadata']['warm_up_period'], 1)
+        self.assertEqual(result['metadata']['source_config'], {})
 
     def test_full_source_config_drives_real_factor_params_and_dates(self):
         self.assertTrue(issubclass(PythonIndicator, SharedIndicator))

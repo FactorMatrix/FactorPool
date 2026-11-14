@@ -5,7 +5,7 @@ const props = defineProps({
 });
 const paths = {
   terminal: "M3 4h18v16H3z M7 8l4 4-4 4 M13 16h4",
-  alpha: "M17 6c-7-5-13 2-10 9 2 5 8 3 10-9l-2 12 M15 11l5 7",
+  factor: "M7 21V3h12 M7 11h10",
   book: "M3 5c4-2 6-2 9 0 3-2 5-2 9 0v15c-4-2-6-2-9 0-3-2-5-2-9 0z M12 5v15",
   data: "M3 6c0-5 18-5 18 0s-18 5-18 0v12c0 5 18 5 18 0V6 M3 12c0 5 18 5 18 0",
   history: "M4 5v5h5 M4 10a8 8 0 1 1 1 8 M12 8v5l3 2",

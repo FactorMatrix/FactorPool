@@ -1,11 +1,12 @@
 import {createRequire} from 'node:module'
 import assert from 'node:assert/strict'
-import {fixtureScript, setSource} from './browser-script-utils.mjs'
+import {fixtureScript, runResearch, setSource} from './browser-script-utils.mjs'
+const base=process.env.FACTORPOOL_URL
+if (!base?.trim()) throw new Error('FACTORPOOL_URL must name an isolated browser test stack; no default target is allowed')
 const require=createRequire(import.meta.url)
 const {chromium}=require(process.env.FACTORPOOL_PLAYWRIGHT_MODULE||'playwright')
 const browser=await chromium.launch({headless:true})
 const page=await browser.newPage({viewport:{width:1512,height:1050}})
-const base=process.env.FACTORPOOL_URL||'http://127.0.0.1:8088'
 const output=process.env.FACTORPOOL_BROWSER_OUTPUT||'/tmp'
 const errors=[];page.on('pageerror',error=>errors.push(error.message))
 try {
@@ -14,8 +15,7 @@ try {
   settings:{truncation:.08,visualization:false,testPeriod:'P2D'},
   analysis:{book_size:20000000,pnl_unit:'USD',trace_dates:['2024-01-04','2024-01-05']}})
  await setSource(page,source)
- await page.getByRole('button',{name:'运行研究',exact:true}).click()
- await page.locator('.badge.SUCCEEDED').waitFor({timeout:40000})
+ await runResearch(page)
  const task=await page.evaluate(()=>sessionStorage.getItem('factorpool.task'))
  const result=await (await page.request.get(`${base}/api/tasks/${task}/result`)).json()
  assert.equal(result.metadata.effective_config.analysis.book_size,20000000)

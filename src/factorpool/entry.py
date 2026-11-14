@@ -59,8 +59,8 @@ class PythonIndicator(SharedPythonIndicator):
         return self._ir
 
     @classmethod
-    def run(cls, config):
-        from .config import effective_config, normalize_config
+    def run(cls, config=None):
+        from .config import effective_config
         from .script import parse_source
         from .runner import run
         filename = inspect.getsourcefile(cls)
@@ -68,8 +68,8 @@ class PythonIndicator(SharedPythonIndicator):
             raise ValueError("Run the Indicator from a complete Python script file")
         source = Path(filename).read_text()
         parsed = parse_source(source)
-        normalized = normalize_config(config)
-        if parsed["factor_class"] != cls.__name__ or parsed["source_config"] != normalized["source_config"]:
+        supplied = {} if config is None else config
+        if parsed["factor_class"] != cls.__name__ or parsed["source_config"] != supplied:
             raise ValueError("run(config) must match this script's literal config and entry class")
         request = dict(name=cls.__name__, source_code=source, **parsed)
         if request["data"]["provider"] == "market_matrix":

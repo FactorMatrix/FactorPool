@@ -33,12 +33,14 @@ class ServiceIntegrationTests(unittest.TestCase):
             return error.code, error.read().decode()
 
     def enqueue(self):
-        definition = dict(name='isolated-service-contract', factor_class='Factor', factor_params={},
+        definition = dict(name='isolated-service-contract',
                           source_code='from factorpool import PythonIndicator\nclass Factor(PythonIndicator):\n'
-                          '    def update(self, input):\n        self.value = input.volume\n        return True\n',
-                          data=dict(provider='fixture', universe='fixture', frequency='1d', adjustment='raw',
-                                    factor_price='quote_adjusted', factor_start='2024-01-02', factor_end='2024-01-02'),
-                          analysis=dict(groups=3, horizons=[1], decay_steps=1, entry='signal_close', exit='next_close'))
+                          '    def update(self, input):\n        self.value = input.volume\n        return True\n'
+                          'if __name__ == "__main__":\n    Factor.run()\n',
+                          workspace_config=dict(base=dict(start_date='2024-01-02', end_date='2024-01-02'),
+                              data=dict(provider='fixture', universe='fixture', factor_price='quote_adjusted'),
+                              analysis=dict(groups=3, horizons=[1], decay_steps=1,
+                                            entry='signal_close', exit='next_close')))
         code, value = self.http('/api/tasks', definition)
         self.assertEqual(code, 200, value)
         task_id = value['id']

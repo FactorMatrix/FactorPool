@@ -284,7 +284,7 @@ class PoolOperatorTests(unittest.TestCase):
         source = "config = " + repr(config) + "\n" + original + '\nif __name__ == "__main__":\n    Factor.run(config)\n'
         with tempfile.TemporaryDirectory() as directory, patch("factortrader.Engine", side_effect=AssertionError("Trading Engine constructed")):
             root = Path(directory)
-            (root / "request.json").write_text(json.dumps(dict(name="native extension", source_mode="script", source_code=source)))
+            (root / "request.json").write_text(json.dumps(dict(name="native extension", source_code=source)))
             run(directory)
             report = json.loads((root / "result.json").read_text())
             rows = [json.loads(line) for line in (root / "values.jsonl").read_text().splitlines()]

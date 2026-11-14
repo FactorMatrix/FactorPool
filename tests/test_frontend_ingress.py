@@ -39,25 +39,29 @@ class FrontendIngressTests(unittest.TestCase):
                 self.assertIn(replacement, str(caught.exception))
                 self.assertIn('line', str(caught.exception))
                 child = subprocess.run([sys.executable, '-m', 'factorpool.script'],
-                    input=json.dumps({'source_code':text, 'frontend_only':True}),
+                    input=json.dumps({'source_code':text}),
                     text=True, capture_output=True)
                 self.assertEqual(child.returncode, 2)
                 self.assertIn(replacement, child.stderr)
                 self.assertNotIn('Traceback', child.stderr)
                 self.assertEqual(child.stdout, '')
 
-    def test_new_class_frontend_preflight_does_not_require_config_or_execute_code(self):
+    def test_script_preflight_without_config_does_not_execute_code(self):
         text = ('from factorpool import PythonIndicator\n'
                 'raise RuntimeError("user module must not execute")\n'
                 'class Factor(PythonIndicator):\n'
                 '    def update(self,input):\n'
                 '        self.value=self.log(self.max(input.close,input.open))\n'
-                '        return True\n')
+                '        return True\n'
+                'if __name__ == "__main__":\n    Factor.run()\n')
         child = subprocess.run([sys.executable, '-m', 'factorpool.script'],
-            input=json.dumps({'source_code':text, 'frontend_only':True}),
+            input=json.dumps({'source_code':text, 'workspace_config':{
+                'base':{'start_date':'2024-01-02','end_date':'2024-01-03'},
+                'data':{'provider':'fixture','universe':'fixture'}}}),
             text=True, capture_output=True)
         self.assertEqual(child.returncode, 0, child.stderr)
-        self.assertEqual(json.loads(child.stdout), {'valid':True})
+        self.assertEqual(json.loads(child.stdout)['factor_class'], 'Factor')
+        self.assertEqual(json.loads(child.stdout)['source_config'], {})
 
     def test_retired_class_is_rejected_before_any_module_side_effect(self):
         with tempfile.TemporaryDirectory() as directory:

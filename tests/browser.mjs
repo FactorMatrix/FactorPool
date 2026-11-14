@@ -1,4 +1,4 @@
-import {fixtureScript, setSource} from './browser-script-utils.mjs'
+import {fixtureScript, runResearch, setSource} from './browser-script-utils.mjs'
 // Run against an explicitly selected isolated test stack.
 import { createRequire } from 'node:module'
 import assert from 'node:assert/strict'
@@ -14,8 +14,7 @@ page.on('pageerror', e => errors.push(e.message))
 await page.goto(base, { waitUntil: 'networkidle' })
 await page.getByLabel('因子名称', {exact:true}).fill('浏览器验收 · 单日 fixture')
 await setSource(page, fixtureScript())
-await page.getByRole('button', { name: '运行研究', exact: true }).click()
-await page.locator('.badge.SUCCEEDED').waitFor({ timeout: 40000 })
+await runResearch(page)
 await page.locator('.metrics').waitFor()
 const metric = await page.locator('.metrics strong').allTextContents()
 assert.deepEqual(metric, ['1.0000', '1.0000', '--', '100.00%'])
@@ -27,9 +26,9 @@ await page.getByRole('button', { name: '保存版本', exact: true }).click()
 await page.locator('.notice').filter({ hasText: '已保存版本' }).waitFor()
 await page.getByRole('button', { name: '因子库', exact: true }).click()
 assert.ok(await page.locator('.page tbody tr').count() >= 1)
-await page.getByRole('button', { name: '算子兼容', exact: true }).click()
-const operatorCount = (await (await page.request.get(`${base}/api/operators`)).json()).length
-assert.equal(await page.locator('.page tbody tr').count(), operatorCount)
+await page.getByRole('button', { name: '数据', exact: true }).click()
+assert.equal(await page.locator('.page tbody tr').count(), 0)
+assert.equal((await (await page.request.get(`${base}/api/operators`)).json()).length, 66)
 await page.getByRole('button', { name: '研究', exact: true }).click()
 await page.reload({ waitUntil: 'networkidle' })
 await page.locator('.metrics').waitFor()

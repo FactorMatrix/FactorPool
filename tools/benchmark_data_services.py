@@ -32,15 +32,21 @@ def main():
     args = parser.parse_args()
     data = json.loads(Path(args.config).read_text())
     load = importlib.import_module(args.loader).load
-    request = dict(name='service-benchmark', factor_class='Factor', factor_params={},
+    request = dict(name='service-benchmark',
                    source_code='from factorpool import PythonIndicator\n'
                    'class Factor(PythonIndicator):\n'
                    '    def update(self, input):\n'
                    '        x = self.ts.mean(input.volume, 20)\n'
                    '        self.value = self.cs.rank_unit(-x)\n'
-                   '        return self.ts.is_ready(x)\n',
-                   data=data, analysis=dict(groups=5, horizons=[1, 5, 20], decay_steps=3,
-                                            entry='signal_close', exit='next_close'))
+                   '        return self.ts.is_ready(x)\n'
+                   'if __name__ == "__main__":\n    Factor.run()\n',
+                   workspace_config=dict(
+                       base=dict(start_date=data['factor_start'], end_date=data['factor_end'],
+                                 frequency=data.get('frequency', '1d')),
+                       data={key: value for key, value in data.items()
+                             if key not in ('factor_start', 'factor_end', 'frequency')},
+                       analysis=dict(groups=5, horizons=[1, 5, 20], decay_steps=3,
+                                     entry='signal_close', exit='next_close')))
     from factorpool.runner import run
     reads, totals, hashes, cache_stats = [], [], [], []
     def evict():

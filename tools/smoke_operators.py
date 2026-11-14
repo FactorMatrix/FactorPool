@@ -43,7 +43,7 @@ def source(config, body):
 
 def run(config, body, label):
     code = source(config, body)
-    task = api('/tasks', dict(name=label, source_mode='script', source_code=code))['id']
+    task = api('/tasks', dict(name=label, source_code=code))['id']
     row = wait(task)
     report = api('/tasks/'+task+'/result')
     values = api('/tasks/'+task+'/values?limit=1000')
@@ -70,7 +70,7 @@ def price_contract(result):
 def reject_raw(config, body):
     raw = dict(config, data=dict(config['data'], factor_price='raw'))
     try:
-        api('/tasks', dict(name='验收 · 原始因子价明确拒绝', source_mode='script', source_code=source(raw, body)))
+        api('/tasks', dict(name='验收 · 原始因子价明确拒绝', source_code=source(raw, body)))
     except urllib.error.HTTPError as error:
         message = error.read().decode()
         assert error.code == 400 and ('quote_adjusted' in message or 'forward-adjusted' in message), message

@@ -35,7 +35,7 @@ if __name__ == "__main__":
 
 export const settingHints = {
   type: "当前使用 REGULAR 单因子研究；SUPER 需要尚未接入的选择与组合合同。",
-  base: "研究起止日期包含边界，只支持日线；预热由窗口自动准备。",
+  base: "研究起止日期包含边界，只支持日线；未在 config 中填写的字段使用设置值，预热由窗口自动准备。",
   data: "选择已发布行情矩阵或合成数据与股票池；因子统一使用当前信号日基准的前复权输入，提交固定快照，不导入或更新行情。",
   factor: "传给因子类构造函数。例如 period=20 对应 __init__(period=20)。",
   analysis: "控制 IC、分组、多期收益和报告。与 settings 的 Alpha 权重变换分开。",
@@ -54,5 +54,5 @@ export const settingHints = {
   simulationMode: "当前只支持 FULL；QUICK 没有已支持的执行合同。",
   instrumentType: "当前数据与研究范围是股票 EQUITY。",
   region: "当前数据与研究范围是中国市场 CHN。",
-  language: "使用 Pool 的 PythonIndicator 类与 config 脚本。",
+  language: "使用 Pool 的 PythonIndicator 类；设置提供默认参数，脚本 config 按字段覆盖。",
 };

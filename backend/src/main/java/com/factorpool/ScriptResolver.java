@@ -29,14 +29,12 @@ public class ScriptResolver {
   }
 
   ObjectNode resolve(String source) {
-    return parse(source, false);
+    return resolve(source, null);
   }
 
-  void validateFrontend(String source) {
-    parse(source, true);
-  }
-
-  private ObjectNode parse(String source, boolean frontendOnly) {
+  ObjectNode resolve(String source, JsonNode workspaceConfig) {
+    if (workspaceConfig != null && !workspaceConfig.isObject())
+      throw new IllegalArgumentException("workspace_config must be an object");
     if (source == null || source.isBlank() || source.length() > SOURCE_LIMIT)
       throw new IllegalArgumentException("source_code (max 128 KiB) is required");
     Process child = null;
@@ -54,7 +52,7 @@ public class ScriptResolver {
       Future<?> input = io.submit(() -> {
         try (var writer = process.getOutputStream()) {
           ObjectNode body = json.createObjectNode().put("source_code", source);
-          if (frontendOnly) body.put("frontend_only", true);
+          if (workspaceConfig != null) body.set("workspace_config", workspaceConfig);
           json.writeValue(writer, body);
         }
         return null;
@@ -68,11 +66,6 @@ public class ScriptResolver {
       result(input, deadline);
       JsonNode resolved = json.reader().with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
                               .readTree(stdout);
-      if (frontendOnly) {
-        if (resolved == null || !resolved.isObject() || !resolved.path("valid").asBoolean(false))
-          throw new IllegalArgumentException("Operator frontend parser returned invalid validation");
-        return (ObjectNode) resolved;
-      }
       if (resolved == null || !resolved.isObject() ||
           !resolved.path("source_mode").asText().equals("script") ||
           !resolved.path("factor_class").asText().matches("[A-Za-z_][A-Za-z0-9_]*") ||

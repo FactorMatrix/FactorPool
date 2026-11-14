@@ -55,7 +55,7 @@ class StoreScriptTest {
 
   ObjectNode savedDefinition(String source, String snapshot) {
     ObjectNode resolved = normalized(snapshot);
-    when(scripts.resolve(source)).thenReturn(resolved);
+    when(scripts.resolve(source, null)).thenReturn(resolved);
     ObjectNode definition = request(source);
     for (String key : List.of("factor_class", "factor_params", "data", "analysis", "source_config"))
       definition.set(key, resolved.path(key).deepCopy());
@@ -66,7 +66,7 @@ class StoreScriptTest {
   void scriptSaveParsesBeforeWritingAndKeepsExactSourceAndLiteralConfig() {
     String source = "# complete script\nconfig = {}\nclass MyFactor: pass\nMyFactor.run(config)\n";
     ObjectNode resolved = normalized(null);
-    when(scripts.resolve(source)).thenReturn(resolved);
+    when(scripts.resolve(source, null)).thenReturn(resolved);
     when(db.queryForObject(eq("SELECT coalesce(max(version),0)+1 FROM factor_versions WHERE factor_id=?"), eq(Integer.class), any()))
         .thenReturn(1);
     store.factor(request(source));
@@ -83,7 +83,7 @@ class StoreScriptTest {
 
   @Test
   void invalidScriptNeverCreatesVersionOrTask() {
-    when(scripts.resolve("invalid source")).thenThrow(new IllegalArgumentException("line 4: config must be literal"));
+    when(scripts.resolve("invalid source", null)).thenThrow(new IllegalArgumentException("line 4: config must be literal"));
     assertThrows(IllegalArgumentException.class, () -> store.factor(request("invalid source")));
     assertThrows(IllegalArgumentException.class, () -> store.enqueue(request("invalid source"), null));
     verifyNoInteractions(db);
@@ -91,11 +91,11 @@ class StoreScriptTest {
 
   @Test
   void conflictingExternalControlsAreRejectedRatherThanOverridingSource() {
-    when(scripts.resolve("script")).thenReturn(normalized(null));
+    when(scripts.resolve("script", null)).thenReturn(normalized(null));
     ObjectNode input = request("script");
     input.putObject("factor_params").put("period", 999);
     var error = assertThrows(IllegalArgumentException.class, () -> store.enqueue(input, null));
-    assertTrue(error.getMessage().contains("conflicts with source config"));
+    assertTrue(error.getMessage().contains("conflicts with resolved config"));
     verifyNoInteractions(db);
   }
 
@@ -105,7 +105,7 @@ class StoreScriptTest {
     resolved.putObject("brain_settings").put("delay", 1).put("decay", 4)
         .put("pasteurization", "ON");
     ((ObjectNode)resolved.path("source_config")).putObject("settings").put("decay", 4);
-    when(scripts.resolve("script")).thenReturn(resolved);
+    when(scripts.resolve("script", null)).thenReturn(resolved);
     when(data.snapshot("")).thenReturn(json.createObjectNode().put("snapshot_id","snapshot-new"));
     store.enqueue(request("script"), null);
     ArgumentCaptor<String> capture = ArgumentCaptor.forClass(String.class);
@@ -121,7 +121,7 @@ class StoreScriptTest {
   void externalBrainSettingsCannotOverrideSourceSettings() {
     ObjectNode resolved = normalized(null);
     resolved.putObject("brain_settings").put("decay", 4);
-    when(scripts.resolve("script")).thenReturn(resolved);
+    when(scripts.resolve("script", null)).thenReturn(resolved);
     ObjectNode input = request("script");
     input.putObject("brain_settings").put("decay", 99);
     assertThrows(IllegalArgumentException.class, () -> store.enqueue(input, null));
@@ -131,7 +131,7 @@ class StoreScriptTest {
   @Test
   void taskPinsDataAndKeepsOriginalAndEffectiveConfigsSeparate() {
     ObjectNode resolved = normalized(null);
-    when(scripts.resolve("script")).thenReturn(resolved);
+    when(scripts.resolve("script", null)).thenReturn(resolved);
     when(data.snapshot("")).thenReturn(json.createObjectNode().put("snapshot_id","snapshot-new"));
     ObjectNode input = request("script");
     store.enqueue(input, null);
@@ -144,6 +144,7 @@ class StoreScriptTest {
     assertEquals(resolved.path("source_config"), snapshot.path("source_config"));
     assertEquals(snapshot.path("factor_params"), snapshot.path("effective_config").path("factor"));
     assertEquals(snapshot.path("analysis"), snapshot.path("effective_config").path("analysis"));
+    assertEquals("REGULAR", snapshot.path("effective_config").path("type").asText());
     assertEquals("2024-01-29", snapshot.path("effective_config").path("base").path("start_date").asText());
     assertFalse(snapshot.path("effective_config").path("data").has("factor_start"));
     assertFalse(snapshot.path("effective_config").has("factor_class"));
@@ -182,6 +183,7 @@ class StoreScriptTest {
     ObjectNode legacyDefinition = json.createObjectNode().put("name", "Legacy")
         .put("source_code", "class OldFactor: pass").put("factor_class", "OldFactor");
     version(legacy, legacyDefinition);
+    when(scripts.resolve("class OldFactor: pass", null)).thenThrow(new IllegalArgumentException("missing guarded run"));
     ObjectNode override = json.createObjectNode();
     override.putArray("factors").add(script.toString());
     override.putObject("analysis").put("groups", 99);
@@ -194,26 +196,55 @@ class StoreScriptTest {
   }
 
   @Test
-  void legacyBatchRetainsSharedDataAndAnalysis() {
+  void classModeIsRejectedBeforeParsingOrWriting() {
+    ObjectNode input = request("class OldFactor: pass");
+    input.put("source_mode", "class");
+    var error = assertThrows(IllegalArgumentException.class, () -> store.enqueue(input, null));
+    assertTrue(error.getMessage().contains("Python script"));
+    verifyNoInteractions(scripts, db);
+  }
+
+  @Test
+  void workspaceConfigIsPassedToTheSameParserAndSavedWithTheVersion() {
+    ObjectNode workspace = json.createObjectNode();
+    workspace.putObject("settings").put("decay", 7).put("truncation", 0);
+    ObjectNode resolved = normalized(null);
+    resolved.set("workspace_config", workspace.deepCopy());
+    when(scripts.resolve("script", workspace)).thenReturn(resolved);
+    ObjectNode input = request("script");
+    input.remove("source_mode");
+    input.set("workspace_config", workspace);
+    ObjectNode saved = store.validateDefinition(input);
+    assertEquals(workspace, saved.path("workspace_config"));
+    assertEquals(resolved.path("analysis"), saved.path("analysis"));
+    verify(scripts).resolve("script", workspace);
+    verifyNoInteractions(db);
+  }
+
+  @Test
+  void batchWorkspaceSettingsOverrideStoredDefaultsBeforeSourceIsResolved() {
     UUID id = UUID.randomUUID();
-    ObjectNode legacy = json.createObjectNode().put("name", "Legacy")
-        .put("source_code", "class OldFactor: pass").put("factor_class", "OldFactor");
-    version(id, legacy);
+    ObjectNode workspace = json.createObjectNode();
+    workspace.putObject("settings").put("decay", 7).put("truncation", 0.2);
+    ObjectNode saved = savedDefinition("script", null);
+    saved.set("workspace_config", workspace.deepCopy());
+    ObjectNode storedResolved = normalized(null);
+    storedResolved.set("workspace_config", workspace.deepCopy());
+    when(scripts.resolve("script", workspace)).thenReturn(storedResolved);
+    version(id, saved);
+    ObjectNode combined = workspace.deepCopy();
+    ((ObjectNode)combined.path("settings")).put("decay", 0);
+    ObjectNode resolved = normalized(null);
+    resolved.set("workspace_config", combined.deepCopy());
+    when(scripts.resolve("script", combined)).thenReturn(resolved);
+    when(data.snapshot("")).thenReturn(json.createObjectNode().put("snapshot_id", "snapshot-new"));
     ObjectNode input = json.createObjectNode();
     input.putArray("factors").add(id.toString());
-    input.putObject("data").put("provider", "fixture").put("universe", "fixture")
-        .put("factor_start", "2024-01-29").put("factor_end", "2024-01-29");
-    input.putObject("analysis").put("groups", 5);
-    var result = store.batch(input);
+    input.putObject("workspace_config").putObject("settings").put("decay", 0);
+    store.batch(input);
+    verify(scripts).resolve("script", combined);
     ArgumentCaptor<String> capture = ArgumentCaptor.forClass(String.class);
-    verify(db).update(eq(TASK_INSERT), any(), eq(result.get("id")), eq("Legacy"), capture.capture());
-    JsonNode saved = store.parse(capture.getValue());
-    ObjectNode expectedData = input.path("data").deepCopy();
-    expectedData.put("factor_price", "quote_adjusted");
-    assertEquals(expectedData, saved.path("data"));
-    assertFalse(input.path("data").has("factor_price"));
-    assertEquals(input.path("analysis"), saved.path("analysis"));
-    assertFalse(saved.has("effective_config"));
-    verify(scripts).validateFrontend("class OldFactor: pass");
+    verify(db).update(eq(TASK_INSERT), any(), any(), eq("Script factor"), capture.capture());
+    assertEquals(combined, store.parse(capture.getValue()).path("workspace_config"));
   }
 }
