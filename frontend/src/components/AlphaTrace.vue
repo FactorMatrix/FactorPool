@@ -7,7 +7,7 @@ const signalDates = computed(() => [...new Set(traces.value.map(row => row.signa
 const valuationDates = computed(() => traces.value.filter(row => row.signal_date === signal.value)
   .map(row => row.valuation_date).sort());
 const selected = computed(() => traces.value.find(row => row.signal_date === signal.value && row.valuation_date === valuation.value));
-const constraintRows = computed(() => props.constraints?.daily || []);
+const constraintRows = computed(() => props.data?.alpha_constraints || props.constraints?.daily || []);
 const constraint = computed(() => constraintRows.value.find(row => row.date === constraintDate.value));
 const unit = computed(() => selected.value?.pnl_unit || props.data?.pnl_book?.unit || "BOOK");
 const bookSize = computed(() => selected.value?.book_size ?? props.data?.pnl_book?.size ?? 1);

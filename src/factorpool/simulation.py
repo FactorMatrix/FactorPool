@@ -59,7 +59,8 @@ def _decayed(factors, members, period):
     return np.frombuffer(state['current'], dtype=np.float64).reshape(factors.shape)
 
 
-def alpha_targets(full_factors, full_membership, settings, *, details=None, trace_indices=()):
+def alpha_targets(full_factors, full_membership, settings, *, details=None, trace_indices=(),
+                  selection_membership=None, transformed=None):
     """Return contiguous target weights, or None for the existing native Alpha."""
     if not isinstance(settings, dict):
         raise ValueError("settings must be an object")
@@ -72,12 +73,23 @@ def alpha_targets(full_factors, full_membership, settings, *, details=None, trac
     if period <= 1 and neutralization == "MARKET" and cap == 0:
         return None
     members = np.isfinite(membership) & (membership > 0)
-    transformed = _decayed(factors, members, period) if period > 1 else factors
+    if transformed is None:
+        transformed = _decayed(factors, members, period) if period > 1 else factors
+    else:
+        transformed = np.asarray(transformed, dtype=np.float64)
+        if transformed.shape != factors.shape:
+            raise ValueError("Transformed Alpha factors have different axes")
+    if selection_membership is not None:
+        selection = np.asarray(selection_membership, dtype=bool)
+        if selection.shape != factors.shape:
+            raise ValueError("Alpha selection membership has different axes")
+        membership = np.ascontiguousarray(members & selection)
     import _factorpool_native
     requested = list(dict.fromkeys(int(index) for index in trace_indices)) if details is not None else []
     result = _factorpool_native.alpha_targets(
         np.ascontiguousarray(transformed), np.ascontiguousarray(membership),
-        neutralization, cap, requested, details is not None)
+        neutralization, cap, requested, details is not None,
+        np.ascontiguousarray(members) if selection_membership is not None else None)
     if details is not None:
         details.update(
             trace={index: dict(decayed=transformed[index].copy(), neutralized=values)

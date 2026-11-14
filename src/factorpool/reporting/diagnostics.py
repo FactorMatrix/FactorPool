@@ -73,7 +73,7 @@ def portfolio_calendar(dates, returns, width=7):
 
 
 def build(factors, returns, membership, dates, price_dates, analysis, *, primary=None, trace_info=None,
-          rebalance_only=False):
+          rebalance_only=False, horizon_targets=None, target_offset=0):
     periods, annual_days, steps = options(analysis)
     ddof, groups, minimum = analysis.get("icir_ddof", 1), analysis.get("groups", 3), analysis.get("min_ic_pairs", 3)
     prepared = factors if returns is None else native.prepare_research(factors, returns, membership)
@@ -92,7 +92,15 @@ def build(factors, returns, membership, dates, price_dates, analysis, *, primary
         rank_ic = inference(rics, ddof, lag)
         trace_indices = trace_info.get("indices", []) if trace_info else []
         args = (prepared, None, None, groups, h, annual_days)
-        portfolios = native.portfolio_report(*args, trace_indices) if trace_indices else native.portfolio_report(*args)
+        current_trace = trace_info
+        constraints = []
+        if horizon_targets is not None and h != 1:
+            weights, transforms, constraints = horizon_targets(h)
+            portfolios = native.portfolio_report(*args, trace_indices, weights)
+            if trace_info:
+                current_trace = dict(trace_info, transforms=transforms)
+        else:
+            portfolios = native.portfolio_report(*args, trace_indices) if trace_indices else native.portfolio_report(*args)
         traces = portfolios.pop("trace", [])
         indices = [int(v) for v in portfolios.pop("signal_indices")]
         daily_indices = [int(v) for v in portfolios.pop("daily_indices")]
@@ -111,12 +119,19 @@ def build(factors, returns, membership, dates, price_dates, analysis, *, primary
             portfolio_dates=portfolio_dates, portfolio_signal_dates=signals, portfolio_exit_dates=exits, portfolios=portfolios["strategies"])
         if trace_info and trace_indices:
             from .pnl import format_trace
-            out[str(h)]["alpha_trace"] = format_trace(traces, trace_info, dates, price_dates, analysis)
+            out[str(h)]["alpha_trace"] = format_trace(traces, current_trace, dates, price_dates, analysis)
             out[str(h)]["trace_status"] = dict(
                 requested_signal_dates=[dates[i] for i in trace_indices],
                 not_rebalance_dates=[dates[i] for i in trace_indices if i % h],
                 no_future_dates=[dates[i] for i in trace_indices if i % h == 0 and i+1 >= len(price_dates)],
                 policy="only requested rebalance signals; full holding intervals; no default per-symbol export")
+        if constraints:
+            out[str(h)]["alpha_constraints"] = [
+                dict(item, index=item["index"]-target_offset, date=dates[item["index"]-target_offset])
+                for item in constraints
+                if 0 <= item["index"]-target_offset < len(dates)
+                and (item["index"]-target_offset) % h == 0
+            ]
     return dict(version=3, horizons=out, conventions=dict(
         annual_days=annual_days, ic_ddof=ddof, return_price="close / prev_close - 1", signal_delay=1,
         return_matrix="signal t uses daily returns R[t+1]..R[t+h]; no additional corporate-action adjustment",

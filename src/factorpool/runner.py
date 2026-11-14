@@ -250,6 +250,14 @@ def run(directory, *, factory=None, values_format="jsonl"):
             returns = np.ascontiguousarray(stored[first:, columns], dtype=np.float64)
     else:
         returns = returns_matrix(tail, symbols)
+    terminal_rows = payload.get("terminal_exit_rows")
+    if terminal_rows is not None:
+        source_columns = {symbol: index for index, symbol in enumerate(source_symbols)}
+        terminal_rows = [terminal_rows[source_columns[symbol]] for symbol in symbols]
+        full_terminal_rows = np.asarray(terminal_rows, dtype=np.int64)
+        terminal_rows = [max(0, row-first_signal) if row >= 0 else -1 for row in terminal_rows]
+    else:
+        full_terminal_rows = None
     timings["calculate"] = time.perf_counter() - checkpoint
     checkpoint = time.perf_counter()
     options = request["analysis"]
@@ -265,18 +273,43 @@ def run(directory, *, factory=None, values_format="jsonl"):
     transforms = {}
     alpha_weights = None
     settings_details = {}
+    horizon_targets = None
     if settings is not None:
-        from .simulation import alpha_targets
+        from .simulation import alpha_targets, _decayed
         offset = first_signal
-        all_targets = alpha_targets(all_factors, all_members, settings,
-                                    details=settings_details if trace_indices or settings["truncation"] > 0 else None,
-                                    trace_indices=[i+offset for i in trace_indices
-                                                   if i+1 < len(tail) and any(i % h == 0 for h in horizons)])
-        if all_targets is not None:
-            alpha_weights = np.ascontiguousarray(all_targets[-len(dates):])
+        custom_targets = (settings["decay"] > 1 or settings["neutralization"] != "MARKET"
+                          or settings["truncation"] != 0)
+        has_terminal_rows = full_terminal_rows is not None and np.any(full_terminal_rows >= 0)
+        # Decay observes the original historical universe once. Only the final
+        # selection/normalization depends on the prospective holding period.
+        transformed = (_decayed(all_factors, all_members, settings["decay"])
+                       if custom_targets and has_terminal_rows and settings["decay"] > 1 else all_factors)
+
+        def targets_for_horizon(h, details):
+            selection = None
+            if custom_targets and has_terminal_rows:
+                selection = ((full_terminal_rows < 0)[None, :]
+                             | (np.arange(count)[:, None]+h < full_terminal_rows[None, :]))
+            requested = [i+offset for i in trace_indices if i+1 < len(tail) and i % h == 0]
+            if not has_terminal_rows:
+                targets = alpha_targets(all_factors, all_members, settings, details=details,
+                                        trace_indices=requested)
+            else:
+                targets = alpha_targets(all_factors, all_members, settings, details=details,
+                                        trace_indices=requested, selection_membership=selection,
+                                        transformed=transformed)
+            return None if targets is None else np.ascontiguousarray(targets[-len(dates):])
+
+        alpha_weights = targets_for_horizon(
+            1, settings_details if trace_indices or settings["truncation"] > 0 else None)
         transforms = {i-offset: values for i, values in settings_details.get("trace", {}).items()}
-    prepared = (native.prepare_research(factors, returns, members) if alpha_weights is None
-                else native.prepare_research(factors, returns, members, alpha_weights))
+        if custom_targets and has_terminal_rows:
+            def horizon_targets(h):
+                details = {} if trace_indices or settings["truncation"] > 0 else None
+                weights = targets_for_horizon(h, details)
+                trace_transforms = {i-offset: values for i, values in (details or {}).get("trace", {}).items()}
+                return weights, trace_transforms, (details or {}).get("constraints", [])
+    prepared = native.prepare_research(factors, returns, members, alpha_weights, terminal_rows)
     result = native.analyze(prepared, None, options.get("groups", 3), options.get("min_ic_pairs", 3),
                             options.get("icir_ddof", 1), None, 1, 1, True)
     # All value columns are complete after primary analysis. Publish only the
@@ -299,7 +332,8 @@ def run(directory, *, factory=None, values_format="jsonl"):
     trace_info = dict(indices=trace_indices, symbols=symbols, transforms=transforms,
                       factor_arrays=dict(reason=reasons, valid=valid, ready=ready)) if trace_indices else None
     result["diagnostics"] = build_diagnostics(prepared, None, None, dates, [f["date"] for f in tail], options,
-                                             primary=result, trace_info=trace_info, rebalance_only=True)
+                                             primary=result, trace_info=trace_info, rebalance_only=True,
+                                             horizon_targets=horizon_targets, target_offset=first_signal)
     conventions = result["diagnostics"]["conventions"]
     conventions.update(factor_sampling="per-horizon rebalance dates; primary 1D IC uses their union",
                        price_adjustment="forward only: historical price times Q ratio; volume divided by the same ratio",
@@ -307,6 +341,11 @@ def run(directory, *, factory=None, values_format="jsonl"):
                        return_price=return_price,
                        return_matrix="signal t uses daily returns R[t+1]..R[t+h]; derivation follows return_policy",
                        missing_returns="missing nonzero position daily returns remain invalid; no reader-side zero filling or hindsight reweighting; source derivation follows return_policy")
+    if terminal_rows is not None:
+        conventions["delisting_filter"] = (
+            "Before each h-session holding period, exclude stocks whose known exclusive lifetime end "
+            "is at or before signal+h; close prior holdings at the scheduled rebalance. "
+            "Raw factors and stored daily returns are unchanged.")
     if settings is not None:
         from .simulation import ALPHA_POLICY, SETTINGS_SCOPE
         conventions.update(brain_settings=deepcopy(settings), alpha_weights=ALPHA_POLICY,
@@ -347,6 +386,8 @@ def run(directory, *, factory=None, values_format="jsonl"):
         annualized_scope="legacy ICIR only; portfolio annualization is defined in diagnostics.conventions",
         operator_contract="pool-indicator-2", shared_primitive_contract="ft-pool-1", forward_return_horizon=1, report_version=3, report_horizons=horizons, coverage_axis="historical universe membership", stage_seconds=timings, value_count=value_artifact["count"])
     result["metadata"]["indicator_backend"] = "pool_native" if getattr(indicator, "_pool_ir", None) is not None else adapter.mode
+    if terminal_rows is not None:
+        result["metadata"]["delisting_filter"] = "before each holding period; exclusive lifetime end > signal+h"
     from .operator_frontend import FRONTEND_VERSION
     result["metadata"]["public_operator_api"] = FRONTEND_VERSION
     if getattr(indicator, "_pool_ir", None) is not None:

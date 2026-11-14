@@ -13,9 +13,11 @@ struct Holding {
 };
 struct SignalData {
   std::size_t time, end;
+  std::vector<std::size_t> order;
   std::vector<unsigned char> labels;
   std::vector<std::size_t> sizes;
   long double mean = 0, norm = 0;
+  bool lifecycle_cash = false;
 };
 struct Strategy {
   std::string name;
@@ -90,7 +92,8 @@ struct TraceState {
 
 PyObject *trace_day(const ResearchInput &input, std::size_t signal,
                     std::size_t valuation, long double mean, bool usable,
-                    const TraceState &state, double book_pnl) {
+                    const TraceState &state, double book_pnl,
+                    const Matrix &alpha_weights, int horizon) {
   Owned day{PyDict_New()}, rows{PyList_New(state.target.size())};
   if (!day.p || !rows.p)
     throw std::bad_alloc();
@@ -106,12 +109,14 @@ PyObject *trace_day(const ResearchInput &input, std::size_t signal,
   for (std::size_t n = 0; n < state.target.size(); ++n) {
     const auto raw = input.factors[signal][n], weight = state.target[n];
     const bool member = input.eligible(signal, n);
+    const bool holding_member = input.holding_eligible(signal, n, horizon);
     double effective = missing, contribution = missing;
     const char *status = "no_valid_weights";
     if (usable && weight == 0) {
       effective = contribution = 0;
       status = !member ? "outside_universe"
-               : input.alpha_weights.empty() && !std::isfinite(raw)
+               : !holding_member ? "delisting_next_period"
+               : alpha_weights.empty() && !std::isfinite(raw)
                    ? "nonfinite_alpha" : "zero_weight";
     } else if (usable) {
       effective = static_cast<double>(static_cast<long double>(weight) * state.before[n]);
@@ -123,7 +128,7 @@ PyObject *trace_day(const ResearchInput &input, std::size_t signal,
     put(row.p, "raw_alpha", number(raw));
     put(row.p, "member", PyBool_FromLong(member));
     put(row.p, "neutralized",
-        number(input.alpha_weights.empty() && member && std::isfinite(raw)
+        number(alpha_weights.empty() && holding_member && std::isfinite(raw)
                    ? static_cast<double>(static_cast<long double>(raw) - mean)
                    : missing));
     put(row.p, "target_weight", number(usable ? weight : missing));
@@ -145,16 +150,25 @@ PyObject *trace_day(const ResearchInput &input, std::size_t signal,
 } // namespace
 PyObject *portfolio_report(PyObject *, PyObject *args) {
   try {
-    PyObject *factor, *returns, *members, *requested_trace = Py_None;
+    PyObject *factor, *returns, *members, *requested_trace = Py_None,
+             *weights_override = Py_None;
     int groups, h, annual_days;
-    if (!PyArg_ParseTuple(args, "OOOiii|O", &factor, &returns, &members, &groups,
-                          &h, &annual_days, &requested_trace))
+    if (!PyArg_ParseTuple(args, "OOOiii|OO", &factor, &returns, &members, &groups,
+                          &h, &annual_days, &requested_trace, &weights_override))
       return nullptr;
     if (groups < 1 || groups > 100 || h < 1 || h > 252 || annual_days < 1 ||
         annual_days > 366)
       throw std::invalid_argument("Invalid portfolio options");
     InputRef holder(factor, returns, members);
     const auto &input = *holder.value;
+    const auto overridden = weights_override != Py_None;
+    Matrix override_matrix;
+    if (overridden) {
+      override_matrix = matrix(weights_override);
+      input.validate_alpha_weights(override_matrix, h);
+    } else if (!input.alpha_weights.empty() && !input.terminal_exit_rows.empty())
+      input.validate_alpha_weights(input.alpha_weights, h);
+    const auto &alpha_weights = overridden ? override_matrix : input.alpha_weights;
     const auto &f = input.factors, &r = input.returns;
     const std::size_t count = f.empty() ? 0 : f[0].size();
     const auto selected_trace = trace_signals(requested_trace, f.size(), r.size(), count, h);
@@ -184,7 +198,13 @@ PyObject *portfolio_report(PyObject *, PyObject *args) {
     parallel_for(signal_count, count, [&](std::size_t row) {
       auto &signal = signals[row];
       const auto t = signal.time;
-      const auto &order = input.order[t];
+      const auto &original_order = input.order[t];
+      signal.order.reserve(original_order.size());
+      for (auto n : original_order)
+        if (input.holding_eligible(t, n, h))
+          signal.order.push_back(n);
+      const auto &order = signal.order;
+      signal.lifecycle_cash = !original_order.empty() && order.empty();
       signal.labels.assign(count, static_cast<unsigned char>(groups));
       signal.sizes.assign(groups, 0);
       for (std::size_t k = 0; k < order.size(); ++k) {
@@ -226,25 +246,28 @@ PyObject *portfolio_report(PyObject *, PyObject *args) {
       s.period_turnover.reserve(signals.size());
       for (const auto &signal : signals) {
         const auto t = signal.time, end = signal.end;
-        const auto &order = input.order[t];
+        const auto &order = signal.order;
         const auto &labels = signal.labels;
         const auto &sizes = signal.sizes;
         const auto mean = signal.mean, norm = signal.norm;
         std::vector<double> weights(count, 0);
         bool usable = true;
-        if (s.name == "alpha") {
-          if (!input.alpha_weights.empty()) {
-            usable = false;
-            for (std::size_t n = 0; n < count; ++n) {
-              const auto value = input.alpha_weights[t][n];
-              if (std::isfinite(value)) {
-                weights[n] = value;
-                // A supplied all-zero target is a known flat book, distinct
-                // from the all-NaN row used for an unavailable target.
-                usable = true;
-              }
+        if (s.name == "alpha" && !alpha_weights.empty()) {
+          usable = signal.lifecycle_cash;
+          for (std::size_t n = 0; n < count; ++n) {
+            const auto value = alpha_weights[t][n];
+            if (std::isfinite(value)) {
+              weights[n] = value;
+              // A supplied all-zero target is a known flat book, distinct
+              // from the all-NaN row used for an unavailable target.
+              usable = true;
             }
-          } else if (norm > 0)
+          }
+        } else if (signal.lifecycle_cash) {
+          // A deliberate pre-delisting exclusion closes the previous book.
+          // It is not an unavailable factor sample or an unknown held return.
+        } else if (s.name == "alpha") {
+          if (norm > 0)
             for (auto n : order)
               weights[n] = double((static_cast<long double>(f[t][n]) - mean) / norm);
           else
@@ -281,7 +304,7 @@ PyObject *portfolio_report(PyObject *, PyObject *args) {
             concentration = std::max(concentration, std::abs(weights[n]));
           }
         };
-        if (s.name == "alpha" && !input.alpha_weights.empty()) {
+        if (s.name == "alpha" && !alpha_weights.empty()) {
           for (std::size_t n = 0; n < count; ++n)
             hold(n);
         } else
@@ -342,7 +365,8 @@ PyObject *portfolio_report(PyObject *, PyObject *args) {
           s.book_pnl.push_back(valid && std::isfinite(previous_wealth)
                                   ? wealth - previous_wealth : missing);
           if (tracing) {
-            Owned traced{trace_day(input, t, d, mean, usable, *tracing, s.book_pnl.back())};
+            Owned traced{trace_day(input, t, d, mean, usable, *tracing,
+                                  s.book_pnl.back(), alpha_weights, h)};
             if (PyList_Append(traces.p, traced.p) < 0)
               throw std::runtime_error("Trace allocation failure");
           }

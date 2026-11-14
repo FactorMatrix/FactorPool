@@ -10,9 +10,11 @@ namespace fp {
 // is shared across horizons, portfolios and lagged return masks.
 struct ResearchInput {
   Matrix factors, returns, members, alpha_weights;
+  std::vector<std::int64_t> terminal_exit_rows;
   std::vector<std::vector<std::size_t>> order;
   ResearchInput(PyObject *factor, PyObject *daily_returns, PyObject *membership,
-                PyObject *weights = nullptr);
+                PyObject *weights = nullptr, PyObject *exits = nullptr);
+  void validate_alpha_weights(const Matrix &, int holding_horizon = 0) const;
   // Row t compounds days t+1..t+h. Cached intervals include every daily
   // observation; neither a missing day nor a total loss can be skipped.
   const Matrix &forward(int h) const;
@@ -35,6 +37,12 @@ struct ResearchInput {
                                            std::size_t row) const;
   bool eligible(std::size_t t, std::size_t n) const {
     return members.empty() || members[t][n] > 0;
+  }
+  bool holding_eligible(std::size_t t, std::size_t n, int horizon) const {
+    return eligible(t, n) &&
+        (terminal_exit_rows.empty() || terminal_exit_rows[n] < 0 ||
+         static_cast<std::uint64_t>(terminal_exit_rows[n]) >
+             static_cast<std::uint64_t>(t) + static_cast<unsigned>(horizon));
   }
 
 private:

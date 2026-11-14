@@ -1,5 +1,6 @@
 """Task-local matrix assembly over the bounded data-service/Redis client."""
 from copy import deepcopy
+from bisect import bisect_left
 from datetime import date
 import os
 from pathlib import Path
@@ -12,6 +13,21 @@ _ROW_COLUMNS = np.array([FIELDS.index(field) for field in _ROW_FIELDS])
 # Indicator input adjustment consumes only these persisted matrices. Daily
 # multipliers and known-status columns remain available through the data API.
 _ADJUSTMENT_INPUTS = (('q', '__q__', '<f8'), ('segment', '__segment__', '<i8'))
+
+
+def _with_terminal_rows(payload, manifest, all_symbols, dates, initial):
+    """Carry the existing exclusive lifetime boundary, without changing R."""
+    lifetimes = manifest.get("instrument_lifetimes")
+    if lifetimes is None:
+        return payload
+    lookup = {symbol: n for n, symbol in enumerate(all_symbols)}
+    calendar = [int(day.replace("-", "")) for day in dates]
+    payload["terminal_exit_rows"] = [
+        max(0, bisect_left(calendar, lifetimes[lookup[symbol]][1]) - initial)
+        if 0 < lifetimes[lookup[symbol]][1] <= calendar[-1] else -1
+        for symbol in payload["symbols"]
+    ]
+    return payload
 
 
 def _bar_rows(values, symbols):
@@ -236,7 +252,7 @@ def load(data, warmup, future, *, source=None, pasteurization="ON", matrix_only=
     if matrix_only:
         result["quotes"] = _quote_view(matrices, dates[initial:finish], selected, selected)
         result["returns"] = result["returns"].copy(order="C")
-    return result
+    return _with_terminal_rows(result, manifest, all_symbols, dates, initial)
 
 
 def _load_unpasteurized(source, snapshot, snapshot_id, manifest, all_symbols, dates, fields,
@@ -305,7 +321,7 @@ def _load_unpasteurized(source, snapshot, snapshot_id, manifest, all_symbols, da
                   return_policy=deepcopy(return_policy))
     if matrix_only:
         result["quotes"] = _quote_view(calculation, dates[initial:finish], calculation_symbols, selected)
-    return result
+    return _with_terminal_rows(result, manifest, all_symbols, dates, initial)
 
 
 def _column_selection(columns):
@@ -439,7 +455,7 @@ def _load_projected(source, snapshot, snapshot_id, manifest, all_symbols, dates,
             array.setflags(write=False)
         adjustment['policy'] = deepcopy(manifest.get('adjustment_policy', {}))
         quotes['adjustment'] = adjustment
-    return dict(provider="market_matrix", adjustment="raw", symbols=selected, frames=frames,
+    return _with_terminal_rows(dict(provider="market_matrix", adjustment="raw", symbols=selected, frames=frames,
                 returns=np.ascontiguousarray(returns), snapshot_id=snapshot_id, synthetic=False,
                 return_policy=deepcopy(return_policy), membership=membership,
-                quotes=quotes)
+                quotes=quotes), manifest, all_symbols, dates, initial)

@@ -74,7 +74,8 @@ std::vector<Trace> selected_traces(PyObject* object, std::size_t rows, std::size
   for (auto row : indices) result.push_back({row, std::vector<double>(columns, missing)});
   return result;
 }
-void normalize(const Matrix& factors, const Matrix& members, bool market, double cap,
+void normalize(const Matrix& factors, const Matrix& members, const Matrix& original_members,
+               bool market, double cap,
                char* output, std::vector<Trace>& traces, std::vector<Constraint>& constraints) {
   std::vector<std::ptrdiff_t> trace_slot(factors.size(), -1);
   for (std::size_t slot = 0; slot < traces.size(); ++slot) trace_slot[traces[slot].row] = slot;
@@ -94,6 +95,12 @@ void normalize(const Matrix& factors, const Matrix& members, bool market, double
     const bool constant = market && !values.empty() &&
         std::all_of(values.begin(), values.end(), [&](auto value) { return value == values.front(); });
     bool known_cash = constant;
+    if (values.empty() && !original_members.empty())
+      for (std::size_t n = 0; n < factors.columns(); ++n)
+        if (original_members[t][n] > 0 && std::isfinite(factors[t][n])) {
+          known_cash = true;
+          break;
+        }
     if (constant) {
       if (trace) for (auto n : selected) trace->neutralized[n] = 0;
     } else if (!values.empty()) {
@@ -154,20 +161,29 @@ PyObject* constraints_object(const std::vector<Constraint>& values) {
 
 PyObject* alpha_targets(PyObject*, PyObject* args) {
   try {
-    PyObject *factor_object, *member_object, *trace_object;
+    PyObject *factor_object, *member_object, *trace_object, *original_object = Py_None;
     const char* mode;
     double cap;
     int include_constraints;
-    if (!PyArg_ParseTuple(args, "OOsdOp:alpha_targets", &factor_object, &member_object, &mode,
-                          &cap, &trace_object, &include_constraints)) return nullptr;
+    if (!PyArg_ParseTuple(args, "OOsdOp|O:alpha_targets", &factor_object, &member_object, &mode,
+                          &cap, &trace_object, &include_constraints, &original_object)) return nullptr;
     const std::string_view neutralization(mode);
     if (neutralization != "NONE" && neutralization != "MARKET")
       throw std::invalid_argument("Unsupported Alpha neutralization");
     if (!std::isfinite(cap) || cap < 0 || cap > 1)
       throw std::invalid_argument("Alpha truncation must be between zero and one");
-    const auto factors = matrix(factor_object), members = matrix(member_object);
+    const auto factors = matrix(factor_object), members = matrix(member_object, true);
     if (factors.size() != members.size() || factors.columns() != members.columns())
       throw std::invalid_argument("Alpha factors and membership must have the same date x symbol shape");
+    const auto original_members = original_object == Py_None ? Matrix{} : matrix(original_object, true);
+    if (original_object != Py_None && (original_members.size() != factors.size()
+        || original_members.columns() != factors.columns()))
+      throw std::invalid_argument("Original Alpha membership axes differ");
+    if (original_object != Py_None)
+      for (std::size_t t = 0; t < factors.size(); ++t)
+        for (std::size_t n = 0; n < factors.columns(); ++n)
+          if (members[t][n] > 0 && !(original_members[t][n] > 0))
+            throw std::invalid_argument("Alpha selection cannot add original nonmembers");
     auto traces = selected_traces(trace_object, factors.size(), factors.columns());
     if (factors.columns() && factors.size() > static_cast<std::size_t>(PY_SSIZE_T_MAX) / sizeof(double) / factors.columns())
       throw std::invalid_argument("Alpha target publication is too large");
@@ -176,7 +192,7 @@ PyObject* alpha_targets(PyObject*, PyObject* args) {
     if (!bytes.p) throw std::bad_alloc();
     std::vector<Constraint> constraints(include_constraints && cap > 0 ? factors.size() : 0);
     PyThreadState* thread = PyEval_SaveThread();
-    try { normalize(factors, members, neutralization == "MARKET", cap,
+    try { normalize(factors, members, original_members, neutralization == "MARKET", cap,
                     PyBytes_AS_STRING(bytes.p), traces, constraints); }
     catch (...) { PyEval_RestoreThread(thread); throw; }
     PyEval_RestoreThread(thread);

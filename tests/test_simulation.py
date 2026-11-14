@@ -76,6 +76,61 @@ def reference_targets(values, members, neutralization='MARKET', cap=0):
 
 
 class AlphaTargetTests(unittest.TestCase):
+    def test_holding_selection_precedes_neutralization_normalization_and_cap(self):
+        factors = np.array([[1., 2, 100], [3, 5, 8], [np.nan]*3])
+        members = np.ones_like(factors)
+        selection = np.array([[1, 1, 0], [0, 0, 0], [0, 0, 0]], dtype=bool)
+        settings = normalize_settings(dict(truncation=.4), DATA)
+        details = {}
+        actual = alpha_targets(factors, members, settings,
+                               selection_membership=selection,
+                               details=details, trace_indices=[0, 1, 2])
+        # Demean [1,2], normalize [-.5,.5], then cap; the excluded extreme
+        # must influence none of these cross-sectional operations.
+        np.testing.assert_allclose(actual[0], [-.4, .4, 0], rtol=0, atol=1e-15)
+        np.testing.assert_array_equal(actual[1], [0, 0, 0])
+        self.assertTrue(np.isnan(actual[2]).all())
+        np.testing.assert_allclose(details['trace'][0]['neutralized'],
+                                   [-.5, .5, np.nan], equal_nan=True)
+        self.assertEqual(details['constraints'][0]['valid_count'], 2)
+        self.assertAlmostEqual(details['constraints'][0]['target_gross'], .8)
+        self.assertEqual(details['constraints'][1]['target_gross'], 0)
+        self.assertEqual(details['constraints'][2]['status'], 'no_valid_weights')
+
+    def test_holding_selection_does_not_reset_decay_and_can_reuse_its_original_history(self):
+        factors = np.array([[1., 3, 2], [2, 2, 3], [3, 1, 4], [6, 2, 5]])
+        members = np.ones_like(factors)
+        selection = np.ones_like(factors, dtype=bool)
+        selection[2:, 0] = False
+        settings = normalize_settings(dict(decay=3, truncation=.3), DATA)
+        oracle = shared_decay_values(factors, members, 3)
+        expected = reference_targets(oracle, selection, cap=.3)
+        details = {}
+        actual = alpha_targets(factors, members, settings, details=details,
+                               trace_indices=[2, 3], selection_membership=selection)
+        np.testing.assert_allclose(actual, expected, atol=2e-14, equal_nan=True)
+        self.assertAlmostEqual(details['trace'][2]['decayed'][0], 14/6)
+        self.assertEqual(actual[2, 0], 0)
+        # A second horizon reuses the same chronological transform rather
+        # than rebuilding it with a prospective holding-selection mask.
+        with patch('factorpool.simulation._decayed',
+                   side_effect=AssertionError('decay was recomputed')):
+            reused = alpha_targets(factors, members, settings,
+                                   selection_membership=selection, transformed=oracle)
+        np.testing.assert_allclose(reused, actual, atol=2e-14, equal_nan=True)
+        self.assertTrue(np.isnan(actual[:2]).all())
+
+    def test_holding_selection_and_reused_transform_must_share_the_factor_axes(self):
+        factors = np.array([[1., 2, 3], [4, 5, 6]])
+        members = np.ones_like(factors)
+        settings = normalize_settings(dict(truncation=.2), DATA)
+        with self.assertRaisesRegex(ValueError, 'selection membership'):
+            alpha_targets(factors, members, settings,
+                          selection_membership=np.ones((1, 3)))
+        with self.assertRaisesRegex(ValueError, 'Transformed Alpha'):
+            alpha_targets(factors, members, settings,
+                          transformed=np.ones((2, 2)))
+
     def test_default_controls_preserve_the_original_native_report(self):
         factors = np.array([[1., 2, 3], [2, 3, 1], [1, 3, 2]])
         returns = np.array([[0., 0, 0], [.1, 0, -.1], [-.1, .2, 0], [.02, -.01, 0]])

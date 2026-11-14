@@ -59,6 +59,51 @@ def _scalar_rows(values, symbols):
 
 
 class MatrixLoadingTests(unittest.TestCase):
+    def test_lifetime_boundaries_follow_the_full_calendar_and_selected_columns(self):
+        matrix = np.ones((len(FIELDS), 9, 4))
+        calendar = ['2024-01-01', '2024-01-02', '2024-01-03', '2024-01-04',
+                    '2024-01-05', '2024-01-08', '2024-01-09', '2024-01-10',
+                    '2024-01-11']
+        # B ends on a Saturday. D's known end is beyond this task's loaded
+        # dates, but remains inside the source snapshot and must be retained.
+        lifetimes = [[20200101, 20240105], [20200101, 20240106],
+                     [20200101, 20990101], [20200101, 20240110]]
+        data = dict(snapshot_id='lifetime-calendar', factor_start='2024-01-03',
+                    factor_end='2024-01-04', universe=['D', 'B', 'A', 'C'])
+        for pasteurization in ('ON', 'OFF'):
+            for projected in (False, True):
+                with self.subTest(pasteurization=pasteurization, projected=projected):
+                    source = _Connection(matrix)
+                    source.dates = calendar
+                    source.fetchone = lambda: (
+                        {'format': FORMAT, 'instrument_lifetimes': lifetimes},
+                        source.symbols, source.dates, list(FIELDS))
+                    kwargs = dict(matrix_only=True, fields=['total_turnover']) if projected else {}
+                    payload = store.load(data, 2, 0, source=source,
+                                         pasteurization=pasteurization, **kwargs)
+                    self.assertEqual(payload['symbols'], ['A', 'B', 'C', 'D'])
+                    self.assertEqual([frame['date'] for frame in payload['frames']],
+                                     calendar[1:4])
+                    self.assertEqual(payload['terminal_exit_rows'], [3, 4, -1, 6])
+                    # Adding lifecycle metadata never repairs or fills R.
+                    np.testing.assert_array_equal(payload['returns'], np.ones((3, 4)))
+
+    def test_lifetime_before_the_warmup_is_clamped_and_missing_metadata_stays_optional(self):
+        matrix = np.ones((len(FIELDS), 9, 4))
+        data = dict(snapshot_id='old-lifetime', factor_start='2024-01-05',
+                    factor_end='2024-01-06', universe=['A', 'C'])
+        source = _Connection(matrix)
+        lifetimes = [[20200101, 20240101], [20200101, 20990101],
+                     [20200101, 0], [20200101, 20990101]]
+        source.fetchone = lambda: (
+            {'format': FORMAT, 'instrument_lifetimes': lifetimes},
+            source.symbols, source.dates, list(FIELDS))
+        payload = store.load(data, 2, 0, source=source)
+        self.assertEqual(payload['terminal_exit_rows'], [0, -1])
+        source.fetchone = lambda: ({'format': FORMAT}, source.symbols,
+                                  source.dates, list(FIELDS))
+        self.assertNotIn('terminal_exit_rows', store.load(data, 2, 0, source=source))
+
     def test_complete_payload_matches_scalar_reference_for_both_axes(self):
         rng = np.random.default_rng(924)
         matrix = rng.normal(size=(len(FIELDS), 9, 4))

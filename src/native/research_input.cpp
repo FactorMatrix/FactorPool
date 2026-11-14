@@ -9,44 +9,73 @@ void destroy_input(PyObject *capsule) {
   delete static_cast<fp::ResearchInput *>(
       PyCapsule_GetPointer(capsule, capsule_name));
 }
+std::vector<std::int64_t> terminal_rows(PyObject *object, std::size_t columns) {
+  if (!object || object == Py_None)
+    return {};
+  std::vector<std::int64_t> result(columns);
+  if (PyObject_CheckBuffer(object)) {
+    struct Buffer {
+      Py_buffer view{};
+      bool acquired = false;
+      ~Buffer() { if (acquired) PyBuffer_Release(&view); }
+    } buffer;
+    if (PyObject_GetBuffer(object, &buffer.view, PyBUF_FULL_RO) < 0)
+      throw std::invalid_argument("Expected terminal exit integer buffer");
+    buffer.acquired = true;
+    const auto &view = buffer.view;
+    const std::string_view format = view.format ? view.format : "";
+    const bool signed_integer = format == "q" || format == "l" ||
+        format == "=q" || format == "=l" || format == "@q" || format == "@l";
+    if (view.ndim != 1 || !view.shape || view.shape[0] < 0 ||
+        static_cast<std::size_t>(view.shape[0]) != columns ||
+        view.itemsize != sizeof(std::int64_t) || !signed_integer ||
+        !PyBuffer_IsContiguous(&buffer.view, 'C') || view.len < 0 ||
+        static_cast<std::size_t>(view.len) != columns * sizeof(std::int64_t))
+      throw std::invalid_argument(
+          "Terminal exit rows must be a contiguous one-dimensional native int64 symbol vector");
+    if (view.len)
+      std::memcpy(result.data(), view.buf, static_cast<std::size_t>(view.len));
+  } else {
+    fp::Owned items{PySequence_Fast(object, "Terminal exit rows must be integers")};
+    if (!items.p)
+      throw std::invalid_argument("Terminal exit rows must be integers");
+    if (static_cast<std::size_t>(PySequence_Fast_GET_SIZE(items.p)) != columns)
+      throw std::invalid_argument("Terminal exit rows differ from the symbol axis");
+    for (std::size_t n = 0; n < columns; ++n) {
+      auto *item = PySequence_Fast_GET_ITEM(items.p, n);
+      if (PyBool_Check(item) || !PyIndex_Check(item))
+        throw std::invalid_argument("Terminal exit rows must be exact integers");
+      fp::Owned index{PyNumber_Index(item)};
+      if (!index.p)
+        throw std::invalid_argument("Terminal exit rows must be exact integers");
+      result[n] = PyLong_AsLongLong(index.p);
+      if (PyErr_Occurred()) {
+        PyErr_Clear();
+        throw std::invalid_argument("Terminal exit rows exceed int64");
+      }
+    }
+  }
+  for (auto row : result)
+    if (row < -1)
+      throw std::invalid_argument("Terminal exit rows must be -1 or nonnegative");
+  return result;
+}
 } // namespace
 namespace fp {
 ResearchInput::ResearchInput(PyObject *factor, PyObject *daily_returns,
-                             PyObject *membership, PyObject *weights)
+                             PyObject *membership, PyObject *weights, PyObject *exits)
     : factors(matrix(factor)), returns(matrix(daily_returns)),
       members(membership && membership != Py_None ? matrix(membership, true) : Matrix{}),
-      alpha_weights(weights && weights != Py_None ? matrix(weights) : Matrix{}) {
+      alpha_weights(weights && weights != Py_None ? matrix(weights) : Matrix{}),
+      terminal_exit_rows(terminal_rows(exits, factors.columns())) {
   if (factors.size() > returns.size() ||
       factors.columns() != returns.columns() ||
       (membership && membership != Py_None &&
        (members.size() != factors.size() ||
         members.columns() != factors.columns())))
     throw std::invalid_argument("Research matrix axes differ");
-  if (weights && weights != Py_None) {
-    if (alpha_weights.size() != factors.size() ||
-        alpha_weights.columns() != factors.columns())
-      throw std::invalid_argument("Alpha weight matrix axes differ");
-    for (std::size_t t = 0; t < alpha_weights.size(); ++t) {
-      std::size_t nan_count = 0;
-      long double gross = 0;
-      for (std::size_t n = 0; n < alpha_weights.columns(); ++n) {
-        const auto value = alpha_weights[t][n];
-        if (std::isnan(value)) {
-          ++nan_count;
-          continue;
-        }
-        if (!std::isfinite(value))
-          throw std::invalid_argument("Alpha weights must be finite or an entirely NaN row");
-        if (value != 0 && !eligible(t, n))
-          throw std::invalid_argument("Alpha weights must be zero outside the research universe");
-        gross += std::abs(static_cast<long double>(value));
-      }
-      if (nan_count && nan_count != alpha_weights.columns())
-        throw std::invalid_argument("Partial NaN alpha weight rows are not supported");
-      if (gross > 1.L + 1e-12L)
-        throw std::invalid_argument("Alpha weights exceed unit gross exposure");
-    }
-  }
+  if (weights && weights != Py_None)
+    validate_alpha_weights(alpha_weights);
   parallel_for(returns.size(), returns.columns(), [&](std::size_t t) {
     for (auto &r : returns[t])
       if (!std::isfinite(r) || r < -1)
@@ -63,6 +92,31 @@ ResearchInput::ResearchInput(PyObject *factor, PyObject *daily_returns,
       return factors[t][a] < factors[t][b];
     });
   });
+}
+void ResearchInput::validate_alpha_weights(const Matrix &weights, int holding_horizon) const {
+  if (weights.size() != factors.size() || weights.columns() != factors.columns())
+    throw std::invalid_argument("Alpha weight matrix axes differ");
+  for (std::size_t t = 0; t < weights.size(); ++t) {
+    std::size_t nan_count = 0;
+    long double gross = 0;
+    for (std::size_t n = 0; n < weights.columns(); ++n) {
+      const auto value = weights[t][n];
+      if (std::isnan(value)) {
+        ++nan_count;
+        continue;
+      }
+      if (!std::isfinite(value))
+        throw std::invalid_argument("Alpha weights must be finite or an entirely NaN row");
+      if (value != 0 && !(holding_horizon > 0
+                            ? holding_eligible(t, n, holding_horizon) : eligible(t, n)))
+        throw std::invalid_argument("Alpha weights must be zero outside the eligible holding universe");
+      gross += std::abs(static_cast<long double>(value));
+    }
+    if (nan_count && nan_count != weights.columns())
+      throw std::invalid_argument("Partial NaN alpha weight rows are not supported");
+    if (gross > 1.L + 1e-12L)
+      throw std::invalid_argument("Alpha weights exceed unit gross exposure");
+  }
 }
 void ResearchInput::prepare_prefixes() const {
   if (!log_prefix_.empty())
@@ -269,10 +323,10 @@ std::vector<double> paired_factor_ranks(const ResearchInput &input, std::size_t 
 } // namespace fp
 PyObject *prepare_research(PyObject *, PyObject *args) {
   try {
-    PyObject *factor, *daily_returns, *members, *weights = nullptr;
-    if (!PyArg_ParseTuple(args, "OOO|O", &factor, &daily_returns, &members, &weights))
+    PyObject *factor, *daily_returns, *members, *weights = nullptr, *exits = nullptr;
+    if (!PyArg_ParseTuple(args, "OOO|OO", &factor, &daily_returns, &members, &weights, &exits))
       return nullptr;
-    auto input = std::make_unique<fp::ResearchInput>(factor, daily_returns, members, weights);
+    auto input = std::make_unique<fp::ResearchInput>(factor, daily_returns, members, weights, exits);
     auto *capsule = PyCapsule_New(input.get(), capsule_name, destroy_input);
     if (capsule)
       input.release();

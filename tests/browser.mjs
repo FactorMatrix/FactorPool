@@ -1,16 +1,18 @@
 import {fixtureScript, setSource} from './browser-script-utils.mjs'
-// Run with FACTORPOOL_PLAYWRIGHT_MODULE pointing to an installed Playwright module.
+// Run against an explicitly selected isolated test stack.
 import { createRequire } from 'node:module'
 import assert from 'node:assert/strict'
+const base = process.env.FACTORPOOL_URL
+if (!base?.trim()) throw new Error('FACTORPOOL_URL must name an isolated browser test stack; no default target is allowed')
 const require = createRequire(import.meta.url)
 const { chromium } = require(process.env.FACTORPOOL_PLAYWRIGHT_MODULE || 'playwright')
-const base = process.env.FACTORPOOL_URL || 'http://127.0.0.1:8088'
 const output = process.env.FACTORPOOL_BROWSER_OUTPUT || '/tmp'
 const browser = await chromium.launch({ headless: true })
 const page = await browser.newPage({ viewport: { width: 1512, height: 1050 } })
 const errors = []
 page.on('pageerror', e => errors.push(e.message))
 await page.goto(base, { waitUntil: 'networkidle' })
+await page.getByLabel('因子名称', {exact:true}).fill('浏览器验收 · 单日 fixture')
 await setSource(page, fixtureScript())
 await page.getByRole('button', { name: '运行研究', exact: true }).click()
 await page.locator('.badge.SUCCEEDED').waitFor({ timeout: 40000 })
