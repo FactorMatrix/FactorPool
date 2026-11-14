@@ -16,7 +16,7 @@ PyObject *ic_decay(PyObject *, PyObject *args) {
       throw std::invalid_argument("Invalid decay options");
     InputRef holder(factor, daily_returns, members);
     const auto &input = *holder.value;
-    const auto &f = input.factors, &forward = input.forward(h);
+    const auto &f = input.factors;
     input.prepare_correlations(h, minimum);
     const auto rows = f.size() ? 1 + (f.size() - 1) / signal_stride : 0;
     Owned out{PyList_New(0)};
@@ -33,15 +33,17 @@ PyObject *ic_decay(PyObject *, PyObject *args) {
         const auto signal = t + k * h;
         std::vector<double> a, b;
         std::vector<std::size_t> symbols;
-        if (signal < forward.size())
+        if (signal < input.returns.size()) {
+          const auto forward = input.forward_row(h, signal);
           for (std::size_t n = 0; n < f[t].size(); ++n) {
             if (input.eligible(t, n) && std::isfinite(f[t][n]) &&
-                std::isfinite(forward[signal][n])) {
+                std::isfinite(forward[n])) {
               symbols.push_back(n);
               a.push_back(f[t][n]);
-              b.push_back(forward[signal][n]);
+              b.push_back(forward[n]);
             }
           }
+        }
         ics[row] = correlation(a, b, minimum);
         rankics[row] = a.size() >= static_cast<std::size_t>(minimum)
           ? correlation(paired_factor_ranks(input, t, symbols),

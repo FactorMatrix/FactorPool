@@ -1,5 +1,7 @@
 import copy
+import os
 import unittest
+from unittest.mock import patch
 import numpy as np
 from scipy.stats import pearsonr, spearmanr
 import _factorpool_native as native
@@ -7,6 +9,52 @@ from factorpool.reporting.diagnostics import build
 
 
 class PreparedResearchTests(unittest.TestCase):
+    def test_sparse_forward_rows_can_be_filled_later_without_changing_dense_publications(self):
+        rng = np.random.default_rng(20261114)
+        factors = np.round(rng.normal(size=(77, 31)), 1)
+        returns = rng.normal(0, .03, size=(112, 31))
+        members = (rng.random(factors.shape) > .12).astype(float)
+        factors[rng.random(factors.shape) < .05] = np.nan
+        returns[8, :6] = [np.nan, np.inf, -2, -1, 0., -.0]
+        returns[57, 10:13] = [1e308, np.nan, -1]
+        returns[58, 10] = 1e308
+        prepared = native.prepare_research(factors, returns, members)
+        for h in (20, 5, 1, 252, 5):
+            with self.subTest(horizon=h):
+                sparse = native.ic_series(prepared, h, 3, 7)
+                decay = native.ic_decay(prepared, None, None, h, 10, 3, 7)
+                wanted = native.analyze(factors, returns, 4, 3, 1, members, h)
+                actual = native.analyze(prepared, None, 4, 3, 1, None, h)
+                self.assertEqual(actual, wanted)
+                self.assertEqual(sparse['ic'], [day['ic'] for day in actual['daily'][::7]])
+                self.assertEqual(sparse['rank_ic'], [day['rank_ic'] for day in actual['daily'][::7]])
+                self.assertEqual(decay, native.ic_decay(
+                    native.prepare_research(factors, returns, members), None, None, h, 10, 3, 7))
+                # Later callers may request a denser calendar, a different
+                # minimum or new output arrays after the partial cache exists.
+                self.assertEqual(native.ic_series(prepared, h, 8), native.ic_series(
+                    native.prepare_research(factors, returns, members), h, 8))
+
+    @unittest.skipUnless(native.compute_threads() >= 2, 'Requires at least two numeric CPUs')
+    def test_parallel_sparse_forward_rows_then_dense_analysis_are_bit_exact(self):
+        rng = np.random.default_rng(73411)
+        factors = np.round(rng.normal(size=(270, 513)), 2)
+        returns = rng.normal(0, .01, size=(313, 513))
+        members = (rng.random(factors.shape) > .07).astype(float)
+        returns[rng.random(returns.shape) < .003] = np.nan
+        returns[13, :4] = [-1, -2, np.inf, -.0]
+        for h in (1, 5, 20):
+            with self.subTest(horizon=h), patch.dict(os.environ, FACTORPOOL_COMPUTE_THREADS='2'):
+                prepared = native.prepare_research(factors, returns, members)
+                native.ic_series(prepared, h, 3, 3)
+                native.ic_decay(prepared, None, None, h, 4, 3, 3)
+                actual = native.analyze(prepared, None, 5, 3, 1, None, h, 1, True)
+                expected = native.analyze(factors, returns, 5, 3, 1, members, h, 1, True)
+                for key in ('forward_returns', 'groups'):
+                    np.testing.assert_array_equal(actual.pop(key).view(np.uint64),
+                                                  expected.pop(key).view(np.uint64))
+                self.assertEqual(actual, expected)
+
     def test_masked_ties_and_nonfinite_values_match_independent_scipy(self):
         factors = np.array([[0, 0, 1, 2, 2, 4, np.nan], [0, 0, 1, 2, 2, 4, 6.]])
         returns = np.array([[0]*7, [.1, np.nan, -.1, .2, 0, .3, 0],

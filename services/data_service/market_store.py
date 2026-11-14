@@ -91,15 +91,16 @@ def checked_block(snapshot, block):
     return record
 
 
-def decode_field(payload, sha256, count, symbols, dtype):
+def decode_field(payload, sha256, count, symbols, dtype, *, verify=True):
     dtype = np.dtype(dtype)
     if dtype.str not in ("<f8", "<i8", "|u1") or count < 1 or symbols < 1:
         raise ValueError("Invalid market field-block shape or dtype")
     raw = bytes(payload)
-    if len(raw) != count * symbols * dtype.itemsize or hashlib.sha256(raw).hexdigest() != sha256:
+    if (len(raw) != count * symbols * dtype.itemsize
+            or verify and hashlib.sha256(raw).hexdigest() != sha256):
         raise ValueError("Market field-block integrity check failed")
     values = np.frombuffer(raw, dtype=dtype).reshape(count, symbols)
-    if dtype == np.dtype("|u1") and np.any(values > 1):
+    if verify and dtype == np.dtype("|u1") and np.any(values > 1):
         raise ValueError("Market status block must be boolean")
     return values
 

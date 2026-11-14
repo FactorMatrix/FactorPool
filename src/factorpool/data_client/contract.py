@@ -106,12 +106,12 @@ def pack_block(values):
     return zlib.compress(raw, level=3), hashlib.sha256(raw).hexdigest()
 
 
-def decode_block(payload, sha256, row_count, symbol_count, fields=FIELDS):
+def decode_block(payload, sha256, row_count, symbol_count, fields=FIELDS, *, verify=True):
     if tuple(fields) != FIELDS or row_count < 1 or symbol_count < 1:
         raise ValueError("Unsupported market block shape or fields")
     expected = len(FIELDS) * row_count * symbol_count * 8
     raw = decompress(payload, expected)
-    if hashlib.sha256(raw).hexdigest() != sha256:
+    if verify and hashlib.sha256(raw).hexdigest() != sha256:
         raise ValueError("Market matrix block integrity check failed")
     return np.frombuffer(raw, dtype="<f8").reshape(len(FIELDS), row_count, symbol_count)
 
@@ -128,7 +128,7 @@ def axis_digest(metadata):
     return hashlib.sha256(json_bytes([metadata["dates"], metadata["symbols"], metadata["fields"]])).hexdigest()
 
 
-def validate_snapshot(value, requested=None):
+def validate_snapshot(value, requested=None, *, verify=True):
     if not isinstance(value, dict) or (requested and value.get("snapshot_id") != requested):
         raise ValueError("Market snapshot identity mismatch")
     if (not isinstance(value.get("manifest"), dict) or value["manifest"].get("format") != FORMAT
@@ -136,24 +136,25 @@ def validate_snapshot(value, requested=None):
         raise ValueError("Unsupported market snapshot format")
     for name in ("symbols", "dates"):
         axis = value.get(name)
-        if (not isinstance(axis, list) or not axis or any(not isinstance(x, str) or not x for x in axis)
-                or any(a >= b for a, b in zip(axis, axis[1:]))):
+        if (not isinstance(axis, list) or not axis or verify and (any(not isinstance(x, str) or not x for x in axis)
+                or any(a >= b for a, b in zip(axis, axis[1:])))):
             raise ValueError(f"Invalid market {name} axis")
     covered = 0
     if not isinstance(value.get("blocks"), list):
         raise ValueError("Invalid market block index")
-    for block in value["blocks"]:
-        if not isinstance(block, dict):
-            raise ValueError("Invalid market block metadata object")
-        start, count = block.get("start_index"), block.get("row_count")
-        if type(start) is not int or type(count) is not int or start != covered or count < 1:
-            raise ValueError("Market matrix blocks overlap or have missing dates")
-        if not re.fullmatch(r"[0-9a-f]{64}", block.get("sha256", "")):
-            raise ValueError("Invalid original market block checksum")
-        covered += count
-    if covered != len(value["dates"]):
-        raise ValueError("Market matrix snapshot has missing blocks")
-    _validate_field_catalog(value)
+    if verify:
+        for block in value["blocks"]:
+            if not isinstance(block, dict):
+                raise ValueError("Invalid market block metadata object")
+            start, count = block.get("start_index"), block.get("row_count")
+            if type(start) is not int or type(count) is not int or start != covered or count < 1:
+                raise ValueError("Market matrix blocks overlap or have missing dates")
+            if not re.fullmatch(r"[0-9a-f]{64}", block.get("sha256", "")):
+                raise ValueError("Invalid original market block checksum")
+            covered += count
+        if covered != len(value["dates"]):
+            raise ValueError("Market matrix snapshot has missing blocks")
+        _validate_field_catalog(value)
     cache = value.get("cache", {})
     if not isinstance(cache, dict):
         raise ValueError("Invalid cache metadata object")
@@ -213,7 +214,7 @@ def encode_tile(metadata, block, field, symbol_start, values, *, axes=None):
     return PREFIX + struct.pack("!I", len(header)) + header + data
 
 
-def decode_tile(payload, metadata, block, field, symbol_start, *, axes=None):
+def decode_tile(payload, metadata, block, field, symbol_start, *, axes=None, verify=True):
     payload = bytes(payload)
     if len(payload) < 8 or payload[:4] != PREFIX:
         raise ValueError("Invalid market cache version")
@@ -252,10 +253,10 @@ def decode_tile(payload, metadata, block, field, symbol_start, *, axes=None):
             raise ValueError("Market cache block integrity check failed") from exc
     elif header["codec"] != "raw":
         raise ValueError("Unsupported market cache codec")
-    if len(raw) != expected_bytes or hashlib.sha256(raw).hexdigest() != header.get("sha256"):
+    if len(raw) != expected_bytes or verify and hashlib.sha256(raw).hexdigest() != header.get("sha256"):
         raise ValueError("Market cache block integrity check failed")
     result = np.frombuffer(raw, dtype=dtype).reshape(block["row_count"], symbols)
-    if dtype == "|u1" and np.any(result > 1):
+    if verify and dtype == "|u1" and np.any(result > 1):
         raise ValueError("Market status cells must be boolean")
     return result
 
@@ -273,11 +274,11 @@ def pack_metadata(value):
     return hashlib.sha256(raw).hexdigest().encode() + b"\n" + raw
 
 
-def unpack_metadata(payload, snapshot):
+def unpack_metadata(payload, snapshot, *, verify=True):
     checksum, raw = bytes(payload).split(b"\n", 1)
-    if len(raw) > 4 * 1024 * 1024 or hashlib.sha256(raw).hexdigest().encode() != checksum:
+    if len(raw) > 4 * 1024 * 1024 or verify and hashlib.sha256(raw).hexdigest().encode() != checksum:
         raise ValueError("Market metadata integrity check failed")
-    return validate_snapshot(json.loads(raw), snapshot)
+    return validate_snapshot(json.loads(raw), snapshot, verify=verify)
 
 
 def pack_value_page(task, attempt, offset, limit, payload):

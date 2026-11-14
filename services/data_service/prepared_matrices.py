@@ -32,12 +32,33 @@ def _signature(info):
 
 class PreparedMatrices:
     """The data service owns these files; workers only use the existing RPC."""
-    def __init__(self, root=None):
+    def __init__(self, root=None, *, verify_reads=True):
         self.root = Path(root if root is not None else os.environ.get(
             "FACTORPOOL_MATRIX_DIR", "/data/matrices"))
         self._manifests = OrderedDict()
         self._lock = threading.Lock()
+        self.verify_reads = verify_reads
+        self._unavailable = set()
         self.stats = dict(hits=0, misses=0, corrupt=0, field_reads=0)
+
+    def validate(self, snapshot):
+        """Check existing optional files once at service startup; never prepare."""
+        try:
+            manifest = self._manifest(snapshot)
+        except FileNotFoundError:
+            return
+        except (OSError, ValueError, TypeError, KeyError, EOFError):
+            self._unavailable.add(snapshot['snapshot_id'])
+            self.stats['corrupt'] += 1
+            return
+        try:
+            blocks = {str(block['start_index']): block for block in snapshot['blocks']}
+            for field, descriptor in manifest['fields'].items():
+                for start in descriptor['blocks']:
+                    self._read(snapshot, blocks[start], field, descriptor, verify=True)
+        except (OSError, ValueError, TypeError, KeyError, EOFError, BufferError):
+            self._unavailable.add(snapshot['snapshot_id'])
+            self.stats['corrupt'] += 1
 
     def _directory(self, snapshot):
         identity = snapshot["snapshot_id"]
@@ -76,7 +97,8 @@ class PreparedMatrices:
                 self._manifests.popitem(last=False)
         return value
 
-    def _read(self, snapshot, block, field, descriptor, starts=None):
+    def _read(self, snapshot, block, field, descriptor, starts=None, *, verify=None):
+        verify = self.verify_reads if verify is None else verify
         if (field not in field_catalog(snapshot) or not isinstance(descriptor, dict)
                 or descriptor.get("file") != field + ".npy"
                 or descriptor.get("dtype") != field_dtype(snapshot, field).str
@@ -110,12 +132,10 @@ class PreparedMatrices:
                 mapped = mmap.mmap(source.fileno(), 0, access=mmap.ACCESS_READ)
                 values = np.ndarray(shape, dtype=dtype, buffer=mapped, offset=source.tell())
                 start, count = block["start_index"], block["row_count"]
-                # Verify an owned block copy on every prepared-cache read.
-                # mmap writes and storage corruption need not change stat times.
                 section = np.array(values[start:start+count], copy=True, order="C")
-                if hashlib.sha256(memoryview(section)).hexdigest() != record["sha256"]:
+                if verify and hashlib.sha256(memoryview(section)).hexdigest() != record["sha256"]:
                     raise ValueError("Prepared field block checksum mismatch")
-                if dtype == np.dtype('|u1') and np.any(section > 1):
+                if verify and dtype == np.dtype('|u1') and np.any(section > 1):
                     raise ValueError("Prepared status block is not boolean")
                 self.stats["field_reads"] += 1
                 if starts is None:
@@ -138,6 +158,9 @@ class PreparedMatrices:
         """Missing or damaged optional columns fall back to PostgreSQL exactly."""
         requested = list(requests)
         if not requested:
+            return {}
+        if snapshot['snapshot_id'] in self._unavailable:
+            self.stats['misses'] += len(requested)
             return {}
         try:
             manifest = self._manifest(snapshot)

@@ -26,10 +26,13 @@ def main():
                 raise SystemExit(1)
         return
     from .api import DataService
+    service = DataService()
+    validation = service.source.validate(check_prepared=service.prepared.validate)
+    print(json.dumps(dict(stage="market_validated", **validation)), flush=True)
     workers = int(os.environ.get("FACTORPOOL_DATA_THREADS", "4"))
     server = grpc.server(ThreadPoolExecutor(max_workers=workers), maximum_concurrent_rpcs=workers*4,
         options=[("grpc.max_receive_message_length", 20*1024*1024), ("grpc.max_send_message_length", 20*1024*1024)])
-    data_pb2_grpc.add_DataServiceServicer_to_server(DataService(), server)
+    data_pb2_grpc.add_DataServiceServicer_to_server(service, server)
     server.add_insecure_port(os.environ.get("FACTORPOOL_DATA_BIND", "[::]:50051"))
     server.start()
     def stop(*_):

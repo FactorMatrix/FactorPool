@@ -36,10 +36,10 @@ def endpoint(method):
 
 class DataService(data_pb2_grpc.DataServiceServicer):
     def __init__(self, *, source=None, cache=None, values=None, prepared=None):
-        self.source = source or PostgresMarketSource()
+        self.source = source or PostgresMarketSource(verify_reads=False)
         self.cache = cache or Cache()
         self.values = values or ValueStore()
-        self.prepared = prepared or PreparedMatrices()
+        self.prepared = prepared or PreparedMatrices(verify_reads=False)
         self.token = os.environ.get("FACTORPOOL_INTERNAL_TOKEN", "")
         self.max_chunk = int(os.environ.get("FACTORPOOL_CACHE_CHUNK_MAX_BYTES", "4194304"))
         self.max_batch = int(os.environ.get("FACTORPOOL_CACHE_BATCH_MAX_BYTES", "33554432"))
@@ -84,7 +84,7 @@ class DataService(data_pb2_grpc.DataServiceServicer):
         payload = self.cache.call("get", key)
         if payload is not None:
             try:
-                decode_tile(payload, snapshot, block, field, start, axes=snapshot.get("_axes_digest"))
+                decode_tile(payload, snapshot, block, field, start, axes=snapshot.get("_axes_digest"), verify=False)
                 self.stats["cache_hits"] += 1
                 return payload
             except (ValueError, TypeError, KeyError):

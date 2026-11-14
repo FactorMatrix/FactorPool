@@ -83,7 +83,7 @@ class DataClient:
             cached = self._redis("get", metadata_key(snapshot_id))
             if cached is not None:
                 try:
-                    return unpack_metadata(cached, snapshot_id)
+                    return unpack_metadata(cached, snapshot_id, verify=False)
                 except (ValueError, TypeError, KeyError):
                     self.stats["corrupt_blocks"] += 1
                     self._redis("delete", metadata_key(snapshot_id))
@@ -92,7 +92,7 @@ class DataClient:
                                    timeout=self.timeout, metadata=self.metadata)
         self.stats["grpc_snapshots"] += 1
         self.stats["grpc_seconds"] += time.perf_counter() - started
-        return validate_snapshot(json.loads(reply.json), snapshot_id)
+        return validate_snapshot(json.loads(reply.json), snapshot_id, verify=False)
 
     def _tiles(self, metadata, requests):
         """One bounded batch; invalid cache entries become authoritative misses."""
@@ -107,7 +107,7 @@ class DataClient:
         for request, key, payload in zip(requests, keys, cached):
             if payload is not None:
                 try:
-                    arrays[key] = decode_tile(payload, metadata, *request, axes=axes)
+                    arrays[key] = decode_tile(payload, metadata, *request, axes=axes, verify=False)
                     self.stats["redis_hits"] += 1
                     continue
                 except (ValueError, TypeError, KeyError):
@@ -124,7 +124,7 @@ class DataClient:
                 arguments = expected.pop(reply.key, None)
                 if arguments is None:
                     raise ValueError("Unexpected or duplicate data-service market block")
-                arrays[reply.key] = decode_tile(reply.payload, metadata, *arguments, axes=axes)
+                arrays[reply.key] = decode_tile(reply.payload, metadata, *arguments, axes=axes, verify=False)
                 self.stats["grpc_blocks"] += 1
             self.stats["grpc_seconds"] += time.perf_counter() - started
             if expected:

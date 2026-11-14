@@ -96,47 +96,60 @@ void ResearchInput::prepare_prefixes() const {
   missing_prefix_ = std::move(gaps);
   zero_prefix_ = std::move(zeros);
 }
-const Matrix &ResearchInput::forward(int h) const {
+void ResearchInput::prepare_forward(int h) const {
   if (h < 1 || h > 252)
     throw std::invalid_argument("Horizon must be 1..252");
-  if (const auto it = forwards_.find(h); it != forwards_.end())
-    return it->second;
-  Matrix result(returns.size(), returns.columns());
-  const auto days = static_cast<std::size_t>(h), columns = returns.columns();
-  if (days < returns.size()) {
-    if (h == 1) {
-      parallel_for(returns.size() - 1, columns, [&](std::size_t t) {
-        std::copy(returns[t + 1].begin(), returns[t + 1].end(), result[t].begin());
-      });
-    } else {
-      prepare_prefixes();
-      parallel_for(returns.size() - days, columns, [&](std::size_t t) {
+  if (forwards_.contains(h)) return;
+  ForwardRows cache{Matrix(returns.size(), returns.columns()),
+                    std::vector<unsigned char>(returns.size(), 0)};
+  if (h > 1 && static_cast<std::size_t>(h) < returns.size()) prepare_prefixes();
+  forwards_.emplace(h, std::move(cache));
+}
+std::span<const double> ResearchInput::forward_row(int h, std::size_t t) const {
+  auto &cache = forwards_.at(h);
+  if (!cache.ready.at(t)) {
+    auto result = cache.values[t];
+    const auto days = static_cast<std::size_t>(h), columns = returns.columns();
+    if (days < returns.size() - t) {
+      if (h == 1) {
+        std::copy(returns[t + 1].begin(), returns[t + 1].end(), result.begin());
+      } else {
         for (std::size_t n = 0; n < columns; ++n) {
           const auto begin = (t + 1) * columns + n,
                      end = (t + 1 + days) * columns + n;
-          if (missing_prefix_[end] != missing_prefix_[begin])
-            continue;
-          if (zero_prefix_[end] != zero_prefix_[begin])
-            result[t][n] = -1;
+          if (missing_prefix_[end] != missing_prefix_[begin]) continue;
+          if (zero_prefix_[end] != zero_prefix_[begin]) result[n] = -1;
           else {
             const auto r = static_cast<double>(
                 std::expm1(log_prefix_[end] - log_prefix_[begin]));
-            if (std::isfinite(r))
-              result[t][n] = r;
+            if (std::isfinite(r)) result[n] = r;
           }
         }
-      });
+      }
     }
+    // The caller allocates the cache before dispatch. Each numeric worker
+    // owns a distinct row; subsequent phases join before reusing these bytes.
+    cache.ready[t] = 1;
   }
-  return forwards_.emplace(h, std::move(result)).first->second;
+  return cache.values[t];
+}
+const Matrix &ResearchInput::forward(int h) const {
+  prepare_forward(h);
+  auto &cache = forwards_.at(h);
+  if (cache.complete) return cache.values;
+  parallel_for(returns.size(), returns.columns(), [&](std::size_t t) {
+    forward_row(h, t);
+  });
+  cache.complete = true;
+  return cache.values;
 }
 void ResearchInput::prepare_return_orders(int h) const {
-  const auto &values = forward(h);
+  prepare_forward(h);
   auto [entry, inserted] = return_orders_.try_emplace(h);
   auto &cache = entry->second;
   if (inserted) {
-    cache.rows.resize(values.size());
-    cache.ready.resize(values.size(), 0);
+    cache.rows.resize(returns.size());
+    cache.ready.resize(returns.size(), 0);
   }
 }
 void ResearchInput::prepare_correlations(int h, int minimum) const {
@@ -151,7 +164,7 @@ const ResearchInput::CorrelationValues &ResearchInput::correlation_row(
     int h, int minimum, std::size_t row) const {
   auto &cache = correlations_.at(std::pair{h, minimum});
   if (!cache.ready.at(row)) {
-    const auto &values = forward(h);
+    const auto values = forward_row(h, row);
     std::vector<double> a, b;
     std::vector<std::size_t> symbols;
     a.reserve(factors.columns());
@@ -159,9 +172,9 @@ const ResearchInput::CorrelationValues &ResearchInput::correlation_row(
     symbols.reserve(factors.columns());
     for (std::size_t n = 0; n < factors.columns(); ++n) {
       if (std::isfinite(factors[row][n]) && eligible(row, n) &&
-          std::isfinite(values[row][n])) {
+          std::isfinite(values[n])) {
         a.push_back(factors[row][n]);
-        b.push_back(values[row][n]);
+        b.push_back(values[n]);
         symbols.push_back(n);
       }
     }
@@ -182,25 +195,25 @@ std::vector<double> ResearchInput::paired_return_ranks(
     int h, std::size_t row, const std::vector<std::size_t> &symbols) const {
   if (symbols.empty())
     return {};
-  const auto &values = forward(h);
+  const auto values = forward_row(h, row);
   // The parent cache is allocated before any independent row work starts.
   // Each parallel caller below owns a different return row in this phase.
   auto &cache = return_orders_.at(h);
   auto &order = cache.rows[row];
   if (!cache.ready[row]) {
-    order.reserve(values.columns());
-    for (std::size_t n = 0; n < values.columns(); ++n)
-      if (std::isfinite(values[row][n]))
+    order.reserve(values.size());
+    for (std::size_t n = 0; n < values.size(); ++n)
+      if (std::isfinite(values[n]))
         order.push_back(n);
     std::sort(order.begin(), order.end(),
-              [&](auto a, auto b) { return values[row][a] < values[row][b]; });
+              [&](auto a, auto b) { return values[a] < values[b]; });
     cache.ready[row] = 1;
   }
   // The membership/factor mask belongs to the original signal, not this
   // possibly lagged return row. Filtering before assigning ranks preserves
   // sample-dependent ties and the original paired-symbol order exactly.
   const auto absent = std::numeric_limits<std::size_t>::max();
-  std::vector<std::size_t> positions(values.columns(), absent), filtered;
+  std::vector<std::size_t> positions(values.size(), absent), filtered;
   filtered.reserve(symbols.size());
   for (std::size_t i = 0; i < symbols.size(); ++i)
     positions[symbols[i]] = i;
@@ -210,7 +223,7 @@ std::vector<double> ResearchInput::paired_return_ranks(
   std::vector<double> ranks(symbols.size());
   for (std::size_t i = 0; i < filtered.size();) {
     auto j = i + 1;
-    while (j < filtered.size() && values[row][filtered[i]] == values[row][filtered[j]])
+    while (j < filtered.size() && values[filtered[i]] == values[filtered[j]])
       ++j;
     for (auto k = i; k < j; ++k)
       ranks[positions[filtered[k]]] = (i + j - 1) / 2.0 + 1;

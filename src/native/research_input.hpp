@@ -16,6 +16,10 @@ struct ResearchInput {
   // Row t compounds days t+1..t+h. Cached intervals include every daily
   // observation; neither a missing day nor a total loss can be skipped.
   const Matrix &forward(int h) const;
+  // Correlation/decay may visit only a sparse signal calendar. Allocate before
+  // parallel work, then materialize each actually requested return row once.
+  void prepare_forward(int h) const;
+  std::span<const double> forward_row(int h, std::size_t row) const;
   // Sort a forward-return row once, then rerank only the actual paired sample.
   std::vector<double> paired_return_ranks(
       int h, std::size_t row, const std::vector<std::size_t> &symbols) const;
@@ -42,7 +46,12 @@ private:
     std::vector<CorrelationValues> rows;
     std::vector<unsigned char> ready;
   };
-  mutable std::map<int, Matrix> forwards_;
+  struct ForwardRows {
+    Matrix values;
+    std::vector<unsigned char> ready;
+    bool complete = false;
+  };
+  mutable std::map<int, ForwardRows> forwards_;
   mutable std::map<int, ReturnOrders> return_orders_;
   mutable std::map<std::pair<int, int>, CorrelationRows> correlations_;
   mutable std::vector<long double> log_prefix_;

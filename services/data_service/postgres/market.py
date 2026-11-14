@@ -4,7 +4,8 @@ import os
 from factorpool.data_client.contract import (CACHE_VERSION, FIELDS, SERVED_FIELDS,
                                             decode_block, market_field, validate_snapshot)
 from . import transaction
-from ..market_store import (STORAGE_FORMAT, checked_block, checked_catalog, decode_field)
+from ..market_store import (STORAGE_FORMAT, _existing_index, checked_block,
+                           checked_catalog, decode_field, field_table)
 
 
 class MarketSnapshotNotFound(LookupError):
@@ -12,9 +13,41 @@ class MarketSnapshotNotFound(LookupError):
 
 
 class PostgresMarketSource:
-    def __init__(self, connection=None):
+    def __init__(self, connection=None, *, verify_reads=True):
         self.connection = connection
+        self.verify_reads = verify_reads
         self.stats = dict(pg_blocks=0, pg_snapshots=0)
+
+    def validate(self, check_prepared=None):
+        """Check published market bytes once, read-only, before serving RPCs."""
+        with transaction(self.connection, readonly=True) as conn:
+            if conn.execute("SELECT to_regclass('public.market_snapshots')").fetchone()[0] is None:
+                return dict(snapshots=0, original_blocks=0, field_blocks=0)
+            identities = conn.execute("SELECT id FROM market_snapshots ORDER BY id").fetchall()
+        verifier = PostgresMarketSource(self.connection, verify_reads=True)
+        counts = dict(snapshots=0, original_blocks=0, field_blocks=0)
+        for (identity,) in identities:
+            snapshot = verifier.snapshot(identity)
+            if snapshot['manifest'].get('storage_format') == STORAGE_FORMAT:
+                catalog = checked_catalog(snapshot)
+                expected = {(field, block['start_index']):
+                            (block['row_count'], descriptor['dtype'], descriptor['sha256'])
+                            for block in snapshot['field_blocks']
+                            for field, descriptor in block['fields'].items()}
+                with transaction(self.connection, readonly=True) as conn:
+                    if _existing_index(conn, identity, catalog) != expected:
+                        raise ValueError("Stored market fields differ from the published index")
+                for block in snapshot['blocks']:
+                    verifier.read_fields(snapshot, block, tuple(catalog))
+                    counts['field_blocks'] += len(catalog)
+            else:
+                for block in snapshot['blocks']:
+                    verifier.original_block(snapshot, block)
+                    counts['original_blocks'] += 1
+            if check_prepared is not None:
+                check_prepared(snapshot)
+            counts['snapshots'] += 1
+        return counts
 
     def snapshot(self, snapshot_id=None):
         with transaction(self.connection, readonly=True) as conn:
@@ -50,10 +83,11 @@ class PostgresMarketSource:
         if manifest.get("storage_format") == STORAGE_FORMAT:
             result.update(field_catalog=manifest.get("field_catalog"),
                           field_blocks=manifest.get("field_blocks"))
-            checked_catalog(result)
-            for block in result["blocks"]:
-                checked_block(result, block)
-        return validate_snapshot(result, snapshot_id)
+            if self.verify_reads:
+                checked_catalog(result)
+                for block in result["blocks"]:
+                    checked_block(result, block)
+        return validate_snapshot(result, snapshot_id) if self.verify_reads else result
 
     def original_block(self, snapshot, block):
         if snapshot["manifest"].get("storage_format") == STORAGE_FORMAT:
@@ -64,10 +98,12 @@ class PostgresMarketSource:
             # bytea stays binary on the wire; text mode hex-encodes every byte.
             row = conn.execute("SELECT row_count,payload,sha256 FROM market_matrix_blocks WHERE snapshot_id=%s AND start_index=%s",
                                (snapshot["snapshot_id"], block["start_index"]), binary=True).fetchone()
-        if row is None or row[0] != block["row_count"] or row[2] != block["sha256"]:
+        if (row is None or row[0] != block["row_count"]
+                or self.verify_reads and row[2] != block["sha256"]):
             raise ValueError("Market block index differs from pinned snapshot")
         self.stats["pg_blocks"] += 1
-        return decode_block(row[1], row[2], row[0], len(snapshot["symbols"]), snapshot["fields"])
+        return decode_block(row[1], row[2], row[0], len(snapshot["symbols"]),
+                            snapshot["fields"], verify=self.verify_reads)
 
     def read_fields(self, snapshot, block, fields):
         """Fetch precisely the requested immutable fields, preserving their dtype."""
@@ -84,13 +120,17 @@ class PostgresMarketSource:
                 value.setflags(write=False)
                 result[field] = value
             return result
-        catalog = checked_catalog(snapshot)
+        catalog = (checked_catalog(snapshot) if self.verify_reads else
+                   snapshot.get("field_catalog", snapshot["manifest"].get("field_catalog")))
+        if not isinstance(catalog, dict):
+            raise ValueError("Invalid market field catalog")
         if any(field not in catalog for field in fields):
             raise ValueError("Requested market input was not supplied in this snapshot")
-        indexed = checked_block(snapshot, block)
+        indexed = checked_block(snapshot, block) if self.verify_reads else None
         grouped = {}
         for field in fields:
-            grouped.setdefault(catalog[field]["table"], []).append(field)
+            # SQL identifiers always come from the fixed field ownership rules.
+            grouped.setdefault(field_table(field), []).append(field)
         found = {}
         with transaction(self.connection, readonly=True) as conn:
             for table, requested in grouped.items():
@@ -99,12 +139,12 @@ class PostgresMarketSource:
                     "WHERE snapshot_id=%s AND start_index=%s AND field=ANY(%s)",
                     (snapshot["snapshot_id"], block["start_index"], requested), binary=True).fetchall()
                 for field, count, dtype, payload, checksum in rows:
-                    descriptor = indexed["fields"].get(field)
                     if (field not in requested or field in found or count != block["row_count"]
-                            or descriptor != dict(dtype=dtype, sha256=checksum)
+                            or self.verify_reads and indexed["fields"].get(field) != dict(dtype=dtype, sha256=checksum)
                             or dtype != catalog[field]["dtype"]):
                         raise ValueError("Market field-block metadata differs from pinned snapshot")
-                    found[field] = decode_field(payload, checksum, count, len(snapshot["symbols"]), dtype)
+                    found[field] = decode_field(payload, checksum, count, len(snapshot["symbols"]),
+                                                dtype, verify=self.verify_reads)
         if set(found) != set(fields):
             raise ValueError("Market field-block is missing from the pinned snapshot")
         self.stats["pg_blocks"] += 1
