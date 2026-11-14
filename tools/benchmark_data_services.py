@@ -69,10 +69,10 @@ def main():
         if args.loader == 'factorpool.market_loader':
             from factorpool.data_client import DataClient
             with DataClient() as client:
-                payload = load(data, 20, 60, matrix_only=True, source=client)
+                payload = load(data, 20, 60, source=client)
                 cache_stats.append(dict(client.stats))
         else:
-            payload = load(data, 20, 60, matrix_only=True)
+            payload = load(data, 20, 60)
         reads.append(time.perf_counter()-started)
         matrix_hash = digest_payload(payload)
         del payload
@@ -89,7 +89,7 @@ def main():
             result = json.loads((path/'result.json').read_text())
             numerical = {key: value for key, value in result.items() if key != 'metadata'}
             hashes.append(dict(matrix=matrix_hash,
-                               values=hashlib.sha256((path/'values.jsonl').read_bytes()).hexdigest(),
+                               values=hashlib.sha256((path/'values.matrix').read_bytes()).hexdigest(),
                                report=hashlib.sha256(json.dumps(numerical, sort_keys=True).encode()).hexdigest()))
     assert all(value == hashes[0] for value in hashes), hashes
     print(json.dumps(dict(read_seconds=reads, total_seconds=totals,

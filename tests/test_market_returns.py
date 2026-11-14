@@ -76,9 +76,9 @@ class MarketReturnTests(unittest.TestCase):
         first['version'] = 'unrelated-test-rule'
         self.assertEqual(json.dumps(return_policy(), sort_keys=True, allow_nan=False), canonical)
 
-    def test_report_contract_distinguishes_legacy_synthetic_and_cleaned_returns(self):
+    def test_report_contract_distinguishes_synthetic_and_cleaned_returns(self):
         from factorpool.runner import return_contract
-        for synthetic, version in ((False, 'legacy-price-ratio-v1'), (True, 'synthetic-price-ratio-v1')):
+        for synthetic, version in ((True, 'synthetic-price-ratio-v1'),):
             with self.subTest(synthetic=synthetic):
                 payload = dict(synthetic=synthetic)
                 policy, description, price = return_contract(payload)
@@ -96,16 +96,17 @@ class MarketReturnTests(unittest.TestCase):
         policy['version'] = 'caller-local-edit'
         self.assertEqual(original, before)
 
-    def test_future_report_policy_is_preserved_without_inventing_known_semantics(self):
+    def test_missing_or_unknown_market_policies_are_rejected(self):
         from factorpool.runner import return_contract
         payload = dict(synthetic=False, return_policy=dict(version='future-test-rule', audit=dict(values=[1])))
         before = copy.deepcopy(payload)
-        policy, description, price = return_contract(payload)
-        self.assertEqual(policy, before['return_policy'])
-        self.assertIn('no reader-side recomputation', description)
-        self.assertIn('stored snapshot', price)
-        policy['audit']['values'].append(2)
+        with self.assertRaisesRegex(ValueError, 'Unsupported return policy'):
+            return_contract(payload)
         self.assertEqual(payload, before)
+        with self.assertRaisesRegex(ValueError, 'requires the current return_policy'):
+            return_contract(dict(synthetic=False))
+        with self.assertRaisesRegex(ValueError, 'Unsupported return policy'):
+            return_contract(dict(synthetic=False, return_policy=dict(version='legacy-price-ratio-v1')))
         for value in (None, [], 'volume-zero-v1'):
             with self.subTest(policy=value):
                 with self.assertRaises(ValueError):

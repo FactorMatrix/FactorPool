@@ -7,6 +7,7 @@ import numpy as np
 
 from factorpool import market_loader as store
 from factorpool.data_client.contract import FIELDS, FORMAT, decode_block, market_field, pack_block
+from market_fixtures import field_snapshot
 
 
 class _Connection:
@@ -27,38 +28,54 @@ class _Connection:
 
     def snapshot(self, identity):
         manifest, symbols, dates, fields = self.fetchone()
-        return dict(snapshot_id=identity, manifest=manifest, symbols=symbols, dates=dates, fields=fields)
+        metadata = dict(snapshot_id=identity, manifest=manifest, symbols=symbols, dates=dates, fields=fields,
+            blocks=[dict(start_index=start, row_count=count, sha256=checksum)
+                    for start, count, _, checksum in self.blocks])
+        self.columns = field_snapshot(metadata, self.matrix)
+        return metadata
 
-    def selected_blocks(self, snapshot, initial, stop, columns, *, fields=None):
-        fields = FIELDS if fields is None else tuple(fields)
+    def selected_columns(self, snapshot, initial, stop, columns, *, fields):
         covered = initial
         for start, count, payload, checksum in self.blocks:
             if start+count <= initial:
                 continue
-            if not start <= covered < start + count or start + count > len(self.dates):
+            if not start <= covered < start+count or start+count > len(self.dates):
                 raise ValueError("Market matrix blocks overlap or have missing dates")
             original = decode_block(payload, checksum, count, len(self.symbols))
-            yield start, count, np.stack([market_field(original, field)[:, columns] for field in fields])
-            covered = min(stop, start + count)
+            values = {field: (market_field(original, field)[:, columns] if field in FIELDS or
+                             field in ('__present__', '__member__') else
+                             self.columns[field][start:start+count, columns]) for field in fields}
+            yield start, count, values
+            covered = min(stop, start+count)
             if covered == stop:
                 break
         if covered != stop:
             raise ValueError("Market matrix snapshot has missing blocks")
 
 
-def _scalar_rows(values, symbols):
-    rows = {}
-    for n, symbol in enumerate(symbols):
-        if not np.any(np.isfinite(values[:7, n])):
-            continue
-        row = {field: (float(values[k, n]) if np.isfinite(values[k, n]) else None)
-               for k, field in enumerate(FIELDS) if field not in ("member", "return")}
-        row["value"] = row["close"]
-        rows[symbol] = row
-    return rows
-
 
 class MatrixLoadingTests(unittest.TestCase):
+    def test_retired_storage_and_return_policies_fail_before_market_reads(self):
+        class UnsupportedSource(_Connection):
+            def __init__(self, matrix, key, value):
+                super().__init__(matrix)
+                self.key, self.value = key, value
+
+            def snapshot(self, identity):
+                metadata = super().snapshot(identity)
+                metadata['manifest'][self.key] = self.value
+                return metadata
+
+        for key, value in (('storage_format', None), ('return_policy', None),
+                           ('return_policy', {'version': 'legacy-price-ratio-v1'})):
+            source = UnsupportedSource(np.ones((len(FIELDS), 3, 4)), key, value)
+            with self.subTest(key=key, value=value), \
+                    patch.object(source, 'selected_columns', side_effect=AssertionError('retired input was read')), \
+                    self.assertRaisesRegex(ValueError, 'current'):
+                store.load(dict(snapshot_id='retired', factor_start='2024-01-01',
+                    factor_end='2024-01-03', universe=['A']), 1, 0,
+                    source=source, fields=['close'])
+
     def test_lifetime_boundaries_follow_the_full_calendar_and_selected_columns(self):
         matrix = np.ones((len(FIELDS), 9, 4))
         calendar = ['2024-01-01', '2024-01-02', '2024-01-03', '2024-01-04',
@@ -78,7 +95,7 @@ class MatrixLoadingTests(unittest.TestCase):
                     source.fetchone = lambda: (
                         {'format': FORMAT, 'instrument_lifetimes': lifetimes},
                         source.symbols, source.dates, list(FIELDS))
-                    kwargs = dict(matrix_only=True, fields=['total_turnover']) if projected else {}
+                    kwargs = dict(fields=['total_turnover']) if projected else {}
                     payload = store.load(data, 2, 0, source=source,
                                          pasteurization=pasteurization, **kwargs)
                     self.assertEqual(payload['symbols'], ['A', 'B', 'C', 'D'])
@@ -116,11 +133,29 @@ class MatrixLoadingTests(unittest.TestCase):
                 with self.subTest(pasteurization=pasteurization, universe=universe):
                     data = dict(snapshot_id="synthetic", factor_start="2024-01-03",
                                 factor_end="2024-01-07", universe=universe)
-                    with patch.object(store, "_bar_rows", _scalar_rows):
-                        expected = store.load(data, 3, 2, source=_Connection(matrix), pasteurization=pasteurization)
-                    actual = store.load(data, 3, 2, source=_Connection(matrix), pasteurization=pasteurization)
-                    np.testing.assert_array_equal(actual.pop("returns"), expected.pop("returns"))
-                    self.assertEqual(actual, expected)
+                    source = _Connection(matrix)
+                    actual = store.load(data, 3, 2, source=source, pasteurization=pasteurization)
+                    dynamic = universe == 'all_a_dynamic'
+                    selected = source.symbols if dynamic else sorted(universe)
+                    calculation = source.symbols if pasteurization == 'OFF' else selected
+                    research_columns = [source.symbols.index(symbol) for symbol in selected]
+                    calculation_columns = [source.symbols.index(symbol) for symbol in calculation]
+                    expected_quotes = np.asarray([[[matrix[k, t, n] for n in calculation_columns]
+                        for t in range(7)] for k in range(len(FIELDS))])
+                    expected_returns = np.asarray([[matrix[7, t, n] for n in research_columns]
+                                                   for t in range(9)])
+                    np.testing.assert_array_equal(actual['quotes']['values'], expected_quotes)
+                    np.testing.assert_array_equal(actual['returns'], expected_returns)
+                    self.assertEqual(actual['symbols'], selected)
+                    self.assertEqual(actual['quotes']['symbols'], calculation)
+                    for t, frame in enumerate(actual['frames']):
+                        active = [symbol for symbol in calculation if matrix[8, t, source.symbols.index(symbol)] > 0]
+                        research = [symbol for symbol in selected if matrix[8, t, source.symbols.index(symbol)] > 0]
+                        expected_axis = active if dynamic or pasteurization == 'OFF' else calculation
+                        self.assertEqual(frame['symbols'], expected_axis if t < 7 else [])
+                        self.assertEqual(frame['research_symbols'], (research if dynamic else selected) if t < 7 else [])
+                        self.assertEqual(frame['rows'], {})
+                    self.assertFalse(actual['quotes']['values'].flags.writeable)
 
     def test_invalid_metadata_rejected_before_decode(self):
         matrix = np.ones((len(FIELDS), 9, 4))

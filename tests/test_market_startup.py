@@ -10,7 +10,7 @@ import zlib
 
 import numpy as np
 
-from factorpool.data_client.contract import FIELDS
+from factorpool.data_client.contract import FIELDS, FIELD_BLOCK_FORMAT
 from services.data_service import app
 from services.data_service.market_store import TABLES, block_digest, decode_field
 from services.data_service.postgres.market import PostgresMarketSource
@@ -37,7 +37,11 @@ class PublishedMarket:
         if not populated:
             return
         old, typed = OriginalBlocks('original'), ColumnSource()
-        self.snapshots['original'] = old.metadata
+        raw = deepcopy(old.metadata)
+        for key in ('storage_format', 'field_catalog', 'field_blocks'):
+            raw['manifest'].pop(key, None)
+            raw.pop(key, None)
+        self.snapshots['original'] = raw
         self.snapshots['typed'] = deepcopy(typed.metadata)
         for block in old.metadata['blocks']:
             self.original['original', block['start_index']] = (
@@ -71,8 +75,9 @@ class PublishedMarket:
             raise AssertionError('Startup validation attempted a database write')
         if 'to_regclass' in query:
             return Cursor([('market_snapshots' if self.table else None,)])
-        if query == 'SELECT id FROM market_snapshots ORDER BY id':
-            return Cursor([(identity,) for identity in sorted(self.snapshots)])
+        if query.startswith('SELECT id FROM market_snapshots WHERE'):
+            return Cursor([(identity,) for identity in sorted(self.snapshots)
+                           if self.snapshots[identity]['manifest'].get('storage_format') == args[0]])
         if query.startswith('SELECT id,manifest,symbols,dates,fields,created_at'):
             identity = args[0] if args else sorted(self.snapshots)[-1]
             metadata = deepcopy(self.snapshots[identity])
@@ -117,25 +122,23 @@ class MarketStartupTests(unittest.TestCase):
             self.assertEqual(counts, dict(snapshots=0, original_blocks=0, field_blocks=0))
             callback.assert_not_called()
 
-    def test_all_published_original_and_typed_blocks_are_verified_readonly(self):
+    def test_current_fields_are_verified_readonly_and_staging_snapshots_are_skipped(self):
         connection = PublishedMarket()
         callback = Mock()
         counts = PostgresMarketSource(connection, verify_reads=False).validate(callback)
-        self.assertEqual(counts, dict(snapshots=2, original_blocks=3, field_blocks=54))
+        self.assertEqual(counts, dict(snapshots=1, original_blocks=0, field_blocks=54))
         self.assertEqual([call.args[0]['snapshot_id'] for call in callback.call_args_list],
-                         ['original', 'typed'])
+                         ['typed'])
         payload_queries = [entry for entry in connection.queries if 'payload' in entry[0]]
         self.assertTrue(payload_queries)
         self.assertTrue(all(binary for _, _, binary in payload_queries))
+        self.assertFalse(any('market_matrix_blocks' in query for query, _, _ in payload_queries))
 
     def test_startup_does_not_trust_fast_mode_for_corrupt_payloads_or_index(self):
-        for storage in ('original', 'typed', 'index', 'status'):
+        for storage in ('typed', 'index', 'status'):
             with self.subTest(storage=storage):
                 connection = PublishedMarket()
-                if storage == 'original':
-                    count, payload, sha = connection.original['original', 0]
-                    connection.original['original', 0] = count, payload[:-1]+bytes([payload[-1]^1]), sha
-                elif storage == 'status':
+                if storage == 'status':
                     key = ('cn_stock_daily_adj_factor', 'typed', '__adj_known__', 0)
                     count, dtype, payload, _ = connection.columns[key]
                     payload = b'\x02'+payload[1:]
@@ -171,8 +174,10 @@ class MarketStartupTests(unittest.TestCase):
                 table = typed['field_catalog'][field]['table']
                 self.assertEqual(actual[field].tobytes(), connection.columns[table, 'typed', field, 0][2])
                 self.assertFalse(actual[field].flags.writeable)
-            old = source.snapshot('original')
-            self.assertEqual(source.original_block(old, old['blocks'][0]).shape, (len(FIELDS), 3, 5))
+            from services.data_service.api import DataService
+            service = DataService(source=source, cache=Mock(), values=Mock(), prepared=Mock())
+            with self.assertRaisesRegex(ValueError, 'current field-blocks-v1'):
+                service.snapshot('original')
         with self.assertRaisesRegex(ValueError, 'integrity'):
             decode_field(b'\x00'*7, '0'*64, 1, 1, '<f8', verify=False)
 

@@ -1,6 +1,6 @@
 """Research Indicator frontend over the shared native graph and Pool kernels."""
 
-__all__ = ["PythonIndicator", "Indicator"]
+__all__ = ["PythonIndicator"]
 
 
 def __getattr__(name):

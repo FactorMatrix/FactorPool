@@ -10,7 +10,7 @@ import uuid
 
 import grpc
 
-from factorpool.data_client.contract import (FIELDS, market_field, decode_tile, encode_tile, json_bytes, metadata_key,
+from factorpool.data_client.contract import (FIELDS, decode_tile, encode_tile, json_bytes, metadata_key,
     pack_metadata, tile_key, tile_width, pack_value_page, unpack_value_page, axis_digest, field_dtype, FIELD_BLOCK_FORMAT)
 from factorpool.data_client.generated import data_pb2 as pb, data_pb2_grpc
 from ..postgres import transaction
@@ -67,6 +67,8 @@ class DataService(data_pb2_grpc.DataServiceServicer):
                     self.cache.store([(metadata_key(found["snapshot_id"], found["cache"]), pack_metadata(found))])
                     return found
         found = self.source.snapshot(identity or None)
+        if found['manifest'].get('storage_format') != FIELD_BLOCK_FORMAT:
+            raise ValueError('Only current field-blocks-v1 snapshots are available for research')
         found["_axes_digest"] = axis_digest(found)
         self.cache.store([(metadata_key(found["snapshot_id"], found["cache"]), pack_metadata(found))])
         with self._metadata_lock:
@@ -127,12 +129,7 @@ class DataService(data_pb2_grpc.DataServiceServicer):
             if not missing:
                 return result
             fields = tuple(dict.fromkeys(field for _, field, _ in missing))
-            if hasattr(self.source, "read_fields"):
-                projected = self.source.read_fields(snapshot, block, fields)
-            else:
-                # In-memory fixture/legacy adapters can expose the old full block.
-                original = self.source.original_block(snapshot, block)
-                projected = {field: market_field(original, field) for field in fields}
+            projected = self.source.read_fields(snapshot, block, fields)
             self.stats["pg_block_reads"] += 1
             self.stats["decoded_bytes"] += sum(value.nbytes for value in projected.values())
             width = tile_width(snapshot, block)

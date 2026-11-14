@@ -67,7 +67,6 @@ public class ScriptResolver {
       JsonNode resolved = json.reader().with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
                               .readTree(stdout);
       if (resolved == null || !resolved.isObject() ||
-          !resolved.path("source_mode").asText().equals("script") ||
           !resolved.path("factor_class").asText().matches("[A-Za-z_][A-Za-z0-9_]*") ||
           !resolved.path("factor_params").isObject() ||
           !resolved.path("data").isObject() || !resolved.path("analysis").isObject() ||

@@ -5,6 +5,7 @@ import hashlib
 import importlib.util
 import json
 from pathlib import Path
+from script_fixtures import result_values
 import sys
 import tempfile
 import unittest
@@ -49,7 +50,7 @@ class ScriptParserTests(unittest.TestCase):
     def test_literal_config_normalizes_dates_constructor_and_analysis(self):
         config = source_config()
         parsed = parse_source(full_script(config))
-        self.assertEqual(parsed['source_mode'], 'script')
+        self.assertNotIn('source_mode', parsed)
         self.assertEqual(parsed['factor_class'], 'MatrixFactor')
         self.assertEqual(parsed['factor_params'], {'period': 3})
         self.assertEqual(parsed['data']['provider'], 'fixture')
@@ -140,7 +141,7 @@ class ScriptParserTests(unittest.TestCase):
             self.assertEqual(parsed['factor_class'], 'MatrixFactor')
             self.assertEqual(parsed['factor_params'], {'period': 4})
             self.assertEqual(parsed['data']['provider'], 'fixture')
-        with self.assertRaisesRegex(ValueError, 'Python script'):
+        with self.assertRaisesRegex(ValueError, 'source_mode'):
             bind_request(dict(source_code=without, workspace_config=workspace, source_mode='class'))
         with self.assertRaisesRegex(ValueError, 'guarded'):
             parse_source(without.replace('    MatrixFactor.run()', '    pass'), workspace)
@@ -201,12 +202,12 @@ class ScriptExecutionTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         directory = Path(temporary.name)
-        request = dict(name='full script fixture', source_mode='script', source_code=source, **extra)
+        request = dict(name='full script fixture', source_code=source, **extra)
         (directory/'request.json').write_text(json.dumps(request))
         with patch('factortrader.Engine', side_effect=AssertionError('Trading Engine constructed')):
             run(directory)
         result = json.loads((directory/'result.json').read_text())
-        values = [json.loads(line) for line in (directory/'values.jsonl').read_text().splitlines()]
+        values = result_values(directory)
         self.assertEqual((directory/'factor.py').read_text(), source)
         self.assertEqual(result['metadata']['source_sha256'], hashlib.sha256(source.encode()).hexdigest())
         return result, values
@@ -233,7 +234,7 @@ class ScriptExecutionTests(unittest.TestCase):
         self.assertEqual(result['metadata']['warm_up_period'], 3)
         self.assertEqual(result['metadata']['report_horizons'], [1, 5])
         self.assertEqual(result['metadata']['provider'], 'fixture')
-        self.assertEqual(result['metadata']['source_mode'], 'script')
+        self.assertNotIn('source_mode', result['metadata'])
         self.assertEqual(result['metadata']['source_config'], source_config())
         effective = result['metadata']['effective_config']
         self.assertEqual(effective['factor']['period'], 3)
@@ -290,7 +291,7 @@ class ScriptExecutionTests(unittest.TestCase):
                 result = module.MatrixFactor.run(module.config)
                 self.assertEqual(module.config, config_before)
                 self.assertEqual(result['metadata']['source_sha256'], hashlib.sha256(source.encode()).hexdigest())
-                self.assertEqual(result['metadata']['source_mode'], 'script')
+                self.assertNotIn('source_mode', result['metadata'])
                 self.assertEqual(result['metadata']['value_count'], 3)
                 self.assertEqual(result['metadata']['source_config'], config_before)
                 self.assertEqual(builtins.FACTORPOOL_SCRIPT_IMPORTS, 1)

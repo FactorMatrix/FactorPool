@@ -133,7 +133,7 @@ class TypedMarketBridgeTests(unittest.TestCase):
         source = self._source()
         config = dict(snapshot_id='typed', factor_start='2024-01-03', factor_end='2024-01-07',
                       universe=['D', 'A'])
-        turnover = market_loader.load(config, 3, 2, source=self.client(), matrix_only=True,
+        turnover = market_loader.load(config, 3, 2, source=self.client(),
                                        fields=['total_turnover', 'market_cap'])
         self.assertEqual(turnover['quotes']['fields'], ('total_turnover', 'market_cap'))
         self.assertNotIn('adjustment', turnover['quotes'])
@@ -141,7 +141,7 @@ class TypedMarketBridgeTests(unittest.TestCase):
         self.assertEqual(fetched, {'total_turnover', 'market_cap', PRESENT_FIELD, MEMBERSHIP_FIELD, 'return'})
         np.testing.assert_array_equal(turnover['quotes']['values'][1], source.columns['market_cap'][:7, [0, 3]])
         source.requests.clear()
-        prices = market_loader.load(config, 3, 2, source=self.client(), matrix_only=True,
+        prices = market_loader.load(config, 3, 2, source=self.client(),
                                     fields=['open', 'volume'])
         quotes = prices['quotes']
         self.assertEqual(quotes['fields'], ('open', 'volume'))
@@ -189,8 +189,10 @@ class TypedMarketBridgeTests(unittest.TestCase):
                 broken['manifest']['field_blocks'][0]['fields']['__q__']['sha256'] = 'bad'
             with self.subTest(changed=changed), self.assertRaises(ValueError):
                 validate_snapshot(broken, 'typed')
-        with self.assertRaisesRegex(ValueError, 'Unknown market field'):
-            field_dtype(OriginalSource().metadata, '__q__')
+        unsupported = deepcopy(metadata)
+        unsupported['manifest'].pop('storage_format')
+        with self.assertRaisesRegex(ValueError, 'current field-blocks-v1'):
+            field_dtype(unsupported, '__q__')
 
 
 if __name__ == '__main__':

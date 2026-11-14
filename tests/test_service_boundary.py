@@ -1,5 +1,6 @@
 """Exercise the worker control plane over real isolated HTTP sockets."""
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import hashlib
 import json
 from pathlib import Path
 import sys
@@ -10,6 +11,7 @@ import unittest
 import urllib.request
 
 from services.worker_service.process_manager import ProcessManager
+from factorpool.result_matrix import decode_axes, decode_chunk, iter_result_chunks, rows_from_chunk
 from services.worker_service.task_client import TaskClient
 from services.worker_service.worker import Worker, health_server
 
@@ -85,25 +87,47 @@ class RunnerProcess(ProcessManager):
         self.sleep = sleep
 
     def run(self, directory, timeout, **controls):
-        code = ("import json,pathlib,time; "
+        code = ("import json,pathlib,time; import numpy as np; "
+                "from factorpool.result_matrix import write_result_matrix; "
                 f"d=pathlib.Path({str(directory)!r}); "
                 "assert json.loads((d/'request.json').read_text())=={'test':'fixture'}; "
                 "print('independent worker',flush=True); "
                 + ("time.sleep(30); " if self.sleep else "")
-                + "(d/'values.jsonl').write_text('{\"value\":1}\\n'); "
-                "(d/'result.json').write_text(json.dumps({'metadata':{'value_count':1},'summary':{},'daily':[]}))")
+                + "shape=(1,1); "
+                "info=write_result_matrix(d/'values.matrix',['2024-01-02'],['A'],"
+                "np.ones(shape),np.ones(shape,dtype=bool),np.ones(shape,dtype=bool),"
+                "np.zeros(shape,dtype=np.uint8),np.zeros(shape),np.ones(shape)); "
+                "marker=dict(version=1,artifact='values.matrix',value_count=info['count'],sha256=info['sha256']); "
+                "(d/'values-ready.tmp.json').write_text(json.dumps(marker)); "
+                "(d/'values-ready.tmp.json').replace(d/'values-ready.json'); "
+                "(d/'result.json').write_text(json.dumps({'metadata':{'value_count':info['count'],"
+                "'value_artifact':info},'summary':{},'daily':[]}))")
         return super().run(directory, timeout, **controls, command=[sys.executable, "-u", "-c", code])
 
 
 class LocalDataSink:
     def __init__(self):
         self.uploads = []
+        self.rows = []
+        self.sha256 = None
 
     def upload_values(self, task_id, attempt, token, path, expected_count, *, cancelled):
         if cancelled():
             raise InterruptedError()
-        self.uploads.append((task_id, attempt, token, Path(path).read_text(), expected_count))
-        return {"receipt": "isolated-receipt", "sha256": "isolated-sha", "count": expected_count}
+        digest, axes = hashlib.sha256(), None
+        for _, _, payload, sha in iter_result_chunks(path):
+            if cancelled():
+                raise InterruptedError()
+            digest.update(bytes.fromhex(sha))
+            if axes is None:
+                axes = decode_axes(payload)
+            else:
+                self.rows.extend(rows_from_chunk(axes, decode_chunk(payload, axes)))
+        if len(self.rows) != expected_count:
+            raise ValueError("Incomplete binary matrix upload")
+        self.sha256 = digest.hexdigest()
+        self.uploads.append((task_id, attempt, token, Path(path).read_bytes(), expected_count))
+        return {"receipt": "isolated-receipt", "sha256": self.sha256, "count": expected_count}
 
     def close(self):
         pass
@@ -142,7 +166,10 @@ class ServiceBoundaryTests(unittest.TestCase):
     def test_real_http_claim_process_upload_complete(self):
         control, data = self.run_worker()
         self.assertEqual(control.result["receipt"], "isolated-receipt")
-        self.assertEqual(control.result["sha256"], "isolated-sha")
+        self.assertEqual(control.result["sha256"], data.sha256)
+        self.assertEqual(len(data.sha256), 64)
+        self.assertEqual([row['value'] for row in data.rows], [1.0])
+        self.assertTrue(data.uploads[0][3].startswith(b'FPRA'))
         self.assertEqual(control.result["attempt"], 3)
         self.assertEqual(len(data.uploads), 1)
         self.assertTrue(any(action == "logs" and "independent worker" in body["text"]

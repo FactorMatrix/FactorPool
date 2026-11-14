@@ -20,6 +20,7 @@ from factorpool.data_client.contract import (CACHE_VERSION, FIELDS, FORMAT, PREF
 from factorpool.data_client.generated import data_pb2 as pb
 from services.data_service.api import DataService
 from services.data_service.redis_cache import Cache
+from market_fixtures import field_snapshot, matrix_blocks
 
 
 class MemoryRedis:
@@ -97,6 +98,7 @@ def fixture(identity="cache-test", multiplier=1):
     metadata = dict(snapshot_id=identity, manifest={"format": FORMAT}, fields=list(FIELDS),
                     symbols=["A", "B", "C"], dates=["2026-01-05", "2026-01-06", "2026-01-07", "2026-01-08"],
                     blocks=blocks, cache=dict(version=CACHE_VERSION, codec="raw", chunk_max_bytes=8192, tile_symbols=2))
+    field_snapshot(metadata, values)
     return metadata, values
 
 
@@ -137,7 +139,7 @@ class CacheFaultTests(unittest.TestCase):
         self.addCleanup(self.environment.stop)
 
     def load(self, client, metadata):
-        blocks = list(client.selected_blocks(metadata, 0, 4, np.array([2, 0])))
+        blocks = list(matrix_blocks(client, metadata, 0, 4, np.array([2, 0])))
         return np.concatenate([row[2] for row in blocks], axis=1)
 
     def test_cold_hot_expired_and_redis_outage_match_independent_cells(self):
@@ -243,10 +245,10 @@ class CacheFaultTests(unittest.TestCase):
             def __init__(self):
                 self.calls = 0
 
-            def original_block(self, snapshot, block):
+            def read_fields(self, snapshot, block, fields):
                 self.calls += 1
                 time.sleep(.02)
-                return values[:, :2]
+                return {field: values[FIELDS.index(field), :2] for field in fields}
 
         source, redis = Source(), MemoryRedis()
         service = DataService(source=source, cache=Cache(redis), values=object())
@@ -285,9 +287,11 @@ class PendingMethod:
 
 class UploadCancellationTests(unittest.TestCase):
     def value_file(self, directory):
-        path = Path(directory) / "values.jsonl"
-        path.write_text(json.dumps(dict(date="2026-01-05", symbol="A", value=1.0,
-                                       valid=True, ready=True, reason="")) + "\n")
+        from factorpool.result_matrix import write_result_matrix
+        path = Path(directory) / "values.matrix"
+        shape=(1,1)
+        write_result_matrix(path,['2026-01-05'],['A'],np.ones(shape),np.ones(shape,dtype=bool),
+            np.ones(shape,dtype=bool),np.zeros(shape,dtype=np.uint8),np.zeros(shape),np.ones(shape))
         return path
 
     def test_stalled_stage_future_cancels_without_waiting_rpc_deadline(self):

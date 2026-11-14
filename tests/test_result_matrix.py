@@ -2,7 +2,6 @@
 from datetime import date, timedelta
 import hashlib
 import importlib.util
-import json
 from pathlib import Path
 import tempfile
 import struct
@@ -13,7 +12,7 @@ from unittest.mock import patch
 import numpy as np
 
 from factorpool.result_matrix import (REASONS, decode_axes, decode_chunk, encode_axes,
-    encode_chunk, iter_result_chunks, rows_from_chunk, write_jsonl, write_result_matrix)
+    encode_chunk, iter_result_chunks, rows_from_chunk, write_result_matrix)
 from factorpool.data_client import DataClient
 from factorpool.data_client.generated import data_pb2 as pb
 
@@ -67,8 +66,7 @@ class ResultMatrixTests(unittest.TestCase):
                     np.testing.assert_array_equal(actual,expected)
                 self.assertTrue(np.signbit(blocks[0]['value'][0]))
                 self.assertTrue(np.signbit(blocks[0]['forward_return'][-1]))
-                write_jsonl(Path(temporary)/'values.jsonl',path)
-                rows = [json.loads(line) for line in (Path(temporary)/'values.jsonl').read_text().splitlines()]
+                rows = [row for block in blocks for row in rows_from_chunk(axes,block)]
                 self.assertEqual(list(rows[0]),['date','symbol','value','valid','ready','reason','forward_return','group'])
                 self.assertIsNone(rows[2]['value'])
                 self.assertEqual(rows[2]['reason'],'not_ready')

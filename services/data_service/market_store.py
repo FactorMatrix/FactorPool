@@ -15,7 +15,7 @@ import time
 import numpy as np
 
 from factorpool.data_client.contract import (BOOLEAN_FIELDS, FIELDS, FORMAT,
-    axis_digest, json_bytes, market_field)
+    axis_digest, json_bytes)
 from factorpool.market_adjustment import adjustment_policy, derive_adjustment
 from factorpool.market_returns import daily_returns, return_policy
 from .postgres import transaction
@@ -219,11 +219,7 @@ def prepare_snapshot(source_snapshot_id, *, connection=None, source=None, factor
         for block in parent["blocks"]:
             start, rows = block["start_index"], block["row_count"]
             requested = raw_fields + tuple(BOOLEAN_FIELDS) + tuple(inherited)
-            if hasattr(source, "read_fields"):
-                values = source.read_fields(parent, block, requested)
-            else:
-                original = source.original_block(parent, block)
-                values = {field: market_field(original, field) for field in requested}
+            values = source.read_fields(parent, block, requested)
             values = dict(values)
             values["return"] = daily_returns(*(values[field] for field in
                 ("close", "prev_close", "volume", "total_turnover", "member")))

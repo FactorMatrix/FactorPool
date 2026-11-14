@@ -60,7 +60,7 @@ if __name__ == "__main__":
             with patch.object(runner, 'fixture', return_value=self.payload()), \
                     patch.object(native, 'prepare_research', wraps=prepare) as prepared, \
                     patch.object(native, 'portfolio_report', wraps=portfolio) as reports:
-                runner.run(directory, values_format='matrix')
+                runner.run(directory)
             result = json.loads((directory/'result.json').read_text())
         # Source A's absolute7 becomes relative4, and its position moves from
         # source column1 to sorted column0. Future boundaries are not clamped.

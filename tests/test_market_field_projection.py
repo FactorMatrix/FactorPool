@@ -11,6 +11,7 @@ from factorpool import market_loader as store
 from factorpool.data_client.contract import (FIELDS, MEMBERSHIP_FIELD, PRESENT_FIELD,
     decode_tile, encode_tile, tile_key)
 from test_market_loading import _Connection
+from market_fixtures import matrix_blocks
 import test_data_service_boundary as grpc_cases
 
 
@@ -29,9 +30,9 @@ class FieldProjectionTests(unittest.TestCase):
                 with self.subTest(pasteurization=pasteurization, universe=universe):
                     data = dict(self.data, universe=universe)
                     expected = store.load(data, 3, 2, source=_Connection(self.matrix),
-                                          pasteurization=pasteurization, matrix_only=True)
+                                          pasteurization=pasteurization)
                     actual = store.load(data, 3, 2, source=_Connection(self.matrix),
-                                        pasteurization=pasteurization, matrix_only=True, fields=['total_turnover'])
+                                        pasteurization=pasteurization, fields=['total_turnover'])
                     self.assertEqual(actual['symbols'], expected['symbols'])
                     np.testing.assert_array_equal(actual['returns'], expected['returns'])
                     self.assertEqual(actual['quotes']['fields'], ('total_turnover',))
@@ -68,9 +69,9 @@ class FieldProjectionTests(unittest.TestCase):
                                 [''.join((source.symbols[n][:-1], source.symbols[n][-1])) for n in (0, 3)])
                     data = dict(self.data, universe=universe)
                     expected = store.load(data, 3, 2, source=NamedSource(matrix),
-                                          pasteurization=pasteurization, matrix_only=True)
+                                          pasteurization=pasteurization)
                     actual = store.load(data, 3, 2, source=source, pasteurization=pasteurization,
-                                        matrix_only=True, fields=['total_turnover'])
+                                        fields=['total_turnover'])
                     for current, old in zip(actual['frames'], expected['frames']):
                         self.assertIsInstance(current['symbols'], list)
                         self.assertIsInstance(current['research_symbols'], list)
@@ -93,14 +94,14 @@ class FieldProjectionTests(unittest.TestCase):
                 super().__init__(values)
                 self.requests = []
 
-            def selected_blocks(self, snapshot, initial, stop, columns, *, fields=None):
+            def selected_columns(self, snapshot, initial, stop, columns, *, fields):
                 self.requests.append((initial, stop, fields))
-                yield from super().selected_blocks(snapshot, initial, stop, columns, fields=fields)
+                yield from super().selected_columns(snapshot, initial, stop, columns, fields=fields)
 
         source = RecordingSource(self.matrix)
         payload = store.load(dict(self.data, universe=['A']), 3, 2, source=source,
-                             matrix_only=True, fields=['value', 'open', 'volume'])
-        self.assertEqual(payload['quotes']['fields'], ('open', 'close', 'prev_close', 'volume', 'total_turnover', 'is_suspended'))
+                             fields=['value', 'open', 'volume'])
+        self.assertEqual(payload['quotes']['fields'], ('open', 'close', 'volume'))
         self.assertEqual(source.requests[-1], (7, 9, ('return',)))
         self.assertEqual(payload['quotes']['values'].shape[1], 7)
         self.assertEqual(payload['returns'].shape[0], 9)
@@ -109,7 +110,7 @@ class FieldProjectionTests(unittest.TestCase):
         self.assertIn(MEMBERSHIP_FIELD, source.requests[0][2])
         source = RecordingSource(self.matrix)
         payload = store.load(dict(self.data, universe=['A']), 3, 2, source=source,
-                             matrix_only=True, fields=['total_turnover'])
+                             fields=['total_turnover'])
         self.assertNotIn('close', source.requests[0][2])
         self.assertNotIn('volume', source.requests[0][2])
         self.assertTrue(payload['quotes']['present'][4, 0])
@@ -123,7 +124,7 @@ class FieldProjectionTests(unittest.TestCase):
                 return manifest, symbols, dates, fields
 
         payload = store.load(dict(self.data, universe=['D', 'A']), 3, 2, source=InactiveSource(self.matrix),
-                             matrix_only=True, fields=[], pasteurization='OFF')
+                             fields=[], pasteurization='OFF')
         self.assertEqual(payload['quotes']['fields'], ())
         self.assertEqual(payload['quotes']['values'].shape, (0, 7, 3))
         self.assertEqual(payload['quotes']['research_columns'].tolist(), [0, -1])
@@ -146,7 +147,7 @@ class FieldProjectionTests(unittest.TestCase):
                         source = _Connection(matrix)
                         payload = store.load(dict(self.data, universe=universe), 3, 2,
                             source=source, pasteurization=pasteurization,
-                            matrix_only=True, fields=['total_turnover'])
+                            fields=['total_turnover'])
                         columns = [source.symbols.index(symbol) for symbol in payload['symbols']]
                         expected_returns = matrix[7][:, columns]
                         self.assertEqual(payload['returns'].tobytes(), expected_returns.tobytes())
@@ -160,29 +161,29 @@ class FieldProjectionTests(unittest.TestCase):
 
     def test_byte_budget_replaces_fixed_cell_count_and_fails_before_block_reads(self):
         with patch.object(store, '_input_budget', return_value=2*1024**3):
-            store._check_memory(2500, 2520, 5580, 5580, 1, matrix_only=True, projected=True)
+            store._check_memory(2500, 2520, 5580, 5580, 1)
             with self.assertRaisesRegex(ValueError, 'memory budget'):
-                store._check_memory(2500, 2520, 5580, 5580, 11, matrix_only=True, projected=False)
+                store._check_memory(2500, 2520, 5580, 5580, 11)
         source = _Connection(self.matrix)
         with patch.dict(os.environ, FACTORPOOL_INPUT_MAX_BYTES='1'), \
-                patch.object(source, 'selected_blocks', side_effect=AssertionError('data read before budget guard')):
+                patch.object(source, 'selected_columns', side_effect=AssertionError('data read before budget guard')):
             with self.assertRaisesRegex(ValueError, 'memory budget'):
                 store.load(dict(self.data, universe=['A']), 3, 2, source=source,
-                           matrix_only=True, fields=['total_turnover'])
+                           fields=['total_turnover'])
         for value in ('0', '-1', 'wrong'):
             with patch.dict(os.environ, FACTORPOOL_INPUT_MAX_BYTES=value), self.assertRaises(ValueError):
                 store._input_budget()
 
-    def test_projection_validates_field_names_and_requires_matrix_mode(self):
+    def test_projection_validates_field_names(self):
         for fields in ('close', ['unknown'], [None]):
             with self.assertRaises(ValueError):
-                store.load({}, 1, 0, fields=fields, matrix_only=True)
-        with self.assertRaisesRegex(ValueError, 'matrix_only'):
-            store.load({}, 1, 0, fields=['close'])
+                store.load(dict(self.data, universe=['A']), 1, 0, fields=fields, source=_Connection(self.matrix))
 
     def test_derived_status_tiles_use_one_byte_and_preserve_identity_validation(self):
+        from services.data_service.market_store import STORAGE_FORMAT, field_catalog
         metadata = dict(snapshot_id='shape-test', symbols=[f'S{n:05d}' for n in range(1024)],
                         dates=[(date(2024, 1, 1)+timedelta(days=n)).isoformat() for n in range(64)],
+                        manifest=dict(storage_format=STORAGE_FORMAT, field_catalog=field_catalog()),
                         fields=list(FIELDS), cache=dict(codec='raw', tile_symbols=1024, chunk_max_bytes=4*1024**2))
         block = dict(start_index=0, row_count=64, sha256='0'*64)
         raw = encode_tile(metadata, block, 'close', 0, np.ones((64, 1024)))
@@ -206,7 +207,7 @@ class FieldProjectionGrpcTests(unittest.TestCase):
         data = dict(snapshot_id='original', factor_start='2024-01-03', factor_end='2024-01-07',
                     universe='all_a_dynamic')
         client = self.client()
-        actual = store.load(data, 3, 2, source=client, matrix_only=True, fields=['total_turnover'])
+        actual = store.load(data, 3, 2, source=client, fields=['total_turnover'])
         np.testing.assert_array_equal(actual['quotes']['values'][0], self.source.matrix[6, :7])
         np.testing.assert_array_equal(actual['returns'], self.source.matrix[7])
         np.testing.assert_array_equal(actual['quotes']['present'], np.any(np.isfinite(self.source.matrix[:7, :7]), axis=0))
@@ -217,11 +218,11 @@ class FieldProjectionGrpcTests(unittest.TestCase):
         for field in ('open', 'high', 'low', 'close', 'prev_close', 'volume', 'is_st', 'is_suspended'):
             self.assertNotIn(tile_key(metadata, metadata['blocks'][0], field, 0), self.cache.values)
         hot = self.client()
-        expected = store.load(data, 3, 2, source=hot, matrix_only=True, fields=['total_turnover'])
+        expected = store.load(data, 3, 2, source=hot, fields=['total_turnover'])
         self.assertEqual(hot.stats['grpc_blocks'], 0)
         np.testing.assert_array_equal(expected['quotes']['values'], actual['quotes']['values'])
         for columns in ([3, 0], [2, 0, 3, 1], [1, 1], [0, 2, 3]):
-            blocks = list(hot.selected_blocks(metadata, 0, 9, np.asarray(columns),
+            blocks = list(matrix_blocks(hot, metadata, 0, 9, np.asarray(columns),
                                               fields=('total_turnover', PRESENT_FIELD)))
             self.assertEqual(len(blocks), 1)
             np.testing.assert_array_equal(blocks[0][2][0], self.source.matrix[6][:, columns])
@@ -229,12 +230,12 @@ class FieldProjectionGrpcTests(unittest.TestCase):
         key = tile_key(metadata, metadata['blocks'][0], PRESENT_FIELD, 0)
         self.cache.values[key] = b'wrong-status-envelope'
         repair = self.client()
-        repaired = store.load(data, 3, 2, source=repair, matrix_only=True, fields=['total_turnover'])
+        repaired = store.load(data, 3, 2, source=repair, fields=['total_turnover'])
         self.assertEqual(repair.stats['corrupt_blocks'], 1)
         self.assertEqual(repair.stats['grpc_blocks'], 1)
         np.testing.assert_array_equal(repaired['quotes']['present'], actual['quotes']['present'])
         self.cache.online = False
-        outage = store.load(data, 3, 2, source=self.client(), matrix_only=True, fields=['total_turnover'])
+        outage = store.load(data, 3, 2, source=self.client(), fields=['total_turnover'])
         np.testing.assert_array_equal(outage['quotes']['values'], actual['quotes']['values'])
         np.testing.assert_array_equal(outage['membership'], actual['membership'])
 

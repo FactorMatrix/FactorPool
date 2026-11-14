@@ -11,19 +11,16 @@ CREATE TABLE IF NOT EXISTS research_batches (
 CREATE TABLE IF NOT EXISTS research_tasks (
   id uuid PRIMARY KEY, batch_id uuid REFERENCES research_batches(id), name text NOT NULL,
   snapshot jsonb NOT NULL, status text NOT NULL CHECK (status IN ('QUEUED','RUNNING','CANCELLING','SUCCEEDED','FAILED','CANCELLED','INTERRUPTED')),
-  error text, created_at timestamptz NOT NULL DEFAULT now(), started_at timestamptz, finished_at timestamptz
+  error text, created_at timestamptz NOT NULL DEFAULT now(), started_at timestamptz, finished_at timestamptz,
+  execution_attempt integer NOT NULL DEFAULT 0, worker_id text, lease_token uuid,
+  lease_expires_at timestamptz, heartbeat_at timestamptz, result_attempt integer,
+  runner_log text NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS research_results (
   task_id uuid PRIMARY KEY REFERENCES research_tasks(id), result jsonb NOT NULL
 );
 ALTER TABLE research_results ALTER COLUMN result SET COMPRESSION lz4;
-CREATE TABLE IF NOT EXISTS factor_values (
-  task_id uuid NOT NULL REFERENCES research_tasks(id), ordinal bigint NOT NULL, trading_date date NOT NULL,
-  symbol text NOT NULL, value double precision, valid boolean NOT NULL, ready boolean NOT NULL, reason text NOT NULL,
-  forward_return double precision, factor_group integer, PRIMARY KEY(task_id,ordinal), UNIQUE(task_id,trading_date,symbol)
-);
 CREATE INDEX IF NOT EXISTS research_tasks_status_idx ON research_tasks(status,created_at);
-CREATE INDEX IF NOT EXISTS factor_values_date_idx ON factor_values(task_id,trading_date,symbol);
 CREATE TABLE IF NOT EXISTS market_snapshots (
   id text PRIMARY KEY,
   manifest jsonb NOT NULL CHECK (jsonb_typeof(manifest) = 'object'),
@@ -75,26 +72,12 @@ ALTER TABLE cn_stock_daily_adj_factor ALTER COLUMN payload SET COMPRESSION lz4;
 ALTER TABLE cn_stock_factor_input ALTER COLUMN payload SET STORAGE EXTENDED;
 ALTER TABLE cn_stock_factor_input ALTER COLUMN payload SET COMPRESSION lz4;
 
--- Idempotent service split migration. Existing snapshots/results remain unchanged.
-ALTER TABLE research_tasks ADD COLUMN IF NOT EXISTS execution_attempt integer NOT NULL DEFAULT 0;
-ALTER TABLE research_tasks ADD COLUMN IF NOT EXISTS worker_id text;
-ALTER TABLE research_tasks ADD COLUMN IF NOT EXISTS lease_token uuid;
-ALTER TABLE research_tasks ADD COLUMN IF NOT EXISTS lease_expires_at timestamptz;
-ALTER TABLE research_tasks ADD COLUMN IF NOT EXISTS heartbeat_at timestamptz;
-ALTER TABLE research_tasks ADD COLUMN IF NOT EXISTS result_attempt integer;
-ALTER TABLE research_tasks ADD COLUMN IF NOT EXISTS runner_log text NOT NULL DEFAULT '';
 CREATE INDEX IF NOT EXISTS research_tasks_lease_idx ON research_tasks(lease_expires_at) WHERE status IN ('RUNNING','CANCELLING');
-CREATE TABLE IF NOT EXISTS factor_value_staging (
-  task_id uuid NOT NULL REFERENCES research_tasks(id), attempt bigint NOT NULL, ordinal bigint NOT NULL,
-  trading_date date NOT NULL, symbol text NOT NULL, value double precision,
-  valid boolean NOT NULL, ready boolean NOT NULL, reason text NOT NULL,
-  forward_return double precision, factor_group integer,
-  PRIMARY KEY(task_id,attempt,ordinal), UNIQUE(task_id,attempt,trading_date,symbol)
-);
 CREATE TABLE IF NOT EXISTS factor_value_publications (
   task_id uuid PRIMARY KEY REFERENCES research_tasks(id), attempt bigint NOT NULL,
   row_count bigint NOT NULL, sha256 text NOT NULL, receipt uuid NOT NULL,
-  created_at timestamptz NOT NULL DEFAULT now()
+  created_at timestamptz NOT NULL DEFAULT now(),
+  storage_format text NOT NULL DEFAULT 'matrix-v1'
 );
 CREATE TABLE IF NOT EXISTS factor_value_upload_chunks (
   task_id uuid NOT NULL REFERENCES research_tasks(id), attempt bigint NOT NULL, ordinal bigint NOT NULL,
@@ -102,7 +85,6 @@ CREATE TABLE IF NOT EXISTS factor_value_upload_chunks (
 );
 
 -- Columnar values keep large research histories as bounded immutable chunks.
-ALTER TABLE factor_value_publications ADD COLUMN IF NOT EXISTS storage_format text NOT NULL DEFAULT 'rows-v1';
 CREATE TABLE IF NOT EXISTS factor_value_matrix_axes (
   task_id uuid NOT NULL REFERENCES research_tasks(id), attempt bigint NOT NULL,
   row_count bigint NOT NULL CHECK (row_count>=0), payload bytea NOT NULL, sha256 text NOT NULL,

@@ -18,7 +18,7 @@ import uuid
 import numpy as np
 
 from factorpool.data_client.contract import (BOOLEAN_FIELDS, axis_digest, field_catalog, field_dtype,
-    json_bytes, market_field, tile_key, tile_width, validate_snapshot)
+    json_bytes, tile_key, tile_width, validate_snapshot)
 
 
 VERSION = "prepared-columns-v1"
@@ -269,14 +269,11 @@ class PreparedMatrices:
                     wanted = [field for field, missing in pending.items() if block["start_index"] in missing]
                     if not wanted:
                         continue
-                    if hasattr(source, 'read_fields'):
-                        original = source.read_fields(snapshot, block, wanted)
-                    else:
-                        original = source.original_block(snapshot, block)
+                    original = source.read_fields(snapshot, block, wanted)
                     stats["pg_block_reads"] += 1
                     row, count = block["start_index"], block["row_count"]
                     for field in wanted:
-                        column = original[field] if isinstance(original, dict) else market_field(original, field)
+                        column = original[field]
                         values = np.ascontiguousarray(column, dtype=field_dtype(snapshot, field))
                         matrices[field][row:row+count] = values
                         publication["fields"][field]["blocks"][str(row)] = dict(

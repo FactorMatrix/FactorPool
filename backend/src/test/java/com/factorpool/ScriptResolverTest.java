@@ -21,7 +21,6 @@ class ScriptResolverTest {
     String source = "# Unicode配置\nconfig = {}\n";
     var result = resolver("success", 5000).resolve(source);
     assertEquals(source, result.path("source_config").path("received_source").asText());
-    assertEquals("script", result.path("source_mode").asText());
   }
 
   @Test
@@ -82,7 +81,7 @@ class ScriptResolverTest {
       }
       var json = new ObjectMapper();
       var input = json.readTree(new String(System.in.readAllBytes(), StandardCharsets.UTF_8));
-      var out = json.createObjectNode().put("source_mode", "script").put("factor_class", "MyFactor");
+      var out = json.createObjectNode().put("factor_class", "MyFactor");
       out.putObject("factor_params"); out.putObject("data"); out.putObject("analysis");
       out.putObject("source_config").put("received_source", input.path("source_code").asText());
       if (input.has("workspace_config")) out.set("workspace_config", input.get("workspace_config"));

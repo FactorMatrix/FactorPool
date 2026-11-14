@@ -9,7 +9,7 @@ import textwrap
 from factortrader.indicator.compiler import UnsupportedIndicator, _TimeSeries, _Compiler
 from factortrader.indicator.update_compiler import _UpdateCompiler, _CrossSection, _Value
 from .operators import CONTRACT_VERSION, EXTENSIONS
-from .brain_schema import NEW_TS, LEGACY_TS, prepare_core_call, literal
+from .brain_schema import CORE_TS, OBSERVATION_TS, prepare_core_call, literal
 from .operator_frontend import DIRECT, DOMAINS, validate_indicator_frontend
 
 
@@ -106,10 +106,10 @@ class PoolCompiler(_UpdateCompiler):
             return super().call(syntax,variables)
         clocks=[kw for kw in syntax.keywords if kw.arg=='clock']
         if len(clocks)>1:raise self.error(syntax,'Repeated clock')
-        clock=literal(self,clocks[0].value) if clocks else ('valid_observations' if method in LEGACY_TS or method in ('min','max') else 'trading_days')
+        clock=literal(self,clocks[0].value) if clocks else ('valid_observations' if method in OBSERVATION_TS or method in ('min','max') else 'trading_days')
         if clock not in ('trading_days','valid_observations'):raise self.error(syntax,'Unknown temporal clock')
         cleaned=copy.copy(syntax);cleaned.keywords=[kw for kw in syntax.keywords if kw.arg!='clock']
-        if method in NEW_TS:return prepare_core_call(self,'ts',method,syntax,variables)
+        if method in CORE_TS:return prepare_core_call(self,'ts',method,syntax,variables)
         cleaned=self._defaults('ts',method,cleaned)
         if clock=='trading_days':
             if method in ('mean','sum','std','delay','delta','decay_linear','min','max') and not any(k.arg=='dense' for k in cleaned.keywords):

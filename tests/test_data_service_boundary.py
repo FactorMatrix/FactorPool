@@ -17,6 +17,7 @@ from factorpool.data_client.generated import data_pb2 as pb, data_pb2_grpc
 from factorpool.market_loader import load
 from services.data_service.api import DataService
 from services.data_service.redis_cache import Cache
+from market_fixtures import field_snapshot, matrix_blocks
 
 
 class MemoryRedis:
@@ -102,6 +103,7 @@ class OriginalSource:
             symbols=['A','B','C','D'], dates=[f'2024-01-{n:02d}' for n in range(1,10)], fields=list(FIELDS),
             cache=dict(version=CACHE_VERSION, codec=codec, tile_symbols=2, chunk_max_bytes=8192),
             blocks=[dict(start_index=0,row_count=9,sha256=pack_block(self.matrix)[1])])
+        self.columns = field_snapshot(self.metadata, self.matrix)
         self.stats = dict(pg_blocks=0, pg_snapshots=0)
         self.lock = threading.Lock()
 
@@ -116,6 +118,12 @@ class OriginalSource:
         with self.lock:
             self.stats['pg_blocks'] += 1
         return self.matrix.copy()
+
+    def read_fields(self, snapshot, block, fields):
+        with self.lock:
+            self.stats['pg_blocks'] += 1
+        start, count = block['start_index'], block['row_count']
+        return {field: self.columns[field][start:start+count].copy() for field in fields}
 
 
 class GrpcBoundaryTests(unittest.TestCase):
@@ -146,13 +154,13 @@ class GrpcBoundaryTests(unittest.TestCase):
     def test_second_read_is_direct_redis_and_matches_independent_matrix(self):
         client = self.client()
         metadata = client.snapshot('original')
-        first = list(client.selected_blocks(metadata,0,9,np.array([3,0])))
+        first = list(matrix_blocks(client, metadata,0,9,np.array([3,0])))
         np.testing.assert_array_equal(first[0][2], self.source.matrix[:,:,[3,0]])
         self.assertEqual(self.source.stats['pg_blocks'], 1)
         hot = self.client()
         with patch.object(hot.stub, 'Snapshot', side_effect=AssertionError('hot metadata proxied')), \
              patch.object(hot.stub, 'MarketBlocks', side_effect=AssertionError('hot matrix proxied')):
-            second = list(hot.selected_blocks(hot.snapshot('original'),0,9,np.array([0,3])))
+            second = list(matrix_blocks(hot, hot.snapshot('original'),0,9,np.array([0,3])))
         np.testing.assert_array_equal(second[0][2], self.source.matrix[:,:,[0,3]])
         self.assertEqual(hot.stats['grpc_blocks'], 0)
         self.assertEqual(hot.stats['redis_hits'], 22)
@@ -161,14 +169,14 @@ class GrpcBoundaryTests(unittest.TestCase):
     def test_bad_cache_header_is_scoped_repaired_and_redis_outage_falls_back(self):
         client = self.client()
         metadata = client.snapshot('original')
-        expected = list(client.selected_blocks(metadata,0,9,np.array([0])))
+        expected = list(matrix_blocks(client, metadata,0,9,np.array([0])))
         key = tile_key(metadata,metadata['blocks'][0],'close',0)
         self.cache.values[key] = b'FPC2\x00\x00\x00\x02[]'
-        actual = list(client.selected_blocks(metadata,0,9,np.array([0])))
+        actual = list(matrix_blocks(client, metadata,0,9,np.array([0])))
         np.testing.assert_array_equal(actual[0][2], expected[0][2])
         self.assertEqual(client.stats['corrupt_blocks'],1)
         self.cache.online = False
-        outage = list(client.selected_blocks(metadata,0,9,np.array([0])))
+        outage = list(matrix_blocks(client, metadata,0,9,np.array([0])))
         np.testing.assert_array_equal(outage[0][2], expected[0][2])
         self.assertEqual(client.stats['redis_errors'],1)
 
@@ -176,7 +184,7 @@ class GrpcBoundaryTests(unittest.TestCase):
         clients = [self.client() for _ in range(6)]
         metadata = clients[0].snapshot('original')
         with ThreadPoolExecutor(max_workers=6) as pool:
-            results = list(pool.map(lambda client: list(client.selected_blocks(metadata,0,9,np.array([2,1]))),clients))
+            results = list(pool.map(lambda client: list(matrix_blocks(client, metadata,0,9,np.array([2,1]))),clients))
         for actual in results:
             np.testing.assert_array_equal(actual[0][2],self.source.matrix[:,:,[2,1]])
         self.assertEqual(self.source.stats['pg_blocks'],1)
@@ -187,7 +195,7 @@ class GrpcBoundaryTests(unittest.TestCase):
         self.service._metadata.clear()
         self.source.metadata['cache']['tile_symbols'] = 4
         self.source.metadata['cache']['codec'] = 'zlib'
-        actual = list(client.selected_blocks(old,0,9,np.array([1,3])))
+        actual = list(matrix_blocks(client, old,0,9,np.array([1,3])))
         np.testing.assert_array_equal(actual[0][2], self.source.matrix[:,:,[1,3]])
 
     def test_metadata_corruption_repairs_only_its_key(self):
@@ -217,7 +225,7 @@ class GrpcBoundaryTests(unittest.TestCase):
 
     def test_full_loader_keeps_warmup_research_and_future_axes(self):
         payload = load(dict(snapshot_id='original',factor_start='2024-01-03',factor_end='2024-01-07',universe=['D','A']),
-                       3,2,source=self.client(),matrix_only=True)
+                       3,2,source=self.client())
         self.assertEqual(payload['symbols'],['A','D'])
         self.assertEqual(payload['quotes']['dates'],self.source.metadata['dates'][:7])
         np.testing.assert_array_equal(payload['returns'],self.source.matrix[7,:,[0,3]].T)

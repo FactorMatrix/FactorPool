@@ -32,8 +32,15 @@ public class Api {
   }
   @PostMapping("/script/resolve")
   Object resolve(@RequestBody JsonNode body) {
-    if (!body.path("source_code").isTextual())
+    if (!body.isObject() || !body.path("source_code").isTextual())
       throw new IllegalArgumentException("source_code is required");
+    for (var fields = body.fieldNames(); fields.hasNext();) {
+      String field = fields.next();
+      if (!Set.of("source_code", "workspace_config").contains(field))
+        throw new IllegalArgumentException("Unsupported script resolve field: " + field);
+    }
+    if (body.has("workspace_config") && !body.get("workspace_config").isObject())
+      throw new IllegalArgumentException("workspace_config must be an object");
     return store.scripts.resolve(body.path("source_code").asText(), body.get("workspace_config"));
   }
   @GetMapping("/factors/{id}")

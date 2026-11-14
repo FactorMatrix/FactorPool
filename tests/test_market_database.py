@@ -15,6 +15,7 @@ from services.data_service.importers.bundle import import_bundle, iter_blocks, s
 from factorpool.data_client.contract import FIELDS, decode_block, pack_block
 from services.data_service.postgres import connect, transaction
 from services.data_service.postgres.market import PostgresMarketSource
+from services.data_service.market_store import prepare_snapshot
 from factorpool.market_loader import load as remote_load
 
 def load(*args, connection=None, **kwargs):
@@ -71,7 +72,8 @@ class MarketDatabaseTests(unittest.TestCase):
         self.assertFalse(second['created'])
         self.assertEqual(second['snapshot_id'], first['snapshot_id'])
         self.assertEqual(self.counts(), (1, 2))
-        payload = load(self.request(first['snapshot_id']), 1, 0, connection=self.connection)
+        prepared = prepare_snapshot(first['snapshot_id'], connection=self.connection)
+        payload = load(self.request(prepared['snapshot_id']), 1, 0, connection=self.connection)
         self.assertEqual(payload['symbols'], ['A', 'B', 'C'])
         np.testing.assert_allclose(payload['returns'][[0, 2], 0], [.25, .5])
         self.assertTrue(np.isnan(payload['returns'][1, 0]))
@@ -79,8 +81,8 @@ class MarketDatabaseTests(unittest.TestCase):
         self.assertEqual([frame['symbols'] for frame in payload['frames']],
                          [['A', 'C'], ['A', 'B', 'C'], ['A', 'C']])
         self.assertFalse(payload['synthetic'])
-        self.assertEqual(payload['snapshot_id'], first['snapshot_id'])
-        middle = self.request(first['snapshot_id'])
+        self.assertEqual(payload['snapshot_id'], prepared['snapshot_id'])
+        middle = self.request(prepared['snapshot_id'])
         middle.update(factor_start='2024-01-03', factor_end='2024-01-03')
         padded = load(middle, 2, 1, connection=self.connection)
         self.assertEqual([frame['date'] for frame in padded['frames']],
@@ -88,9 +90,10 @@ class MarketDatabaseTests(unittest.TestCase):
 
     def test_new_snapshot_preserves_old_task_identity_and_blocks(self):
         from psycopg.types.json import Jsonb
-        old = import_bundle(self.root, connection=self.connection, block_days=2)['snapshot_id']
+        original = import_bundle(self.root, connection=self.connection, block_days=2)['snapshot_id']
+        old = prepare_snapshot(original, connection=self.connection)['snapshot_id']
         old_blocks = self.connection.execute(
-            'SELECT start_index,payload,sha256 FROM market_matrix_blocks WHERE snapshot_id=%s ORDER BY start_index', (old,)
+            'SELECT field,start_index,payload,sha256 FROM cn_stock_daily_bar WHERE snapshot_id=%s ORDER BY field,start_index', (old,)
         ).fetchall()
         task = uuid.uuid4()
         self.connection.execute(
@@ -101,20 +104,21 @@ class MarketDatabaseTests(unittest.TestCase):
             row = stocks['A'][1]
             row['close'] = 8
             stocks['A'][1] = row
-        new = import_bundle(self.root, connection=self.connection, block_days=2)['snapshot_id']
+        original_new = import_bundle(self.root, connection=self.connection, block_days=2)['snapshot_id']
+        new = prepare_snapshot(original_new, connection=self.connection)['snapshot_id']
         self.assertNotEqual(old, new)
-        self.assertEqual(self.counts(), (2, 4))
+        self.assertEqual(self.counts(), (4, 4))
         persisted = self.connection.execute('SELECT snapshot FROM research_tasks WHERE id=%s', (task,)).fetchone()[0]
         self.assertEqual(persisted['data']['snapshot_id'], old)
         self.assertEqual(self.connection.execute(
-            'SELECT start_index,payload,sha256 FROM market_matrix_blocks WHERE snapshot_id=%s ORDER BY start_index', (old,)
+            'SELECT field,start_index,payload,sha256 FROM cn_stock_daily_bar WHERE snapshot_id=%s ORDER BY field,start_index', (old,)
         ).fetchall(), old_blocks)
         old_data = load(persisted['data'], 1, 0, connection=self.connection)
         new_data = load(self.request(new), 1, 0, connection=self.connection)
         self.assertAlmostEqual(old_data['returns'][2, 0], .5)
         self.assertAlmostEqual(new_data['returns'][2, 0], 1)
 
-    def test_same_source_new_return_policy_preserves_legacy_snapshot_and_history(self):
+    def test_old_research_format_is_rejected_and_explicit_preparation_preserves_records(self):
         from psycopg.types.json import Jsonb
         no_trade_bundle(self.root)
         source_before = bundle_sha256(self.root)
@@ -149,34 +153,28 @@ class MarketDatabaseTests(unittest.TestCase):
                 (task, 'legacy no-trade history', Jsonb(task_snapshot), 'SUCCEEDED'),
             )
             self.connection.execute('INSERT INTO research_results(task_id,result) VALUES(%s,%s)', (task, Jsonb(legacy_result)))
-            self.connection.execute(
-                'INSERT INTO factor_values(task_id,ordinal,trading_date,symbol,value,valid,ready,reason,forward_return,factor_group) '
-                'VALUES(%s,0,%s,%s,1,true,true,%s,%s,1)', (task, '2024-01-02', 'A', 'ok', .2),
-            )
         protected_queries = [
             ('SELECT * FROM market_snapshots WHERE id=%s', (legacy_id,)),
             ('SELECT * FROM market_matrix_blocks WHERE snapshot_id=%s ORDER BY start_index', (legacy_id,)),
             ('SELECT * FROM research_tasks WHERE id=%s', (task,)),
             ('SELECT * FROM research_results WHERE task_id=%s', (task,)),
-            ('SELECT * FROM factor_values WHERE task_id=%s ORDER BY ordinal', (task,)),
         ]
         protected_before = [self.connection.execute(query, parameters).fetchall() for query, parameters in protected_queries]
-        legacy = load(self.request(legacy_id), 1, 0, connection=self.connection)
-        self.assertAlmostEqual(legacy['returns'][1, 0], .2)
-        self.assertTrue(np.isnan(legacy['returns'][2, 0]))
-        self.assertEqual(legacy['return_policy']['version'], 'legacy-price-ratio-v1')
+        with self.assertRaisesRegex(ValueError, 'current field-blocks-v1'):
+            load(self.request(legacy_id), 1, 0, connection=self.connection)
         imported = import_bundle(self.root, connection=self.connection, block_days=2)
         self.assertTrue(imported['created'])
         self.assertNotEqual(imported['snapshot_id'], legacy_id)
         self.assertEqual(self.counts(), (2, 4))
-        current = load(self.request(imported['snapshot_id']), 1, 0, connection=self.connection)
+        prepared = prepare_snapshot(imported['snapshot_id'], connection=self.connection)
+        current = load(self.request(prepared['snapshot_id']), 1, 0, connection=self.connection)
         np.testing.assert_allclose(current['returns'][:, 0], [.25, 0, 0], rtol=0, atol=1e-15)
         self.assertEqual(current['return_policy']['version'], 'volume-zero-v1')
-        self.assertEqual(current['frames'][1]['rows']['A']['close'], 12)
-        self.assertEqual(current['frames'][1]['rows']['A']['prev_close'], 10)
-        self.assertIsNone(current['frames'][2]['rows']['A']['prev_close'])
+        self.assertEqual(current['quotes']['values'][FIELDS.index('close'), 1, 0], 12)
+        self.assertEqual(current['quotes']['values'][FIELDS.index('prev_close'), 1, 0], 10)
+        self.assertTrue(np.isnan(current['quotes']['values'][FIELDS.index('prev_close'), 2, 0]))
         current['return_policy']['version'] = 'caller-local-edit'
-        reloaded = load(self.request(imported['snapshot_id']), 1, 0, connection=self.connection)
+        reloaded = load(self.request(prepared['snapshot_id']), 1, 0, connection=self.connection)
         self.assertEqual(reloaded['return_policy']['version'], 'volume-zero-v1')
         new_blocks = self.connection.execute(
             'SELECT * FROM market_matrix_blocks WHERE snapshot_id=%s ORDER BY start_index', (imported['snapshot_id'],),
@@ -184,7 +182,7 @@ class MarketDatabaseTests(unittest.TestCase):
         repeated = import_bundle(self.root, connection=self.connection, block_days=2)
         self.assertFalse(repeated['created'])
         self.assertEqual(repeated['snapshot_id'], imported['snapshot_id'])
-        self.assertEqual(self.counts(), (2, 4))
+        self.assertEqual(self.counts(), (3, 4))
         self.assertEqual(self.connection.execute(
             'SELECT * FROM market_matrix_blocks WHERE snapshot_id=%s ORDER BY start_index', (imported['snapshot_id'],),
         ).fetchall(), new_blocks)
@@ -222,4 +220,4 @@ class MarketDatabaseTests(unittest.TestCase):
             'UPDATE market_matrix_blocks SET sha256=%s WHERE snapshot_id=%s AND start_index=0', ('0'*64, snapshot)
         )
         with self.assertRaisesRegex(ValueError, 'integrity'):
-            load(self.request(snapshot), 1, 0, connection=self.connection)
+            prepare_snapshot(snapshot, connection=self.connection)

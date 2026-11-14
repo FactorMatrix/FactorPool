@@ -4,7 +4,6 @@ import UiIcon from "./UiIcon.vue";
 import BrainSummary from "./BrainSummary.vue";
 import FactorDiagnostics from "./FactorDiagnostics.vue";
 import ReportChart from "./ReportChart.vue";
-import ResearchChart from "./ResearchChart.vue";
 import AlphaTrace from "./AlphaTrace.vue";
 const props = defineProps({
   task: Object,
@@ -40,14 +39,15 @@ const displayedReport = computed(() => {
   return { ...props.result.diagnostics, horizons: Object.fromEntries(
     Object.entries(props.result.diagnostics.horizons).map(([key, horizon]) => [key, displayHorizon(horizon)])) };
 });
+const supportedReport = computed(() => props.result?.metadata?.report_version === 3
+  && props.result?.diagnostics?.version === 3 && props.result.metadata.brain_settings
+  && props.result.diagnostics.conventions?.brain_settings);
 const alpha = computed(() => displayed.value?.portfolios.alpha);
-const pnlBook = computed(() => ({ size: alpha.value?.pnl?.book_size ?? displayed.value?.pnl_book?.size ?? 1,
-  unit: alpha.value?.pnl?.unit || displayed.value?.pnl_book?.unit || "BOOK" }));
+const pnlBook = computed(() => ({ size: alpha.value?.pnl?.book_size,
+  unit: alpha.value?.pnl?.unit }));
 const bookLabel = computed(() => `${Number(pnlBook.value.size).toLocaleString("en-US", { maximumFractionDigits: 2 })} ${pnlBook.value.unit}`);
-const dailyPortfolio = computed(() => (props.result?.diagnostics?.version || 0) >= 3);
-const visualization = computed(() => props.result?.metadata?.brain_settings?.visualization
-  ?? props.task?.snapshot?.brain_settings?.visualization ?? true);
-const portfolioDates = computed(() => displayed.value?.portfolio_dates || displayed.value?.portfolio_signal_dates || []);
+const visualization = computed(() => props.result?.metadata?.brain_settings?.visualization);
+const portfolioDates = computed(() => displayed.value?.portfolio_dates || []);
 const summary = computed(() => props.result?.summary || {});
 const num = (x) => (x == null ? "--" : Number(x).toFixed(4));
 const pct = (x) => (x == null ? "--" : (Number(x) * 100).toFixed(2) + "%");
@@ -116,7 +116,7 @@ const sections = [
           task ? states[task.status] || task.status : "Ready"
         }}</span>
       </div>
-      <template v-if="result">
+      <template v-if="result && supportedReport">
         <div class="result-context">
           <span class="dataset-chip"
             >{{ result.metadata.synthetic ? "SYNTHETIC DATA" : "CHN EQUITY"
@@ -145,7 +145,7 @@ const sections = [
         </label>
         <h1 class="result-factor-name">{{ task.name }}</h1>
         <BrainSummary v-if="alpha && view !== 'trace'" :summary="alpha.brain_style" />
-        <div class="metrics legacy-metrics" aria-label="一期因子统计">
+        <div class="metrics factor-metrics" aria-label="一期因子统计">
           <div
             v-for="[label, value] in [
               ['1D IC', num(summary.ic_mean)],
@@ -165,7 +165,7 @@ const sections = [
             ><select v-if="visualization" v-model="chartMode" aria-label="结果曲线">
               <option value="nav">Net value · 复利净值</option>
               <option value="pnl">PnL · 固定 book</option>
-              <option value="returns">{{ dailyPortfolio ? 'Daily returns · 日收益' : 'Period returns · 期收益' }}</option>
+              <option value="returns">Daily returns · 日收益</option>
               <option value="monthly">Monthly returns · 月度收益</option>
               <option value="yearly">Yearly returns · 年度收益</option>
             </select>
@@ -175,14 +175,13 @@ const sections = [
             :data="displayed"
             :portfolio="alpha"
             :mode="chartMode"
-          /><ResearchChart v-else-if="visualization" :daily="result.daily" mode="ic" />
+          />
           <p v-else class="report-note" role="status">可视化已由 settings.visualization 关闭。可在 Summary、IC Analysis 和 Groups 查看数值，或导出完整结果。</p>
           <div class="chart-footnote">
-            {{ portfolioDates[0] || result.daily[0]?.date }} —
+            {{ portfolioDates[0] }} —
             {{
-              portfolioDates.at(-1) ||
-              result.daily.at(-1)?.date
-            }}<span>{{ dailyPortfolio ? '快照日收益 · 逐日盯市' : '历史报告 · 原任务收益口径' }} · 无费用 · 缺失值 --</span>
+              portfolioDates.at(-1)
+            }}<span>快照日收益 · 逐日盯市 · 无费用 · 缺失值 --</span>
           </div>
           <p v-if="chartMode === 'nav'" class="pnl-book-note">初始净值 1，按比例权重计算收益并逐日复利；持有期内权重随价格自然漂移。</p>
           <p v-else-if="chartMode === 'pnl'" class="pnl-book-note">固定名义 book：{{ bookLabel }}。PnL 逐日累加，净值另按收益复利；仅名义缩放，无汇兑或实际成交。</p>
@@ -190,7 +189,7 @@ const sections = [
         <AlphaTrace v-else-if="view === 'trace'" :data="selected" :constraints="result.diagnostics?.alpha_constraints" />
         <FactorDiagnostics
           v-else-if="
-            ['summary', 'ic', 'groups'].includes(view) && result.diagnostics
+            ['summary', 'ic', 'groups'].includes(view)
           "
           :key="view"
           :report="displayedReport"
@@ -204,37 +203,6 @@ const sections = [
                 : 'ic'
           "
         />
-        <div
-          v-else-if="['summary', 'ic', 'groups'].includes(view)"
-          class="legacy-result"
-        >
-          <p class="report-note">历史任务 · 一期研究结果</p>
-          <ResearchChart
-            v-if="visualization"
-            :daily="result.daily"
-            :mode="view === 'groups' ? 'group' : 'ic'"
-          />
-          <div class="table-scroll">
-            <table>
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>IC</th>
-                  <th>Rank IC</th>
-                  <th>Pairs</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="d in result.daily" :key="d.date">
-                  <td>{{ d.date }}</td>
-                  <td>{{ num(d.ic) }}</td>
-                  <td>{{ num(d.rank_ic) }}</td>
-                  <td>{{ d.pairs }}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
         <section v-else-if="view === 'values'" class="factor-values">
           <div class="section-title">
             <span>Factor Values</span
@@ -301,6 +269,7 @@ const sections = [
           </details>
         </section>
       </template>
+      <p v-else-if="result" class="report-note" role="alert">此结果格式已不再支持，请使用当前脚本重新运行。</p>
       <div v-else-if="view !== 'logs' && view !== 'source'" class="empty">
         <UiIcon :name="running ? 'refresh' : 'chart'" :size="42" />
         <h2>
@@ -326,7 +295,7 @@ const sections = [
         }}</pre>
       </section>
       <p
-        v-if="result && ['chart', 'summary'].includes(view)"
+        v-if="result && supportedReport && ['chart', 'summary'].includes(view)"
         class="results-method-note"
       >
         研究口径 · BRAIN 官方数值一致性尚未核验。<button

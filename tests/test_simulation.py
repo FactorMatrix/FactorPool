@@ -3,6 +3,7 @@ from copy import deepcopy
 from datetime import date, timedelta
 import json
 from pathlib import Path
+from script_fixtures import result_values
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -223,7 +224,7 @@ if __name__ == "__main__":
                 run(directory)
                 report = json.loads((directory/'result.json').read_text())
                 reports.append(report)
-                exports.append((directory/'values.jsonl').read_text())
+                exports.append(json.dumps(result_values(directory), sort_keys=True, allow_nan=False))
                 self.assertEqual(report['metadata']['source_config'], config)
                 self.assertEqual(report['metadata']['effective_config']['settings'], report['metadata']['brain_settings'])
         self.assertEqual(exports[0], exports[1])
@@ -306,6 +307,8 @@ if __name__ == "__main__":
             payload = dict(provider='market_matrix', adjustment='raw', symbols=['A', 'B'], frames=frames,
                            returns=np.array([[0., 0], [.1, -.1], [0, 0]]),
                            snapshot_id='synthetic-off-snapshot', synthetic=False)
+            from factorpool.market_returns import return_policy
+            payload['return_policy'] = return_policy()
             config = dict(base=dict(start_date='2024-01-02', end_date='2024-01-02'), data=data,
                           analysis=dict(groups=2, horizons=[1], min_ic_pairs=2, decay_steps=1),
                           settings=dict(pasteurization=mode))
@@ -316,12 +319,12 @@ if __name__ == "__main__":
                 directory = Path(temporary)
                 (directory/'request.json').write_text(json.dumps(dict(name='calculation axis', source_code=source)))
                 run(directory)
-                values = [json.loads(line) for line in (directory/'values.jsonl').read_text().splitlines()]
+                values = result_values(directory)
                 self.assertEqual([row['symbol'] for row in values], ['A', 'B'])
                 results[mode] = [row['value'] for row in values]
                 if mode == 'OFF':
                     self.assertEqual(load.call_args.kwargs,
-                                     dict(matrix_only=True, fields=('volume',), pasteurization='OFF'))
+                                     dict(fields=('volume',), pasteurization='OFF'))
                     report = json.loads((directory/'result.json').read_text())
                     self.assertEqual(report['metadata']['price_contract']['native_input_frames'], 1)
                 self.assertEqual(len(values), 2)

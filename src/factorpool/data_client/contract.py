@@ -26,10 +26,10 @@ PREFIX = b"FPC2"
 
 
 def field_catalog(metadata):
-    """Only published fields are addressable; old snapshots keep their contract."""
+    """Only the current published field catalog is addressable."""
     manifest = metadata.get("manifest", {})
     if manifest.get("storage_format") != FIELD_BLOCK_FORMAT:
-        return {field: {"dtype": _TYPED_FIELDS[field]} for field in SERVED_FIELDS}
+        raise ValueError("Market reads require a current field-blocks-v1 snapshot")
     catalog = manifest.get("field_catalog")
     if not isinstance(catalog, dict) or not catalog:
         raise ValueError("Invalid market field catalog")

@@ -11,9 +11,6 @@ from factorpool.result_matrix import iter_result_chunks
 from script_fixtures import example_source
 
 
-ROOT = Path(__file__).resolve().parents[1]
-
-
 class RunnerPublicationTests(unittest.TestCase):
     def request(self):
         return dict(
@@ -54,7 +51,7 @@ class RunnerPublicationTests(unittest.TestCase):
                 return diagnostics(*args, **kwargs)
 
             with patch.object(runner, 'build_diagnostics', side_effect=inspect):
-                runner.run(directory, values_format='matrix')
+                runner.run(directory)
             report = json.loads((directory/'result.json').read_text())
             self.assertEqual(len(report['daily']), 3)
             self.assertEqual(report['metadata']['value_count'], 9)
@@ -67,33 +64,17 @@ class RunnerPublicationTests(unittest.TestCase):
             self.prepare(directory)
             with patch.object(runner, 'build_diagnostics', side_effect=RuntimeError('diagnostics failed')):
                 with self.assertRaisesRegex(RuntimeError, 'diagnostics failed'):
-                    runner.run(directory, values_format='matrix')
+                    runner.run(directory)
             self.check_artifact(directory)
             self.assertFalse((directory/'result.json').exists())
 
-    def test_failed_export_clears_a_stale_marker_without_publishing_another(self):
+    def test_failed_matrix_write_clears_a_stale_marker_without_publishing_another(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
             self.prepare(directory)
             (directory/'values-ready.json').write_text('{"version":1}')
-            with patch('factorpool.result_matrix.write_result_matrix', side_effect=OSError('export failed')):
-                with self.assertRaisesRegex(OSError, 'export failed'):
-                    runner.run(directory, values_format='matrix')
+            with patch('factorpool.result_matrix.write_result_matrix', side_effect=OSError('matrix write failed')):
+                with self.assertRaisesRegex(OSError, 'matrix write failed'):
+                    runner.run(directory)
             self.assertFalse((directory/'values-ready.json').exists())
             self.assertFalse((directory/'result.json').exists())
-
-    def test_explicit_jsonl_retains_the_complete_report_and_serial_fallback(self):
-        reports = []
-        with tempfile.TemporaryDirectory() as temporary:
-            for format in ('matrix', 'jsonl'):
-                directory = Path(temporary)/format
-                directory.mkdir()
-                self.prepare(directory)
-                runner.run(directory, values_format=format)
-                report = json.loads((directory/'result.json').read_text())
-                report.pop('metadata')
-                reports.append(report)
-                self.assertEqual((directory/'values-ready.json').exists(), format == 'matrix')
-                if format == 'jsonl':
-                    self.assertEqual(len((directory/'values.jsonl').read_text().splitlines()), 9)
-            self.assertEqual(reports[0], reports[1])

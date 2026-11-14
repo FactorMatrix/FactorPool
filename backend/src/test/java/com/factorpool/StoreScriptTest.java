@@ -22,11 +22,11 @@ class StoreScriptTest {
 
   ObjectNode request(String source) {
     return json.createObjectNode().put("name", "Script factor")
-        .put("source_mode", "script").put("source_code", source);
+        .put("source_code", source);
   }
 
   ObjectNode normalized(String snapshot) {
-    ObjectNode out = json.createObjectNode().put("source_mode", "script").put("factor_class", "MyFactor");
+    ObjectNode out = json.createObjectNode().put("factor_class", "MyFactor");
     out.putObject("factor_params").put("period", 20);
     ObjectNode data = out.putObject("data").put("provider", "market_matrix")
         .put("frequency", "1d").put("adjustment", "raw")
@@ -78,6 +78,7 @@ class StoreScriptTest {
     assertEquals(resolved.path("source_config"), saved.path("source_config"));
     assertEquals("MyFactor", saved.path("factor_class").asText());
     assertFalse(saved.has("effective_config"));
+    assertFalse(saved.has("source_mode"));
     verify(data,never()).snapshot("");
   }
 
@@ -90,13 +91,19 @@ class StoreScriptTest {
   }
 
   @Test
-  void conflictingExternalControlsAreRejectedRatherThanOverridingSource() {
-    when(scripts.resolve("script", null)).thenReturn(normalized(null));
-    ObjectNode input = request("script");
-    input.putObject("factor_params").put("period", 999);
-    var error = assertThrows(IllegalArgumentException.class, () -> store.enqueue(input, null));
-    assertTrue(error.getMessage().contains("conflicts with resolved config"));
-    verifyNoInteractions(db);
+  void derivedFieldsAreRejectedEvenWhenTheyMatchTheResolvedSource() {
+    ObjectNode resolved = normalized(null);
+    resolved.putObject("brain_settings").put("decay", 0);
+    resolved.put("simulation_type", "REGULAR");
+    resolved.putObject("effective_config");
+    for (String field : List.of("factor_class", "factor_params", "data", "analysis",
+                               "source_config", "brain_settings", "effective_config", "simulation_type")) {
+      ObjectNode input = request("script");
+      input.set(field, resolved.get(field));
+      var error = assertThrows(IllegalArgumentException.class, () -> store.enqueue(input, null));
+      assertTrue(error.getMessage().contains(field));
+    }
+    verifyNoInteractions(scripts, db);
   }
 
   @Test
@@ -197,10 +204,12 @@ class StoreScriptTest {
 
   @Test
   void classModeIsRejectedBeforeParsingOrWriting() {
-    ObjectNode input = request("class OldFactor: pass");
-    input.put("source_mode", "class");
-    var error = assertThrows(IllegalArgumentException.class, () -> store.enqueue(input, null));
-    assertTrue(error.getMessage().contains("Python script"));
+    for (String mode : List.of("class", "script")) {
+      ObjectNode input = request("class OldFactor: pass");
+      input.put("source_mode", mode);
+      var error = assertThrows(IllegalArgumentException.class, () -> store.enqueue(input, null));
+      assertTrue(error.getMessage().contains("source_mode"));
+    }
     verifyNoInteractions(scripts, db);
   }
 
@@ -212,7 +221,6 @@ class StoreScriptTest {
     resolved.set("workspace_config", workspace.deepCopy());
     when(scripts.resolve("script", workspace)).thenReturn(resolved);
     ObjectNode input = request("script");
-    input.remove("source_mode");
     input.set("workspace_config", workspace);
     ObjectNode saved = store.validateDefinition(input);
     assertEquals(workspace, saved.path("workspace_config"));

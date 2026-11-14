@@ -25,24 +25,35 @@ def source(expression):
 
 
 class FrontendIngressTests(unittest.TestCase):
-    def test_script_preview_and_class_preflight_share_migration_errors(self):
-        for expression, replacement in (
-            ('self.cs.group_mean(input.close,input.volume,input.open)', 'self.gp.mean'),
-            ('self.cs.vec_sum((input.open,input.close))', 'self.vc.sum'),
-            ('self.cs.trade_when(input.open,input.close,-1)', 'self.tf.trade_when'),
-            ('self.cs.log(input.close)', 'self.log'),
+    def test_cli_rejects_retired_request_fields_and_invalid_workspace(self):
+        for extra in ({'frontend_only': True}, {'factor_class': 'Factor'},
+                      {'source_mode': 'script'}, {'workspace_config': None}):
+            with self.subTest(extra=extra):
+                child = subprocess.run([sys.executable, '-m', 'factorpool.script'],
+                    input=json.dumps({'source_code':source('input.close'), **extra}),
+                    text=True, capture_output=True)
+                self.assertEqual(child.returncode, 2)
+                self.assertEqual(child.stdout, '')
+                self.assertNotIn('Traceback', child.stderr)
+
+    def test_script_preview_and_class_preflight_reject_nonpublic_calls(self):
+        for expression in (
+            'self.cs.group_mean(input.close,input.volume,input.open)',
+            'self.cs.vec_sum((input.open,input.close))',
+            'self.cs.trade_when(input.open,input.close,-1)',
+            'self.cs.log(input.close)',
         ):
             with self.subTest(expression=expression):
                 text = source(expression)
                 with self.assertRaises(ScriptError) as caught:
                     parse_source(text)
-                self.assertIn(replacement, str(caught.exception))
+                self.assertIn('not a public operator', str(caught.exception))
                 self.assertIn('line', str(caught.exception))
                 child = subprocess.run([sys.executable, '-m', 'factorpool.script'],
                     input=json.dumps({'source_code':text}),
                     text=True, capture_output=True)
                 self.assertEqual(child.returncode, 2)
-                self.assertIn(replacement, child.stderr)
+                self.assertIn('not a public operator', child.stderr)
                 self.assertNotIn('Traceback', child.stderr)
                 self.assertEqual(child.stdout, '')
 
@@ -70,7 +81,7 @@ class FrontendIngressTests(unittest.TestCase):
                     f'Path({str(marker)!r}).write_text("executed")\n'
                     + source('self.cs.sqrt(input.close)'))
             path.write_text(text)
-            with self.assertRaisesRegex(ValueError, 'self.sqrt'):
+            with self.assertRaisesRegex(ValueError, 'not a public operator'):
                 load_factor(path, 'Factor', {})
             self.assertFalse(marker.exists())
 

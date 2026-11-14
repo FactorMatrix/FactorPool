@@ -301,7 +301,7 @@ class Worker:
                             # The marker may have been atomically published
                             # between the preceding read and process completion.
                             if self._values_ready(directory) is None:
-                                break
+                                raise ValueError("Research process did not publish a result matrix marker")
                             continue
                         process_done.wait(.02)
                     # A receipt alone cannot publish success: the full diagnostics
@@ -320,19 +320,11 @@ class Worker:
                     count = result["metadata"].get("value_count")
                     if type(count) is not int or count < 0:
                         raise ValueError("Invalid research factor value count")
-                    if marker is not None:
-                        artifact = result["metadata"].get("value_artifact")
-                        if (count != marker["value_count"] or not isinstance(artifact, dict)
-                                or type(artifact.get("count")) is not int or artifact["count"] != count
-                                or artifact.get("sha256") != marker["sha256"]):
-                            raise ValueError("Research report differs from uploaded values")
-                    else:
-                        # Legacy/custom processes and explicit JSONL exports have
-                        # no early-ready marker and retain their serial behavior.
-                        values_path = directory / "values.matrix"
-                        if not values_path.exists():
-                            values_path = directory / "values.jsonl"
-                        receipt, upload_seconds = upload(values_path, count)
+                    artifact = result["metadata"].get("value_artifact")
+                    if (count != marker["value_count"] or not isinstance(artifact, dict)
+                            or type(artifact.get("count")) is not int or artifact["count"] != count
+                            or artifact.get("sha256") != marker["sha256"]):
+                        raise ValueError("Research report differs from uploaded values")
                     result["metadata"].setdefault("stage_seconds", {})["upload_values"] = upload_seconds
                     check_execution()
                     self.client.logs(task, logs.text())

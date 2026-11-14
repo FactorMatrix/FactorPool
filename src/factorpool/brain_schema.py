@@ -10,7 +10,7 @@ TS = {
     'last_diff_value': ('last_diff_value', 1, ('period',), {}),
     'arg_max': ('ts_arg_max', 1, ('period',), {}),
     'arg_min': ('ts_arg_min', 1, ('period',), {}),
-    'backfill': ('ts_backfill', 1, ('period', 'k'), {'k': 1}),
+    'backfill': ('ts_backfill', 1, ('lookback', 'k'), {'k': 1}),
     'corr': ('ts_corr', 2, ('period',), {}),
     'count_nans': ('ts_count_nans', 1, ('period',), {}),
     'covariance': ('ts_covariance', 2, ('period',), {}),
@@ -29,8 +29,8 @@ TS = {
     'delay': ('ts_delay', 1, ('period',), {}),
     'delta': ('ts_delta', 1, ('period',), {}),
 }
-LEGACY_TS = frozenset(('av_diff', 'scale', 'zscore', 'decay_linear', 'mean', 'sum', 'std', 'delay', 'delta'))
-NEW_TS = set(TS) - LEGACY_TS
+OBSERVATION_TS = frozenset(('av_diff', 'scale', 'zscore', 'decay_linear', 'mean', 'sum', 'std', 'delay', 'delta'))
+CORE_TS = set(TS) - OBSERVATION_TS
 CS = {
     'densify': ('densify', 1, (), {}),
     'quantile': ('quantile', 1, ('driver', 'sigma'), {'driver': 'gaussian', 'sigma': 1}),
@@ -108,12 +108,16 @@ def prepare_core_call(compiler, domain, method, syntax, variables):
             raise compiler.error(syntax, 'too many options for ' + method)
         options = dict(zip(parameters, [literal(compiler, arg) for arg in supplied]))
         for keyword in syntax.keywords:
-            key = 'period' if domain=='ts' and method=='backfill' and keyword.arg=='lookback' else keyword.arg
+            key = keyword.arg
             if key not in parameters + ('clock',) or key in options or domain != 'ts' and key == 'clock':
                 raise compiler.error(syntax, 'unsupported/repeated option ' + str(keyword.arg))
             options[key] = literal(compiler, keyword.value)
         options = {**defaults, **options}
-        if domain == 'ts':options.setdefault('clock', 'valid_observations' if method in LEGACY_TS else 'trading_days')
+        if domain == 'ts' and method == 'backfill':
+            if 'lookback' not in options:
+                raise compiler.error(syntax, 'backfill requires a lookback')
+            options['period'] = options.pop('lookback')
+        if domain == 'ts':options.setdefault('clock', 'valid_observations' if method in OBSERVATION_TS else 'trading_days')
         if 'period' in parameters and 'period' not in options:
             raise compiler.error(syntax, method + ' requires a period/lookback')
         if name == 'bucket' and sum(key in options for key in ('range', 'buckets')) != 1:

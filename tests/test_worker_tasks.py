@@ -54,9 +54,12 @@ class PreparedProcess:
         if controls["cancelling"].is_set():
             raise TaskStopped("CANCELLED", "Task cancelled")
         self.request = json.loads((directory / "request.json").read_text())
+        marker=dict(version=1,artifact="values.matrix",value_count=1,sha256="a"*64)
+        (directory/"values.matrix").write_text("immutable-matrix")
+        (directory/"values-ready.json").write_text(json.dumps(marker))
         (directory / "result.json").write_text(json.dumps({
-            "metadata": {"value_count": 1}, "summary": {}, "daily": []}))
-        (directory / "values.jsonl").write_text('{"value":1}\n')
+            "metadata": {"value_count": 1,"value_artifact":{"count":1,"sha256":marker["sha256"]}},
+            "summary": {}, "daily": []}))
         controls["logs"].append(b"finished\n")
 
 
@@ -69,7 +72,7 @@ class FakeData:
         if cancelled():
             raise InterruptedError()
         self.uploads.append((tid, attempt, token, Path(path).read_text(), count))
-        return {"receipt": "test-receipt", "sha256": "test-checksum", "count": count}
+        return {"receipt": "test-receipt", "sha256": "a"*64, "count": count}
 
     def close(self):
         self.closed = True
@@ -229,6 +232,21 @@ class WorkerProcessTests(unittest.TestCase):
 
 
 class WorkerProtocolTests(unittest.TestCase):
+    def test_process_without_matrix_marker_is_rejected(self):
+        class MissingMarkerProcess:
+            def run(self, directory, timeout, **controls):
+                path=Path(directory)
+                (path/'values.jsonl').write_text('{"value":1}\n')
+                (path/'result.json').write_text(json.dumps(dict(metadata=dict(value_count=1),summary={},daily=[])))
+        control,data=FakeControl(),FakeData()
+        with tempfile.TemporaryDirectory() as tmp:
+            worker=Worker(control,root=tmp,process_manager=MissingMarkerProcess(),data_factory=lambda:data)
+            worker.execute(task())
+            worker.executor.shutdown()
+        self.assertEqual(data.uploads,[])
+        self.assertEqual(control.completions,[])
+        self.assertIn('matrix marker',control.failures[0][2])
+
     def test_publication_response_loss_retries_same_attempt_once(self):
         control = FakeControl(complete_response_loss=True)
         data, process = FakeData(), PreparedProcess()

@@ -16,7 +16,7 @@ from factorpool.adapter import IndicatorAdapter
 from factorpool.datasource import fixture
 from factorpool.runner import run, load_factor, validate, returns_matrix
 from factorpool.script import parse_source
-from script_fixtures import example_source
+from script_fixtures import example_source, result_values
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -82,7 +82,7 @@ class Factor(PythonIndicator):
             path = Path(directory)
             (path/'request.json').write_text(json.dumps(request))
             run(directory)
-            rows = [json.loads(line) for line in (path/'values.jsonl').read_text().splitlines()]
+            rows = result_values(path)
             np.testing.assert_allclose([row['forward_return'] for row in rows], [1, .5, -.5])
             result = json.loads((path/'result.json').read_text())
             self.assertEqual(result['metadata']['report_version'], 3)
@@ -105,6 +105,8 @@ class Factor(PythonIndicator):
     def test_database_return_matrix_is_reused_with_axes_and_warmup_preserved(self):
         payload = fixture()
         payload.update(symbols=['B', 'A', 'C'], synthetic=False, snapshot_id='test-db-snapshot')
+        from factorpool.market_returns import return_policy
+        payload['return_policy'] = return_policy()
         payload['frames'] = payload['frames'][:5]
         payload['returns'] = np.zeros((5, 3))
         payload['returns'][3] = [2, 1, -.5]  # Source columns are deliberately unsorted.
@@ -131,8 +133,8 @@ class Factor(PythonIndicator):
             (path/'request.json').write_text(json.dumps(request))
             run(directory)
             load.assert_called_once_with(parse_source(source, request['workspace_config'])['data'],
-                                         3, 1, matrix_only=True, fields=('volume',))
-            values = [json.loads(line) for line in (path/'values.jsonl').read_text().splitlines()]
+                                         3, 1, fields=('volume',))
+            values = result_values(path)
             self.assertEqual([row['symbol'] for row in values], ['A', 'B', 'C'])
             np.testing.assert_allclose([row['forward_return'] for row in values], [1, 2, -.5])
             result = json.loads((path/'result.json').read_text())
@@ -250,7 +252,7 @@ class Factor(PythonIndicator):
             value=IndicatorAdapter(indicator);value.binding=Mock(wraps=value.binding);held.append(value);return value
         with tempfile.TemporaryDirectory() as d,patch('factorpool.factor_matrix.IndicatorAdapter',side_effect=create):
             path=Path(d);(path/'request.json').write_text(json.dumps(request));run(d)
-            values = [json.loads(line) for line in (path/'values.jsonl').read_text().splitlines()]
+            values = result_values(path)
             self.assertEqual(len(values), 3)
             self.assertTrue(all(row['ready'] and row['valid'] for row in values))
         binding = held[-1].binding
@@ -276,7 +278,7 @@ class Factor(PythonIndicator):
             result=json.loads((path/'result.json').read_text())
             self.assertEqual(result['summary']['valid_dates'],1)
             self.assertEqual(result['metadata']['value_count'],3)
-            self.assertEqual(len((path/'values.jsonl').read_text().splitlines()),3)
+            self.assertEqual(len(result_values(path)),3)
             json.loads((path/'result.json').read_text(), parse_constant=lambda token: self.fail('Nonfinite JSON number: '+token))
 
 

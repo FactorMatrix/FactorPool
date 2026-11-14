@@ -23,27 +23,23 @@ class PostgresMarketSource:
         with transaction(self.connection, readonly=True) as conn:
             if conn.execute("SELECT to_regclass('public.market_snapshots')").fetchone()[0] is None:
                 return dict(snapshots=0, original_blocks=0, field_blocks=0)
-            identities = conn.execute("SELECT id FROM market_snapshots ORDER BY id").fetchall()
+            identities = conn.execute("SELECT id FROM market_snapshots WHERE manifest->>'storage_format'=%s ORDER BY id",
+                                      (STORAGE_FORMAT,)).fetchall()
         verifier = PostgresMarketSource(self.connection, verify_reads=True)
         counts = dict(snapshots=0, original_blocks=0, field_blocks=0)
         for (identity,) in identities:
             snapshot = verifier.snapshot(identity)
-            if snapshot['manifest'].get('storage_format') == STORAGE_FORMAT:
-                catalog = checked_catalog(snapshot)
-                expected = {(field, block['start_index']):
-                            (block['row_count'], descriptor['dtype'], descriptor['sha256'])
-                            for block in snapshot['field_blocks']
-                            for field, descriptor in block['fields'].items()}
-                with transaction(self.connection, readonly=True) as conn:
-                    if _existing_index(conn, identity, catalog) != expected:
-                        raise ValueError("Stored market fields differ from the published index")
-                for block in snapshot['blocks']:
-                    verifier.read_fields(snapshot, block, tuple(catalog))
-                    counts['field_blocks'] += len(catalog)
-            else:
-                for block in snapshot['blocks']:
-                    verifier.original_block(snapshot, block)
-                    counts['original_blocks'] += 1
+            catalog = checked_catalog(snapshot)
+            expected = {(field, block['start_index']):
+                        (block['row_count'], descriptor['dtype'], descriptor['sha256'])
+                        for block in snapshot['field_blocks']
+                        for field, descriptor in block['fields'].items()}
+            with transaction(self.connection, readonly=True) as conn:
+                if _existing_index(conn, identity, catalog) != expected:
+                    raise ValueError("Stored market fields differ from the published index")
+            for block in snapshot['blocks']:
+                verifier.read_fields(snapshot, block, tuple(catalog))
+                counts['field_blocks'] += len(catalog)
             if check_prepared is not None:
                 check_prepared(snapshot)
             counts['snapshots'] += 1
@@ -57,7 +53,8 @@ class PostgresMarketSource:
                 query += " WHERE id=%s"
                 args = (snapshot_id,)
             else:
-                query += " ORDER BY created_at DESC,id DESC LIMIT 1"
+                query += " WHERE manifest->>'storage_format'=%s ORDER BY created_at DESC,id DESC LIMIT 1"
+                args = (STORAGE_FORMAT,)
             row = conn.execute(query, args).fetchone()
             if row is None:
                 raise MarketSnapshotNotFound("Market snapshot is unavailable; import it explicitly first")
@@ -89,11 +86,10 @@ class PostgresMarketSource:
                     checked_block(result, block)
         return validate_snapshot(result, snapshot_id) if self.verify_reads else result
 
-    def original_block(self, snapshot, block):
+    def _staging_block(self, snapshot, block):
+        """Raw bundle staging is consumed only by explicit field preparation."""
         if snapshot["manifest"].get("storage_format") == STORAGE_FORMAT:
-            import numpy as np
-            values = self.read_fields(snapshot, block, FIELDS)
-            return np.stack([values[field] for field in FIELDS])
+            raise ValueError("Field snapshots must be read through typed columns")
         with transaction(self.connection, readonly=True) as conn:
             # bytea stays binary on the wire; text mode hex-encodes every byte.
             row = conn.execute("SELECT row_count,payload,sha256 FROM market_matrix_blocks WHERE snapshot_id=%s AND start_index=%s",
@@ -113,7 +109,7 @@ class PostgresMarketSource:
         if snapshot["manifest"].get("storage_format") != STORAGE_FORMAT:
             if any(field not in SERVED_FIELDS for field in fields):
                 raise ValueError("Requested market input was not supplied in this snapshot")
-            original = self.original_block(snapshot, block)
+            original = self._staging_block(snapshot, block)
             result = {}
             for field in fields:
                 value = market_field(original, field)
@@ -158,9 +154,3 @@ class PostgresMarketSource:
                 values = self.read_fields(snapshot, block, fields)
                 yield block["start_index"], block["row_count"], {
                     field: value[:, columns] for field, value in values.items()}
-
-    def selected_blocks(self, snapshot, initial, stop, columns, *, fields=None):
-        import numpy as np
-        fields = FIELDS if fields is None else tuple(fields)
-        for start, count, values in self.selected_columns(snapshot, initial, stop, columns, fields=fields):
-            yield start, count, np.stack([values[field] for field in fields])

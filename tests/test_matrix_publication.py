@@ -74,8 +74,6 @@ class MatrixPublicationTests(unittest.TestCase):
             self.assertEqual(staged,self.store.stage(chunks,8192))
             first=self.store.finalize(self.request(staged))
             self.assertEqual(first,self.store.finalize(self.request(staged)))
-            self.assertEqual(self.connection.execute('SELECT count(*) FROM factor_values').fetchone()[0],0)
-            self.assertEqual(self.connection.execute('SELECT count(*) FROM factor_value_staging').fetchone()[0],0)
             self.assertEqual(self.connection.execute('SELECT storage_format,row_count FROM factor_value_publications').fetchone(),('matrix-v1',info['count']))
             with self.assertRaisesRegex(ValueError,'no complete'):
                 self.store.visible_version(self.task)
@@ -187,7 +185,6 @@ class MatrixPublicationTests(unittest.TestCase):
                     rows=json.loads(stub.Values(request,timeout=5,metadata=credentials).json)
                     self.assertEqual([row['symbol'] for row in rows],['S0001','S0002','S0003'])
                     self.assertEqual(rows[0]['trading_date'],dates[-1])
-                    self.assertEqual(self.connection.execute('SELECT count(*) FROM factor_values').fetchone()[0],0)
                     stored=self.connection.execute('SELECT count(*),sum(row_count) FROM factor_value_matrix_chunks').fetchone()
                     self.assertLess(stored[0],30)
                     self.assertEqual(stored[1],2_001_000)

@@ -160,23 +160,25 @@ public class Store {
         request.path("factors").size() > 100)
       throw new IllegalArgumentException("Select 1..100 factors");
     return tx.execute(status -> {
-      if (request.has("data") || request.has("analysis") || request.has("factor_class"))
-        throw new IllegalArgumentException("Use workspace_config for batch settings");
+      for (var fields = request.fieldNames(); fields.hasNext();) {
+        String field = fields.next();
+        if (!Set.of("factors", "workspace_config").contains(field))
+          throw new IllegalArgumentException("Unsupported batch field: " + field);
+      }
       if (request.has("workspace_config") && !request.get("workspace_config").isObject())
         throw new IllegalArgumentException("workspace_config must be an object");
       List<ObjectNode> definitions = new ArrayList<>();
       for (JsonNode fid : request.path("factors")) {
-        ObjectNode definition = (ObjectNode)factor(UUID.fromString(fid.asText())).path("latest").deepCopy();
-        if (request.has("workspace_config")) {
-          if (definition.has("workspace_config") && !definition.get("workspace_config").isObject())
-            throw new IllegalArgumentException("workspace_config must be an object");
-          ObjectNode workspace = definition.has("workspace_config")
-              ? definition.path("workspace_config").deepCopy() : json.createObjectNode();
+        JsonNode saved = factor(UUID.fromString(fid.asText())).path("latest");
+        ObjectNode definition = json.createObjectNode()
+            .put("name", saved.path("name").asText())
+            .put("source_code", saved.path("source_code").asText());
+        ObjectNode workspace = saved.has("workspace_config")
+            ? saved.path("workspace_config").deepCopy() : json.createObjectNode();
+        if (request.has("workspace_config"))
           overlay(workspace, request.path("workspace_config"));
+        if (saved.has("workspace_config") || request.has("workspace_config"))
           definition.set("workspace_config", workspace);
-          for (String key : List.of("factor_class", "factor_params", "data", "analysis", "source_config", "brain_settings", "simulation_type"))
-            definition.remove(key);
-        }
         definitions.add(validateDefinition(definition));
       }
       ObjectNode config = request.deepCopy();
@@ -244,20 +246,14 @@ public class Store {
         r.path("source_code").asText().length() > 131072)
       throw new IllegalArgumentException(
           "A name and source_code (max 128 KiB) are required");
-    if (r.has("source_mode") && !r.path("source_mode").asText().equals("script"))
-      throw new IllegalArgumentException("Only the Python script research entry is supported");
-    ObjectNode normalized = r.deepCopy();
-    normalized.remove("effective_config");
-    ObjectNode parsed = scripts.resolve(r.path("source_code").asText(), r.get("workspace_config"));
-    for (String key : List.of("factor_class", "factor_params", "data", "analysis", "source_config", "brain_settings", "workspace_config", "simulation_type")) {
-      if (!key.equals("workspace_config") && r.has(key) && !r.get(key).equals(parsed.get(key)))
-        throw new IllegalArgumentException(key + " conflicts with resolved config; edit config or workspace_config");
-      if (parsed.has(key))
-        normalized.set(key, parsed.get(key).deepCopy());
-      else
-        normalized.remove(key);
+    for (var fields = r.fieldNames(); fields.hasNext();) {
+      String field = fields.next();
+      if (!Set.of("name", "source_code", "workspace_config", "id").contains(field))
+        throw new IllegalArgumentException("Unsupported factor definition field: " + field);
     }
-    normalized.put("source_mode", "script");
+    ObjectNode normalized = r.deepCopy();
+    normalized.setAll(scripts.resolve(r.path("source_code").asText(), r.get("workspace_config")));
+    normalized.remove("effective_config");
     validate(normalized);
     return normalized;
   }
@@ -270,9 +266,6 @@ public class Store {
     var end = java.time.LocalDate.parse(d.path("factor_end").asText());
     if (end.isBefore(start))
       throw new IllegalArgumentException("End precedes start");
-    if (d.path("provider").asText().equals("ft_daily_mmap"))
-      throw new IllegalArgumentException(
-          "ft_daily_mmap has migrated to market_matrix; new tasks must read a PostgreSQL market snapshot");
     if (!Set.of("fixture", "market_matrix")
              .contains(d.path("provider").asText()))
       throw new IllegalArgumentException("Unknown provider");
@@ -285,7 +278,7 @@ public class Store {
     if (!a.path("entry").asText("signal_close").equals("signal_close") ||
         !a.path("exit").asText("next_close").equals("next_close"))
       throw new IllegalArgumentException(
-          "Only signal_close / next_close is supported, using close / prev_close - 1; legacy open-based requests are unsupported");
+          "Only signal_close / next_close is supported, using close / prev_close - 1");
     for (var it = a.fieldNames(); it.hasNext();)
       if (!Set.of("entry", "exit", "groups", "group_weight", "min_ic_pairs",
                   "icir_ddof", "annualize_icir", "horizons", "annual_days",

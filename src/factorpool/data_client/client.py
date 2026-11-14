@@ -1,24 +1,15 @@
 """Bounded direct Redis bulk reads with authenticated gRPC fallback."""
 import hashlib
 import json
-import math
 import os
 import time
 from pathlib import Path
 
 import numpy as np
 
-from .contract import (FIELDS, field_catalog, field_dtype, decode_tile, metadata_key, tile_key, tile_width,
+from .contract import (FIELDS, FIELD_BLOCK_FORMAT, field_catalog, field_dtype, decode_tile, metadata_key, tile_key, tile_width,
                        unpack_metadata, validate_snapshot, json_bytes, axis_digest)
 
-
-def _factor_group(value):
-    if value is None:
-        return None
-    if (type(value) not in (int, float) or not -(2**31) <= value <= 2**31 - 1
-            or not math.isfinite(value) or type(value) is float and not value.is_integer()):
-        raise ValueError("Factor group must be a finite integral int32 or null")
-    return int(value)
 
 
 class DataClient:
@@ -83,7 +74,10 @@ class DataClient:
             cached = self._redis("get", metadata_key(snapshot_id))
             if cached is not None:
                 try:
-                    return unpack_metadata(cached, snapshot_id, verify=False)
+                    found = unpack_metadata(cached, snapshot_id, verify=False)
+                    if found['manifest'].get('storage_format') != FIELD_BLOCK_FORMAT:
+                        raise ValueError('Market reads require a current field-blocks-v1 snapshot')
+                    return found
                 except (ValueError, TypeError, KeyError):
                     self.stats["corrupt_blocks"] += 1
                     self._redis("delete", metadata_key(snapshot_id))
@@ -92,7 +86,10 @@ class DataClient:
                                    timeout=self.timeout, metadata=self.metadata)
         self.stats["grpc_snapshots"] += 1
         self.stats["grpc_seconds"] += time.perf_counter() - started
-        return validate_snapshot(json.loads(reply.json), snapshot_id, verify=False)
+        found = validate_snapshot(json.loads(reply.json), snapshot_id, verify=False)
+        if found['manifest'].get('storage_format') != FIELD_BLOCK_FORMAT:
+            raise ValueError('Market reads require a current field-blocks-v1 snapshot')
+        return found
 
     def _tiles(self, metadata, requests):
         """One bounded batch; invalid cache entries become authoritative misses."""
@@ -181,69 +178,25 @@ class DataClient:
                 array.setflags(write=False)
             yield block["start_index"], block["row_count"], result
 
-    def selected_blocks(self, metadata, initial, stop, columns, *, fields=None):
-        """Compatibility view for callers requiring the original float matrix."""
-        fields = FIELDS if fields is None else tuple(fields)
-        for start, count, values in self.selected_columns(metadata, initial, stop, columns, fields=fields):
-            yield start, count, np.stack([values[field] for field in fields])
-
     def upload_values(self, task_id, attempt, lease_token, path, expected_count, *, cancelled=None):
-        """Stream bounded columnar chunks, or explicit legacy JSONL test artifacts."""
-        from ..result_matrix import AXES_MAGIC, iter_result_chunks
+        """Upload one complete bounded binary result matrix."""
+        from ..result_matrix import iter_result_chunks
         lease = self.pb.Lease(task_id=str(task_id), attempt=attempt, lease_token=str(lease_token))
         digest, count = hashlib.sha256(), 0
         path = Path(path)
-        with path.open('rb') as source:
-            matrix = source.read(4) == AXES_MAGIC
         def check():
             if cancelled is not None and cancelled():
                 raise InterruptedError("Task cancelled or execution lease lost")
         def chunks():
             nonlocal count
-            if matrix:
-                # The file SHA authenticates the exact bytes written by runner;
-                # the receiving data service performs bounded decompression and
-                # full numeric/axis validation before storing each chunk.
-                for ordinal, rows, payload, sha in iter_result_chunks(path, max_bytes=self.chunk_bytes,validate_values=False):
-                    check()
-                    digest.update(bytes.fromhex(sha))
-                    count += rows
-                    yield self.pb.ValueChunk(lease=lease, ordinal=ordinal, payload=payload,
-                                             row_count=rows, sha256=sha)
-            else:
-                rows, size, ordinal = [], 0, 0
-                def chunk(rows, ordinal):
-                    payload = self.pb.ValuesPayload(rows=rows).SerializeToString(deterministic=True)
-                    sha = hashlib.sha256(payload).hexdigest()
-                    digest.update(bytes.fromhex(sha))
-                    return self.pb.ValueChunk(lease=lease, ordinal=ordinal, payload=payload,
-                                             row_count=len(rows), sha256=sha)
-                with path.open() as source:
-                    for line in source:
-                        check()
-                        if len(line) > self.chunk_bytes:
-                            raise ValueError("Factor value row exceeds chunk limit")
-                        value = json.loads(line)
-                        group = _factor_group(value.get("group"))
-                        row = self.pb.FactorValue(date=value["date"], symbol=value["symbol"],
-                            value=value["value"] if value.get("value") is not None else 0,
-                            has_value=value.get("value") is not None, valid=value["valid"], ready=value["ready"],
-                            reason=value.get("reason", ""),
-                            forward_return=value["forward_return"] if value.get("forward_return") is not None else 0,
-                            has_forward_return=value.get("forward_return") is not None,
-                            group=group if group is not None else 0, has_group=group is not None)
-                        item_size = row.ByteSize() + 8
-                        if rows and (size + item_size > self.chunk_bytes or len(rows) >= 1000):
-                            yield chunk(rows, ordinal)
-                            ordinal += len(rows)
-                            rows, size = [], 0
-                        rows.append(row)
-                        size += item_size
-                        count += 1
-                    if rows:
-                        yield chunk(rows, ordinal)
-                    elif count == 0:
-                        yield chunk([], 0)
+            # Exact runner bytes are authenticated before bounded decoding and
+            # numeric/axis validation by the receiving data service.
+            for ordinal, rows, payload, sha in iter_result_chunks(path, max_bytes=self.chunk_bytes,validate_values=False):
+                check()
+                digest.update(bytes.fromhex(sha))
+                count += rows
+                yield self.pb.ValueChunk(lease=lease, ordinal=ordinal, payload=payload,
+                                         row_count=rows, sha256=sha)
             if count != expected_count:
                 raise ValueError("Incomplete factor values")
         def cancellable(method, request):

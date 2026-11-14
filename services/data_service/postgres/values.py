@@ -1,7 +1,5 @@
 """Fenced factor-value staging and atomic publication; summaries belong to Java."""
-from datetime import date
 import hashlib
-import math
 import uuid
 
 from factorpool.data_client.generated import data_pb2 as pb
@@ -19,18 +17,6 @@ def _lease(conn, task, attempt, token, *, completed=False):
     return row
 
 
-def _row(task, attempt, ordinal, row):
-    date.fromisoformat(row.date)
-    if not row.symbol or len(row.symbol) > 128 or len(row.reason) > 4096:
-        raise ValueError("Invalid factor-value identity or reason")
-    for present, value in ((row.has_value, row.value), (row.has_forward_return, row.forward_return)):
-        if present and not math.isfinite(value):
-            raise ValueError("Factor-value numeric fields must be finite or null")
-    return (task, attempt, ordinal, row.date, row.symbol, row.value if row.has_value else None,
-            row.valid, row.ready, row.reason, row.forward_return if row.has_forward_return else None,
-            row.group if row.has_group else None)
-
-
 class ValueStore:
     def stage(self, chunks, max_bytes):
         # One TCP session per stream; each chunk still commits separately and
@@ -41,7 +27,6 @@ class ValueStore:
 
     def _stage(self, chunks, max_bytes, connection):
         digest, total, identity, axes = hashlib.sha256(), 0, None, None
-        mode = None
         for chunk in chunks:
             lease = chunk.lease
             current = (str(uuid.UUID(lease.task_id)), lease.attempt, str(uuid.UUID(lease.lease_token)))
@@ -56,10 +41,9 @@ class ValueStore:
                 raise ValueError("Factor-value chunk integrity or size failure")
             task, attempt, token = identity
             if metadata:
-                if mode is not None or total or chunk.row_count:
+                if axes is not None or total or chunk.row_count:
                     raise ValueError("Result matrix axes must be first and unique")
                 axes = decode_axes(payload)
-                mode = 'matrix-v1'
                 with transaction(connection) as conn:
                     _lease(conn,task,attempt,token)
                     existing = conn.execute("SELECT row_count,sha256 FROM factor_value_matrix_axes WHERE task_id=%s AND attempt=%s",(task,attempt)).fetchone()
@@ -71,17 +55,12 @@ class ValueStore:
                                      (task,attempt,axes['row_count'],payload,chunk.sha256))
                 digest.update(bytes.fromhex(chunk.sha256))
                 continue
-            if mode == 'matrix-v1':
-                block = decode_chunk(payload,axes,max_raw_bytes=max_bytes)
-                count = block['row_count']
-                if count < 1 or chunk.row_count != count or block['ordinal'] != total:
-                    raise ValueError("Result matrix chunk row count or sequence differs")
-            else:
-                mode = 'rows-v1'
-                rows = pb.ValuesPayload.FromString(payload).rows
-                count = len(rows)
-                if chunk.row_count != count or count > 1000 or total + count > 2_000_000:
-                    raise ValueError("Factor-value chunk row count differs")
+            if axes is None:
+                raise ValueError("A binary result matrix axes chunk is required first")
+            block = decode_chunk(payload,axes,max_raw_bytes=max_bytes)
+            count = block['row_count']
+            if count < 1 or chunk.row_count != count or block['ordinal'] != total:
+                raise ValueError("Result matrix chunk row count or sequence differs")
             with transaction(connection) as conn:
                 _lease(conn,task,attempt,token)
                 existing = conn.execute("SELECT row_count,sha256 FROM factor_value_upload_chunks WHERE task_id=%s AND attempt=%s AND ordinal=%s",(task,attempt,total)).fetchone()
@@ -89,22 +68,15 @@ class ValueStore:
                     if existing != (count,chunk.sha256):
                         raise ValueError("Conflicting retry of factor-value chunk")
                 else:
-                    if mode == 'matrix-v1':
-                        conn.execute("INSERT INTO factor_value_matrix_chunks(task_id,attempt,ordinal,row_count,payload,sha256) VALUES(%s,%s,%s,%s,%s,%s)",
-                                     (task,attempt,total,count,payload,chunk.sha256))
-                    elif rows:
-                        with conn.cursor() as cursor:
-                            cursor.executemany("INSERT INTO factor_value_staging "
-                                "(task_id,attempt,ordinal,trading_date,symbol,value,valid,ready,reason,forward_return,factor_group) "
-                                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                                [_row(task,attempt,total+n,row) for n,row in enumerate(rows)])
+                    conn.execute("INSERT INTO factor_value_matrix_chunks(task_id,attempt,ordinal,row_count,payload,sha256) VALUES(%s,%s,%s,%s,%s,%s)",
+                                 (task,attempt,total,count,payload,chunk.sha256))
                     conn.execute("INSERT INTO factor_value_upload_chunks(task_id,attempt,ordinal,row_count,sha256) VALUES(%s,%s,%s,%s,%s)",
                                  (task,attempt,total,count,chunk.sha256))
             digest.update(bytes.fromhex(chunk.sha256))
             total += count
         if identity is None:
             raise ValueError("Empty factor-value upload stream")
-        if axes is not None and total != axes['row_count']:
+        if total != axes['row_count']:
             raise ValueError("Incomplete result matrix stream")
         return pb.ReceiptReply(valid=True,count=total,sha256=digest.hexdigest())
 
@@ -115,63 +87,52 @@ class ValueStore:
             raise ValueError("Invalid publication attempt/count")
         with transaction() as conn:
             _lease(conn, task, request.attempt, token, completed=True)
-            existing = conn.execute("SELECT attempt,row_count,sha256,receipt FROM factor_value_publications WHERE task_id=%s", (task,)).fetchone()
+            existing = conn.execute("SELECT attempt,row_count,sha256,receipt,storage_format FROM factor_value_publications WHERE task_id=%s", (task,)).fetchone()
             if existing and existing[0] == request.attempt:
+                if existing[4] != 'matrix-v1':
+                    raise ValueError("Unsupported result publication format")
                 if existing[1:3] != (request.expected_count, request.sha256):
                     raise ValueError("Conflicting publication retry")
                 return pb.ReceiptReply(valid=True, count=existing[1], sha256=existing[2], receipt=str(existing[3]))
             chunks = conn.execute("SELECT ordinal,row_count,sha256 FROM factor_value_upload_chunks "
                 "WHERE task_id=%s AND attempt=%s ORDER BY ordinal", (task, request.attempt)).fetchall()
             axis_row = conn.execute("SELECT row_count,payload,sha256 FROM factor_value_matrix_axes WHERE task_id=%s AND attempt=%s",(task,request.attempt)).fetchone()
-            storage_format = 'matrix-v1' if axis_row is not None else 'rows-v1'
+            if axis_row is None:
+                raise ValueError("A binary result matrix axes chunk is required")
             total, digest = 0, hashlib.sha256()
-            if axis_row is not None:
-                if hashlib.sha256(bytes(axis_row[1])).hexdigest() != axis_row[2]:
-                    raise ValueError("Result matrix axes integrity failure")
-                axes = decode_axes(axis_row[1])
-                if axes['row_count'] != axis_row[0] or axis_row[0] != request.expected_count:
-                    raise ValueError("Incomplete result matrix axes")
-                digest.update(bytes.fromhex(axis_row[2]))
+            if hashlib.sha256(bytes(axis_row[1])).hexdigest() != axis_row[2]:
+                raise ValueError("Result matrix axes integrity failure")
+            axes = decode_axes(axis_row[1])
+            if axes['row_count'] != axis_row[0] or axis_row[0] != request.expected_count:
+                raise ValueError("Incomplete result matrix axes")
+            digest.update(bytes.fromhex(axis_row[2]))
             for ordinal,count,sha in chunks:
                 if ordinal != total:
                     raise ValueError("Incomplete factor-value upload chunks")
                 total += count
                 digest.update(bytes.fromhex(sha))
-            if storage_format == 'matrix-v1':
-                actual_chunks = conn.execute("SELECT ordinal,row_count,sha256 FROM factor_value_matrix_chunks WHERE task_id=%s AND attempt=%s ORDER BY ordinal",(task,request.attempt)).fetchall()
-                actual = sum(item[1] for item in actual_chunks)
-                if chunks != actual_chunks:
-                    raise ValueError("Incomplete result matrix chunks")
-            else:
-                actual = conn.execute("SELECT count(*) FROM factor_value_staging WHERE task_id=%s AND attempt=%s",(task,request.attempt)).fetchone()[0]
-            if ((not chunks and not (axis_row is not None and request.expected_count == 0))
+            actual_chunks = conn.execute("SELECT ordinal,row_count,sha256 FROM factor_value_matrix_chunks WHERE task_id=%s AND attempt=%s ORDER BY ordinal",(task,request.attempt)).fetchall()
+            actual = sum(item[1] for item in actual_chunks)
+            if chunks != actual_chunks:
+                raise ValueError("Incomplete result matrix chunks")
+            if ((not chunks and request.expected_count != 0)
                     or total != request.expected_count or actual != total or digest.hexdigest() != request.sha256):
                 raise ValueError("Incomplete factor-value publication")
             receipt = uuid.uuid4()
-            conn.execute("DELETE FROM factor_values WHERE task_id=%s",(task,))
-            if storage_format == 'rows-v1':
-                conn.execute("INSERT INTO factor_values(task_id,ordinal,trading_date,symbol,value,valid,ready,reason,forward_return,factor_group) "
-                             "SELECT task_id,ordinal,trading_date,symbol,value,valid,ready,reason,forward_return,factor_group "
-                             "FROM factor_value_staging WHERE task_id=%s AND attempt=%s ORDER BY ordinal",(task,request.attempt))
             conn.execute("INSERT INTO factor_value_publications(task_id,attempt,row_count,sha256,receipt,storage_format) VALUES(%s,%s,%s,%s,%s,%s) "
                          "ON CONFLICT(task_id) DO UPDATE SET attempt=excluded.attempt,row_count=excluded.row_count,"
                          "sha256=excluded.sha256,receipt=excluded.receipt,storage_format=excluded.storage_format,created_at=now()",
-                         (task,request.attempt,total,request.sha256,receipt,storage_format))
-            conn.execute("DELETE FROM factor_value_staging WHERE task_id=%s",(task,))
-            if storage_format == 'matrix-v1':
-                conn.execute("DELETE FROM factor_value_matrix_chunks WHERE task_id=%s AND attempt<>%s",(task,request.attempt))
-                conn.execute("DELETE FROM factor_value_matrix_axes WHERE task_id=%s AND attempt<>%s",(task,request.attempt))
-            else:
-                conn.execute("DELETE FROM factor_value_matrix_chunks WHERE task_id=%s",(task,))
-                conn.execute("DELETE FROM factor_value_matrix_axes WHERE task_id=%s",(task,))
+                         (task,request.attempt,total,request.sha256,receipt,'matrix-v1'))
+            conn.execute("DELETE FROM factor_value_matrix_chunks WHERE task_id=%s AND attempt<>%s",(task,request.attempt))
+            conn.execute("DELETE FROM factor_value_matrix_axes WHERE task_id=%s AND attempt<>%s",(task,request.attempt))
         return pb.ReceiptReply(valid=True, count=total, sha256=request.sha256, receipt=str(receipt))
 
     def verify(self, request):
         with transaction() as conn:
             _lease(conn, request.task_id, request.attempt, request.lease_token, completed=True)
-            row = conn.execute("SELECT attempt,row_count,sha256,receipt FROM factor_value_publications WHERE task_id=%s", (request.task_id,)).fetchone()
-            valid = (row is not None and row[0] == request.attempt and row[1] == request.expected_count
-                     and str(row[3]) == request.receipt and (not request.sha256 or row[2] == request.sha256))
+            row = conn.execute("SELECT attempt,row_count,sha256,receipt,storage_format FROM factor_value_publications WHERE task_id=%s", (request.task_id,)).fetchone()
+            valid = (row is not None and row[4] == 'matrix-v1' and row[0] == request.attempt and row[1] == request.expected_count
+                     and str(row[3]) == request.receipt and row[2] == request.sha256)
             return pb.ReceiptReply(valid=valid, count=row[1] if row else 0, sha256=row[2] if row else "",
                                    receipt=str(row[3]) if row else "")
 
@@ -180,45 +141,40 @@ class ValueStore:
             row = conn.execute("SELECT status,result_attempt FROM research_tasks WHERE id=%s", (task,)).fetchone()
             if row is None or row[0] != "SUCCEEDED":
                 raise ValueError("Task has no complete factor values")
-            if row[1] is not None:
-                receipt = conn.execute("SELECT attempt FROM factor_value_publications WHERE task_id=%s", (task,)).fetchone()
-                if receipt is None or receipt[0] != row[1]:
-                    raise ValueError("Task publication does not match completed attempt")
-            return row[1] or 0
+            receipt = conn.execute("SELECT attempt,storage_format FROM factor_value_publications WHERE task_id=%s", (task,)).fetchone()
+            if row[1] is None or receipt is None or receipt != (row[1], 'matrix-v1'):
+                raise ValueError("Task has no current binary result matrix publication")
+            return row[1]
 
     def page(self, task, offset, limit):
         if offset < 0 or not 1 <= limit <= 1000:
             raise ValueError("Invalid pagination")
         with transaction(readonly=True) as conn:
             publication = conn.execute("SELECT attempt,storage_format FROM factor_value_publications WHERE task_id=%s",(task,)).fetchone()
-            if publication is not None and publication[1] == 'matrix-v1':
-                attempt = publication[0]
-                axis = conn.execute("SELECT payload,sha256 FROM factor_value_matrix_axes WHERE task_id=%s AND attempt=%s",(task,attempt)).fetchone()
-                if axis is None or hashlib.sha256(bytes(axis[0])).hexdigest() != axis[1]:
-                    raise ValueError("Result matrix axes integrity failure")
-                # A lower budget for new tasks must not hide already published
-                # histories: this reader only allocates the requested chunks.
-                axes = decode_axes(axis[0],enforce_budget=False)
-                stop = min(axes['row_count'],offset+limit)
-                if offset >= stop:
-                    return []
-                chunks = conn.execute("SELECT ordinal,row_count,payload,sha256 FROM factor_value_matrix_chunks "
-                    "WHERE task_id=%s AND attempt=%s AND ordinal<%s AND ordinal+row_count>%s ORDER BY ordinal",(task,attempt,stop,offset)).fetchall()
-                result,covered = [],offset
-                for ordinal,count,payload,sha in chunks:
-                    if hashlib.sha256(bytes(payload)).hexdigest() != sha:
-                        raise ValueError("Result matrix chunk integrity failure")
-                    block = decode_chunk(payload,axes,max_raw_bytes=16*1024*1024)
-                    left,right = max(offset,ordinal),min(stop,ordinal+count)
-                    if left != covered or block['ordinal'] != ordinal or block['row_count'] != count:
-                        raise ValueError("Result matrix has missing or overlapping chunks")
-                    result.extend(rows_from_chunk(axes,block,offset=left-ordinal,limit=right-left,api=True))
-                    covered=right
-                if covered != stop:
-                    raise ValueError("Result matrix page is incomplete")
-                return result
-            rows = conn.execute("SELECT trading_date,symbol,value,valid,ready,reason,forward_return,factor_group FROM factor_values "
-                                "WHERE task_id=%s ORDER BY ordinal LIMIT %s OFFSET %s",(task,limit,offset)).fetchall()
-        return [dict(trading_date=str(day),symbol=symbol,value=value,valid=valid,ready=ready,
-                     reason=reason,forward_return=forward,factor_group=group)
-                for day,symbol,value,valid,ready,reason,forward,group in rows]
+            if publication is None or publication[1] != 'matrix-v1':
+                raise ValueError("Task has no current binary result matrix publication")
+            attempt = publication[0]
+            axis = conn.execute("SELECT payload,sha256 FROM factor_value_matrix_axes WHERE task_id=%s AND attempt=%s",(task,attempt)).fetchone()
+            if axis is None or hashlib.sha256(bytes(axis[0])).hexdigest() != axis[1]:
+                raise ValueError("Result matrix axes integrity failure")
+            # A lower budget for new tasks must not hide already published
+            # histories: this reader only allocates the requested chunks.
+            axes = decode_axes(axis[0],enforce_budget=False)
+            stop = min(axes['row_count'],offset+limit)
+            if offset >= stop:
+                return []
+            chunks = conn.execute("SELECT ordinal,row_count,payload,sha256 FROM factor_value_matrix_chunks "
+                "WHERE task_id=%s AND attempt=%s AND ordinal<%s AND ordinal+row_count>%s ORDER BY ordinal",(task,attempt,stop,offset)).fetchall()
+            result,covered = [],offset
+            for ordinal,count,payload,sha in chunks:
+                if hashlib.sha256(bytes(payload)).hexdigest() != sha:
+                    raise ValueError("Result matrix chunk integrity failure")
+                block = decode_chunk(payload,axes,max_raw_bytes=16*1024*1024)
+                left,right = max(offset,ordinal),min(stop,ordinal+count)
+                if left != covered or block['ordinal'] != ordinal or block['row_count'] != count:
+                    raise ValueError("Result matrix has missing or overlapping chunks")
+                result.extend(rows_from_chunk(axes,block,offset=left-ordinal,limit=right-left,api=True))
+                covered=right
+            if covered != stop:
+                raise ValueError("Result matrix page is incomplete")
+            return result

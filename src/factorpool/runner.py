@@ -35,8 +35,6 @@ def load_factor(path, class_name, params):
 
 def validate(request):
     data, analysis = request["data"], request["analysis"]
-    if data.get("provider") == "ft_daily_mmap":
-        raise ValueError("ft_daily_mmap has migrated to market_matrix; new tasks must read a PostgreSQL market snapshot")
     if data.get("provider") not in ("fixture", "market_matrix"):
         raise ValueError("Supported providers: market_matrix or fixture")
     if data.get("frequency", "1d") != "1d" or data.get("adjustment", "raw") != "raw":
@@ -44,7 +42,7 @@ def validate(request):
     if data.get("factor_price", "quote_adjusted") != "quote_adjusted":
         raise ValueError("Factor prices only support forward adjustment (quote_adjusted)")
     if analysis.get("entry", "signal_close") != "signal_close" or analysis.get("exit", "next_close") != "next_close":
-        raise ValueError("Supported return interval: signal_close to next_close, using close / prev_close - 1; legacy open-based requests are unsupported")
+        raise ValueError("Supported return interval: signal_close to next_close, using close / prev_close - 1")
     if analysis.get("annualize_icir", False) or analysis.get("group_weight", "equal") != "equal":
         raise ValueError("Supported analysis: equal weights, unannualized ICIR")
     if data["factor_start"] > data["factor_end"]:
@@ -68,8 +66,9 @@ def returns_matrix(frames, symbols):
 def return_contract(payload):
     """Describe the stored derivation without changing any return values."""
     if "return_policy" not in payload:
-        policy = dict(version=("synthetic-price-ratio-v1" if payload["synthetic"]
-                               else "legacy-price-ratio-v1"), formula="close/prev_close-1")
+        if not payload["synthetic"]:
+            raise ValueError("Market input requires the current return_policy")
+        policy = dict(version="synthetic-price-ratio-v1", formula="close/prev_close-1")
     else:
         policy = payload["return_policy"]
     if not isinstance(policy, dict):
@@ -82,22 +81,19 @@ def return_contract(payload):
                        "missing, nonfinite or negative volume, invalid required prices, and zero volume with nonzero or unknown turnover remain null. "
                        "Raw OHLCV/status are unchanged; no additional corporate-action adjustment")
         price = "volume-aware derived return; positive-volume close / prev_close - 1"
-    elif version in ("legacy-price-ratio-v1", "synthetic-price-ratio-v1"):
+    elif version == "synthetic-price-ratio-v1" and payload["synthetic"]:
         description = "close / prev_close - 1; no volume-based zeroing or additional corporate-action adjustment"
         price = "close / prev_close - 1"
     else:
-        description = "Stored snapshot-derived daily returns; see return_policy; no reader-side recomputation"
-        price = "stored snapshot returns; see return_policy"
+        raise ValueError("Unsupported return policy; use volume-zero-v1 market data or the synthetic fixture")
     return policy, description, price
 
 
-def run(directory, *, factory=None, values_format="jsonl"):
+def run(directory, *, factory=None):
     import _factorpool_native as native
     directory = Path(directory)
     values_ready = directory / "values-ready.json"
     values_ready.unlink(missing_ok=True)
-    if values_format not in ("matrix", "jsonl"):
-        raise ValueError("values_format must be matrix or jsonl")
     request = json.loads((directory / "request.json").read_text())
     from .script import bind_request
     request = bind_request(request)
@@ -129,7 +125,7 @@ def run(directory, *, factory=None, values_format="jsonl"):
         extra = {"pasteurization": "OFF"} if settings is not None and settings["pasteurization"] == "OFF" else {}
         from .adapter import indicator_fields
         payload = load(data, max(1, warmup + simulation_warmup), max(horizons)*decay_steps,
-                       matrix_only=True, fields=indicator_fields(indicator), **extra)
+                       fields=indicator_fields(indicator), **extra)
     else:
         raise ValueError(f"Unknown/unconfigured provider: {provider}")
     timings["read"] = time.perf_counter() - checkpoint
@@ -316,17 +312,16 @@ def run(directory, *, factory=None, values_format="jsonl"):
     # before making this task successful.
     export_started = time.perf_counter()
     forward_returns, groups = result.pop("forward_returns"), result.pop("groups")
-    from .result_matrix import write_result_matrix, write_jsonl
+    from .result_matrix import write_result_matrix
     value_artifact = write_result_matrix(directory / "values.matrix", dates, symbols, factors,
                                         valid, ready, reasons, forward_returns, groups,
                                         signal_indices=rebalance, threads=native.compute_threads())
     del forward_returns, groups
-    if values_format == "matrix":
-        temporary = values_ready.with_suffix(".tmp")
-        temporary.write_text(json.dumps(dict(version=1, artifact="values.matrix",
-                                             value_count=value_artifact["count"],
-                                             sha256=value_artifact["sha256"]), allow_nan=False))
-        temporary.replace(values_ready)
+    temporary = values_ready.with_suffix(".tmp")
+    temporary.write_text(json.dumps(dict(version=1, artifact="values.matrix",
+                                         value_count=value_artifact["count"],
+                                         sha256=value_artifact["sha256"]), allow_nan=False))
+    temporary.replace(values_ready)
     timings["export"] = time.perf_counter() - export_started
     trace_info = dict(indices=trace_indices, symbols=symbols, transforms=transforms,
                       factor_arrays=dict(reason=reasons, valid=valid, ready=ready)) if trace_indices else None
@@ -370,10 +365,6 @@ def run(directory, *, factory=None, values_format="jsonl"):
         day["date"] = date
     timings["analysis"] = time.perf_counter() - checkpoint - timings["export"]
     result['daily'] = [day for i, day in enumerate(result['daily']) if i in rebalance]
-    if values_format == "jsonl":
-        export_started = time.perf_counter()
-        write_jsonl(directory / "values.jsonl", directory / "values.matrix")
-        timings["export"] += time.perf_counter() - export_started
     timings["analysis_export"] = time.perf_counter() - checkpoint
     build_info = json.loads(Path(os.environ.get("FACTORPOOL_BUILD_INFO", "/opt/factorpool/build-info.json")).read_text())
     result["metadata"] = dict(build=build_info, execution_mode=adapter.mode, warm_up_period=warmup,
@@ -382,7 +373,7 @@ def run(directory, *, factory=None, values_format="jsonl"):
         return_interval="signal close to next close; daily R[t+1] follows return_policy", return_policy=deepcopy(return_policy), daily_return=daily_return, group_ties="value then symbol; split ties", group_insufficient="empty groups allowed",
         group_weight="equal among available returns", cumulative="nonoverlapping one-day; invalid after a missing interval",
         ic_rank_ties="average", icir_ddof=options.get("icir_ddof", 1), annualized=False,
-        annualized_scope="legacy ICIR only; portfolio annualization is defined in diagnostics.conventions",
+        annualized_scope="ICIR only; portfolio annualization is defined in diagnostics.conventions",
         operator_contract="pool-indicator-2", shared_primitive_contract="ft-pool-1", forward_return_horizon=1, report_version=3, report_horizons=horizons, coverage_axis="historical universe membership", stage_seconds=timings, value_count=value_artifact["count"])
     result["metadata"]["indicator_backend"] = "pool_native" if getattr(indicator, "_pool_ir", None) is not None else adapter.mode
     if terminal_rows is not None:
@@ -404,7 +395,6 @@ def run(directory, *, factory=None, values_format="jsonl"):
         date_axis="signal session", price_basis="same signal session close",
         visibility="only completed input frames through the signal session",
         delay=1, returns="next trading session onward; no additional input shift")
-    result["metadata"]["source_mode"] = "script"
     for key in ("source_config", "workspace_config", "effective_config", "brain_settings"):
         result["metadata"][key] = deepcopy(request[key])
     result["metadata"]["simulation_warm_up_period"] = simulation_warmup
@@ -419,7 +409,7 @@ def main():
     parser.add_argument("directory")
     args = parser.parse_args()
     try:
-        run(args.directory, values_format="matrix")
+        run(args.directory)
     except Exception as error:
         log("failed", error=f"{type(error).__name__}: {error}")
         raise

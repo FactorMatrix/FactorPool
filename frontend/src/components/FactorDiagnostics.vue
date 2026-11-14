@@ -38,11 +38,10 @@ const port = computed(
     selected.value?.portfolios.high_low,
 );
 const alpha = computed(() => selected.value?.portfolios.alpha);
-const dailyPortfolio = computed(() => (props.report.version || 0) >= 3);
-const visualization = computed(() => props.report.conventions?.brain_settings?.visualization ?? true);
-const settings = computed(() => props.report.conventions?.brain_settings);
-const pnlBook = computed(() => ({ size: alpha.value?.pnl?.book_size ?? selected.value?.pnl_book?.size ?? 1,
-  unit: alpha.value?.pnl?.unit || selected.value?.pnl_book?.unit || "BOOK" }));
+const visualization = computed(() => props.report.conventions.brain_settings.visualization);
+const settings = computed(() => props.report.conventions.brain_settings);
+const pnlBook = computed(() => ({ size: alpha.value?.pnl?.book_size,
+  unit: alpha.value?.pnl?.unit }));
 const bookLabel = computed(() => `${Number(pnlBook.value.size).toLocaleString("en-US", { maximumFractionDigits: 2 })} ${pnlBook.value.unit}`);
 const num = (x) => (x == null ? "--" : Number(x).toFixed(4));
 const pct = (x) => (x == null ? "--" : (Number(x) * 100).toFixed(2) + "%");
@@ -172,7 +171,7 @@ const brainCards = computed(() => {
           </option></select
         ><select v-if="visualization" v-model="view" aria-label="组合图表">
           <option value="nav">净值 / 回撤</option>
-          <option value="returns">{{ dailyPortfolio ? '日收益' : '持有期收益' }}</option>
+          <option value="returns">日收益</option>
           <option value="monthly">月度收益热力图</option>
           <option value="yearly">年度收益</option>
           <option value="turnover">调仓换手</option>
@@ -191,7 +190,7 @@ const brainCards = computed(() => {
               <th>最大回撤</th>
               <th>胜率</th>
               <th>盈亏比</th>
-              <th>{{ dailyPortfolio ? '有效日数' : '有效期数' }}</th>
+              <th>有效日数</th>
             </tr>
           </thead>
           <tbody>
@@ -214,16 +213,10 @@ const brainCards = computed(() => {
           </tbody>
         </table>
       </div>
-      <p v-if="dailyPortfolio" class="report-note">
+      <p class="report-note">
         每 {{ selected.horizon }} 期调仓，持有期内权重自然漂移，按快照日收益计算净值与回撤。
         高低组多空两侧各 0.5；Alpha 按实际设置生成连续权重，可有净敞口与未分配 gross。按 {{ report.conventions.annual_days }} 个交易日年化，月/年收益按实际交易日归属。
         缺失收益留空，不补零或重分配权重。所有组合均无费用。
-      </p>
-      <p v-else class="report-note">
-        每 {{ selected.horizon }} 期调仓，按非重叠持有期计算。多空两侧各
-        0.5、总敞口 1；年化系数 {{ report.conventions.annual_days }}/{{
-          selected.horizon
-        }}。月/年收益按退出日期归属，非逐日盯市口径。缺价格不按事后可用样本重分配权重。
       </p>
     </template>
     <template v-else>
@@ -234,7 +227,7 @@ const brainCards = computed(() => {
         </div>
       </div>
       <p class="report-note">
-        研究 Alpha：连续因子权重，{{ settings?.neutralization || 'MARKET' }} 中性化；Decay {{ settings?.decay ?? 0 }}，Truncation {{ settings?.truncation ?? 0 }}，Delay 1，每
+        研究 Alpha：连续因子权重，{{ settings.neutralization }} 中性化；Decay {{ settings.decay }}，Truncation {{ settings.truncation }}，Delay 1，每
         {{ selected.horizon }} 期调仓。截断限制调仓目标，期内漂移敞口可变化。采用页面下方披露的研究公式，BRAIN
         官方数值一致性尚未核验。
       </p>
@@ -250,9 +243,9 @@ const brainCards = computed(() => {
         <summary>计算公式与数据缺口</summary>
         <dl>
           <dt>Sharpe</dt>
-          <dd>{{ dailyPortfolio ? '每日固定 book PnL 增量均值 / 样本标准差 × √年交易日' : '持有期 PnL 均值 / 样本标准差 × √(年交易日/持有期)' }}</dd>
+          <dd>每日固定 book PnL 增量均值 / 样本标准差 × √年交易日</dd>
           <dt>Returns</dt>
-          <dd>{{ dailyPortfolio ? '每日金额 PnL 均值 × 年交易日 / (book size × 0.5)；与 CAGR 分开' : '按固定 book size 的 PnL 均值年化 / 0.5；与 CAGR 分开' }}</dd>
+          <dd>每日金额 PnL 均值 × 年交易日 / (book size × 0.5)；与 CAGR 分开</dd>
           <dt>Turnover</dt>
           <dd>
             目标权重与价格漂移后的原权重之差的绝对值和；含首次建仓，折算日均

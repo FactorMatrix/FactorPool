@@ -4,6 +4,7 @@ import inspect
 import json
 import math
 from pathlib import Path
+from script_fixtures import result_values
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -287,7 +288,7 @@ class PoolOperatorTests(unittest.TestCase):
             (root / "request.json").write_text(json.dumps(dict(name="native extension", source_code=source)))
             run(directory)
             report = json.loads((root / "result.json").read_text())
-            rows = [json.loads(line) for line in (root / "values.jsonl").read_text().splitlines()]
+            rows = result_values(root)
             self.assert_values([row["value"] for row in rows], [0, .5, 1] * 2)
             self.assert_values([row["forward_return"] for row in rows], [.1, 0, -.1] * 2)
             self.assertAlmostEqual(report["summary"]["rank_ic_mean"], -1)

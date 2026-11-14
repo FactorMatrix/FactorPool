@@ -9,8 +9,8 @@ const valuationDates = computed(() => traces.value.filter(row => row.signal_date
 const selected = computed(() => traces.value.find(row => row.signal_date === signal.value && row.valuation_date === valuation.value));
 const constraintRows = computed(() => props.data?.alpha_constraints || props.constraints?.daily || []);
 const constraint = computed(() => constraintRows.value.find(row => row.date === constraintDate.value));
-const unit = computed(() => selected.value?.pnl_unit || props.data?.pnl_book?.unit || "BOOK");
-const bookSize = computed(() => selected.value?.book_size ?? props.data?.pnl_book?.size ?? 1);
+const unit = computed(() => props.data?.pnl_book?.unit);
+const bookSize = computed(() => props.data?.pnl_book?.size);
 const skipped = computed(() => props.data?.trace_status?.not_rebalance_dates || []);
 const rows = computed(() => (selected.value?.rows || []).filter(row => row.symbol.toLowerCase().includes(search.value.trim().toLowerCase())));
 const visibleRows = computed(() => rows.value.slice(page.value * 100, (page.value + 1) * 100));
@@ -19,7 +19,6 @@ const amount = value => value == null ? "--" : Number(value).toLocaleString("en-
 const percent = value => value == null ? "--" : `${(Number(value) * 100).toFixed(4)}%`;
 const member = value => value == null ? "--" : Number(value) > 0 ? "在池" : "池外";
 const flag = value => value == null ? "--" : value ? "是" : "否";
-const dateLabel = value => typeof value === "string" ? value : value.date || JSON.stringify(value);
 watch(signalDates, dates => { if (!dates.includes(signal.value)) signal.value = dates[0] || ""; }, { immediate: true });
 watch(valuationDates, dates => { if (!dates.includes(valuation.value)) valuation.value = dates[0] || ""; }, { immediate: true });
 watch([signal, constraintRows], () => {
@@ -59,7 +58,7 @@ watch([selected, search], () => { page.value = 0; });
       <div class="trace-pagination"><button :disabled="page === 0" @click="page--">上一页</button><span>{{ rows.length ? page * 100 + 1 : 0 }}–{{ Math.min((page + 1) * 100, rows.length) }} / {{ rows.length }}</span><button :disabled="(page + 1) * 100 >= rows.length" @click="page++">下一页</button></div>
     </template>
     <p v-else class="trace-note" role="status">本次任务未保存逐股追踪。可在 config 的 analysis 字典中加入 <code>"trace_dates": ["2024-01-29"]</code> 后重新运行，最多指定 5 个信号日期；批量运行默认不导出全部中间数据。</p>
-    <p v-if="skipped.length" class="trace-note" role="status">当前 {{ data?.horizon }} 期组合在这些请求信号日不调仓：{{ skipped.map(dateLabel).join('、') }}。未将它们替换为其他日期。</p>
+    <p v-if="skipped.length" class="trace-note" role="status">当前 {{ data?.horizon }} 期组合在这些请求信号日不调仓：{{ skipped.join('、') }}。未将它们替换为其他日期。</p>
     <p v-if="data?.trace_status?.no_future_dates?.length" class="trace-note" role="status">这些请求信号日之后没有可用的收益日期：{{ data.trace_status.no_future_dates.join('、') }}。未生成盈亏，也未自动补行情。</p>
     <section v-if="constraintRows.length" class="trace-constraints" aria-label="截断容量诊断">
       <h3>截断与目标容量</h3>

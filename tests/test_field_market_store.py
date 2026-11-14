@@ -163,7 +163,7 @@ class FieldMarketDatabaseTests(unittest.TestCase):
     def assert_parent_unchanged(self):
         self.assertEqual(self.writer.execute('SELECT start_index,sha256,md5(payload) FROM market_matrix_blocks WHERE snapshot_id=%s ORDER BY start_index', (self.parent_id,)).fetchall(), self.before)
         legacy = self.source.snapshot(self.parent_id)
-        np.testing.assert_array_equal(self.source.original_block(legacy,legacy['blocks'][0]), self.values[:,:2])
+        np.testing.assert_array_equal(self.source._staging_block(legacy,legacy['blocks'][0]), self.values[:,:2])
 
     def all_fields(self, snapshot, fields):
         blocks = [self.source.read_fields(snapshot,block,fields) for block in snapshot['blocks']]
@@ -208,7 +208,7 @@ class FieldMarketDatabaseTests(unittest.TestCase):
                 observed.append(cursor.pgresult.fformat(payload_index))
             return cursor
         with patch.object(self.reader, 'execute', side_effect=track):
-            original = self.source.original_block(raw_snapshot, raw_snapshot['blocks'][0])
+            original = self.source._staging_block(raw_snapshot, raw_snapshot['blocks'][0])
             columns = self.source.read_fields(snapshot, snapshot['blocks'][0], ('close','__segment__'))
         self.assertEqual(observed, [1,1,1])
         self.assertEqual(original.tobytes(), self.values[:,:2].tobytes())
@@ -254,7 +254,7 @@ class FieldMarketDatabaseTests(unittest.TestCase):
                 with grpc.insecure_channel(f'127.0.0.1:{port}') as channel:
                     client = DataClient(stub=data_pb2_grpc.DataServiceStub(channel),cache=redis)
                     snapshot = client.snapshot(result['snapshot_id'])
-                    with patch.object(self.source,'original_block',side_effect=AssertionError('new storage loaded full legacy block')), \
+                    with patch.object(self.source,'_staging_block',side_effect=AssertionError('new storage loaded full legacy block')), \
                          patch.object(self.source,'read_fields',wraps=self.source.read_fields) as reads:
                         chunks = list(client.selected_columns(snapshot,0,6,np.array([1,0]),fields=('total_turnover',)))
                         self.assertEqual(len(reads.call_args_list),3)

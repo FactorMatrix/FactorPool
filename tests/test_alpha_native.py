@@ -2,6 +2,7 @@
 from datetime import date, timedelta
 import json
 from pathlib import Path
+from script_fixtures import result_values
 import tempfile
 from unittest.mock import patch
 import unittest
@@ -266,6 +267,6 @@ class NativeAlphaTests(unittest.TestCase):
                         result = json.loads((path/'result.json').read_text())
                         result.pop('metadata')
                         results.append(result)
-                        values.append((path/'values.jsonl').read_bytes())
+                        values.append(json.dumps(result_values(path), sort_keys=True, allow_nan=False).encode())
                 self.assertEqual(results[0], results[1])
                 self.assertEqual(values[0], values[1])

@@ -63,6 +63,7 @@ class OperatorFrontendTests(unittest.TestCase):
 
     def test_source_preflight_needs_no_import_or_native_runtime(self):
         for source in (
+            'from factorpool import Indicator\nclass Factor(Indicator):\n    pass\n',
             'from factortrader import PythonIndicator as Base\nclass Factor(Base):\n    pass\n',
             'import factortrader as ft\nclass Factor(ft.Indicator):\n    pass\n',
             'from factorpool import PythonIndicator\nclass Factor(PythonIndicator):\n    def helper(self,x):\n        return self.cs.group_rank(x,x)\n',
@@ -141,7 +142,8 @@ class OperatorFrontendTests(unittest.TestCase):
 
     def test_old_parameter_aliases_are_not_silently_accepted(self):
         for expression in ('self.ts.mean(input.close,d=3)','self.cs.normalize(input.close,use_std=True)',
-                           'self.cs.scale(input.close,long_scale=1)','self.tf.bucket(input.close,buckets="1,2",skip_begin=True)'):
+                           'self.cs.scale(input.close,long_scale=1)','self.tf.bucket(input.close,buckets="1,2",skip_begin=True)',
+                           'self.ts.backfill(input.close,period=3)'):
             with self.subTest(expression=expression),self.assertRaises(ValueError):self.build(expression)
 
     def test_document_classes_can_read_only_the_output_assigned_in_this_update(self):

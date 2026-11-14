@@ -10,6 +10,15 @@ import urllib.error
 import urllib.request
 
 
+def write_values(path, count=0):
+    import numpy as np
+    from factorpool.result_matrix import write_result_matrix
+    shape=(count,1)
+    write_result_matrix(path,['2024-01-02'] if count else [],['A'],np.zeros(shape),
+        np.ones(shape,dtype=bool),np.ones(shape,dtype=bool),np.zeros(shape,dtype=np.uint8),
+        np.full(shape,np.nan),np.ones(shape))
+
+
 @unittest.skipUnless(os.getenv('FACTORPOOL_SERVICE_TESTS') == '1' and os.getenv('FACTORPOOL_TEST_DB') == '1',
                      'Requires isolated PostgreSQL, Redis, Java and data-service; worker must be stopped')
 class ServiceIntegrationTests(unittest.TestCase):
@@ -82,8 +91,8 @@ class ServiceIntegrationTests(unittest.TestCase):
         self.assertEqual(self.http('/internal/worker/heartbeat', old, auth=True)[0], 409)
         from factorpool.data_client import DataClient
         with tempfile.TemporaryDirectory() as tmp, DataClient() as data:
-            path = Path(tmp)/'values.jsonl'
-            path.write_text('')
+            path = Path(tmp)/'values.matrix'
+            write_values(path)
             with self.assertRaises(Exception):
                 data.upload_values(task_id, old['attempt'], old['lease_token'], path, 0)
         self.assertEqual(self.http(f'/api/tasks/{task_id}/result')[0], 409)
@@ -97,8 +106,8 @@ class ServiceIntegrationTests(unittest.TestCase):
                 'host=db dbname=factorpool user=factorpool') as connection, ThreadPoolExecutor(max_workers=2) as executor:
             connection.execute('SELECT id FROM research_tasks WHERE id=%s FOR UPDATE', (task_id,))
             heartbeat = executor.submit(self.http, '/internal/worker/heartbeat', lease, auth=True)
-            path = Path(tmp)/'values.jsonl'
-            path.write_text('')
+            path = Path(tmp)/'values.matrix'
+            write_values(path)
             def upload():
                 try:
                     with DataClient() as data:
@@ -117,10 +126,8 @@ class ServiceIntegrationTests(unittest.TestCase):
         task_id = self.enqueue()
         lease = self.claim()
         with tempfile.TemporaryDirectory() as tmp, DataClient() as data:
-            path = Path(tmp)/'values.jsonl'
-            row = dict(date='2024-01-02', symbol='A', value=0.0, valid=True, ready=True,
-                       reason='', forward_return=None, group=1.0)
-            path.write_text(json.dumps(row)+'\n')
+            path = Path(tmp)/'values.matrix'
+            write_values(path,1)
             receipt = data.upload_values(task_id, lease['attempt'], lease['lease_token'], path, 1)
             replay = data.upload_values(task_id, lease['attempt'], lease['lease_token'], path, 1)
             self.assertEqual(receipt, replay)
@@ -139,8 +146,8 @@ class ServiceIntegrationTests(unittest.TestCase):
         cancelled = self.claim()
         self.http(f'/api/tasks/{cancelled_id}/cancel', {})
         with tempfile.TemporaryDirectory() as tmp, DataClient() as data:
-            path = Path(tmp)/'values.jsonl'
-            path.write_text('')
+            path = Path(tmp)/'values.matrix'
+            write_values(path)
             with self.assertRaises(Exception):
                 data.upload_values(cancelled_id, cancelled['attempt'], cancelled['lease_token'], path, 0)
         self.assertEqual(self.http(f'/api/tasks/{cancelled_id}/result')[0], 409)
@@ -196,7 +203,7 @@ def diagnostics(*args,**kwargs):
     if fail: raise RuntimeError('diagnostics failed after finalized upload')
     return original(*args,**kwargs)
 runner.build_diagnostics=diagnostics
-runner.run(directory,values_format='matrix')
+runner.run(directory)
 '''
         for fail_after_upload in (False, True):
             with self.subTest(fail_after_upload=fail_after_upload):

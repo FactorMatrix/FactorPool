@@ -68,7 +68,7 @@ const taskId = await page.evaluate(() => sessionStorage.getItem('factorpool.task
 assert.ok(taskId)
 const snapshot = (await (await page.request.get(`${base}/api/tasks/${taskId}`)).json()).snapshot
 assert.equal(snapshot.source_code, source)
-assert.equal(snapshot.source_mode, 'script')
+assert.equal('source_mode' in snapshot, false)
 assert.deepEqual(snapshot.source_config, config)
 assert.deepEqual(snapshot.factor_params, {period:3})
 const originalValues = await (await page.request.get(`${base}/api/tasks/${taskId}/values`)).json()

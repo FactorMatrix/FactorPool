@@ -6,6 +6,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import static org.mockito.Mockito.*;
+import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -17,7 +18,7 @@ class ApiScriptTest {
 
   @Test
   void resolveEndpointAcceptsSourceWithoutExternalFactorClass() throws Exception {
-    var normalized = json.createObjectNode().put("source_mode", "script").put("factor_class", "MyFactor");
+    var normalized = json.createObjectNode().put("factor_class", "MyFactor");
     normalized.putObject("source_config");
     when(scripts.resolve("source only", null)).thenReturn(normalized);
     var api = MockMvcBuilders.standaloneSetup(new Api(store, mock(Tasks.class))).build();
@@ -49,6 +50,20 @@ class ApiScriptTest {
     api.perform(post("/api/script/resolve").contentType("application/json").content(body.toString()))
         .andExpect(status().isOk()).andExpect(jsonPath("$.factor_class").value("MyFactor"));
     verify(scripts).resolve("config = {}", workspace);
+  }
+
+  @Test
+  void resolveEndpointRejectsRemovedFieldsAndNonObjectDefaultsBeforeParsing() throws Exception {
+    var api = MockMvcBuilders.standaloneSetup(new Api(store, mock(Tasks.class))).build();
+    for (String field : java.util.List.of("frontend_only", "source_mode", "factor_class")) {
+      var body = json.createObjectNode().put("source_code", "source only").put(field, "removed");
+      api.perform(post("/api/script/resolve").contentType("application/json").content(body.toString()))
+          .andExpect(status().isBadRequest()).andExpect(jsonPath("$.error", containsString(field)));
+    }
+    var nullDefaults = json.createObjectNode().put("source_code", "source only").putNull("workspace_config");
+    api.perform(post("/api/script/resolve").contentType("application/json").content(nullDefaults.toString()))
+        .andExpect(status().isBadRequest()).andExpect(jsonPath("$.error", containsString("workspace_config")));
+    verifyNoInteractions(scripts, store.db);
   }
 
 }

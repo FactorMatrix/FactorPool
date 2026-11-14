@@ -1,4 +1,4 @@
-"""The sole public Indicator operator surface and static migration checks."""
+"""The sole public Indicator operator surface and static call validation."""
 import ast
 import builtins
 import inspect
@@ -8,8 +8,8 @@ import textwrap
 FRONTEND_VERSION = "pool-single-entry-v1"
 
 
-class RemovedOperatorInterface(ValueError):
-    """Obsolete user syntax must never silently become Python execution."""
+class OperatorInterfaceError(ValueError):
+    """Calls outside the current interface cannot become Python execution."""
 
 from .brain_schema import TS
 
@@ -24,31 +24,14 @@ DOMAINS = {
 }
 _MATH = {'abs':'abs', 'fabs':'abs', 'log':'log', 'sqrt':'sqrt', 'min':'min',
          'max':'max', 'sign':'sign', 'signed_power':'signed_power', 'isnan':'is_nan'}
-_REMOVED_CS = {
-    'group_backfill':'self.gp.backfill(x, g, d, std=4)',
-    'group_mean':'self.gp.mean(x, g, weight=w)',
-    'group_neutralize':'self.gp.neutralize(x, g)', 'group_rank':'self.gp.rank(x, g)',
-    'group_scale':'self.gp.scale(x, g)', 'group_zscore':'self.gp.zscore(x, g)',
-    'vec_avg':'self.vc.avg((x, y))', 'vec_sum':'self.vc.sum((x, y))',
-    'bucket':'self.tf.bucket(x, ...)', 'trade_when':'self.tf.trade_when(x, y, z)',
-    'divide':'x / y', 'inverse':'1 / x', 'reverse':'-x', 'power':'x ** y',
-    'if_else':'x if condition else y',
-    'rank':"self.cs.rank_unit(x, normalization='unit'/'percentile'/'ordinal')",
-    **{name:'self.'+name+'(...)' for name in DIRECT},
-}
-
-
-def migration_hint(domain, name):
-    if domain == 'cs' and name in _REMOVED_CS:
-        return _REMOVED_CS[name]
-    if domain == 'self' and name in ('if_else', 'power', 'inverse', 'reverse'):
-        return {'if_else':'x if condition else y', 'power':'x ** y',
-                'inverse':'1 / x', 'reverse':'-x'}[name]
-    return 'one of ' + ', '.join('self.'+domain+'.'+item for item in sorted(DOMAINS.get(domain, ())))
+def public_methods(domain):
+    names = DIRECT if domain == 'self' else DOMAINS[domain]
+    prefix = 'self.' if domain == 'self' else 'self.' + domain + '.'
+    return ', '.join(prefix + name for name in sorted(names))
 
 
 def _native_only(*args, **kwargs):
-    raise RemovedOperatorInterface('Indicator operators require a prepared native expression; Python operator fallback is not supported')
+    raise OperatorInterfaceError('Indicator operators require a prepared native expression')
 
 
 class OperatorNamespace:
@@ -58,7 +41,7 @@ class OperatorNamespace:
     def __getattr__(self, name):
         if name in DOMAINS[self._domain]:
             return _native_only
-        raise AttributeError(f'self.{self._domain}.{name} is not a public operator; use {migration_hint(self._domain, name)}')
+        raise AttributeError(f'self.{self._domain}.{name} is not a public operator; supported: {public_methods(self._domain)}')
     def __dir__(self):
         return sorted(DOMAINS[self._domain])
 
@@ -134,15 +117,15 @@ def _scan_function(syntax, imports, globals_=None):
             _, domain, method = value
             allowed = DIRECT if domain == 'self' else DOMAINS[domain]
             if method not in allowed:
-                raise RemovedOperatorInterface(f'line {node.lineno}: self.{domain+"." if domain != "self" else ""}{method} was removed; use {migration_hint(domain,method)}')
+                raise OperatorInterfaceError(f'line {node.lineno}: self.{domain+"." if domain != "self" else ""}{method} is not a public operator; supported: {public_methods(domain)}')
         if isinstance(node, ast.Call):
             called = origin(node.func)
             if called and called[0] == 'builtin':
                 name = called[1];hint = 'x ** y' if name=='pow' else 'self.'+name+'(...)'
-                raise RemovedOperatorInterface(f'line {node.lineno}: bare {name}(...) was removed; use {hint}')
+                raise OperatorInterfaceError(f'line {node.lineno}: bare {name}(...) is not a public operator; use {hint}')
             if called and called[0] == 'math_function' and called[1] in (_MATH.keys() | {'pow'}):
                 name=called[1];hint='x ** y' if name=='pow' else 'self.'+_MATH[name]+'(...)'
-                raise RemovedOperatorInterface(f'line {node.lineno}: math.{name}(...) was removed; use {hint}')
+                raise OperatorInterfaceError(f'line {node.lineno}: math.{name}(...) is not a public operator; use {hint}')
     return declared
 
 
@@ -153,6 +136,9 @@ def validate_source_frontend(source):
         raise ValueError(f'line {error.lineno}: {error.msg}') from None
     imports={};foreign_bases=set();foreign_modules=set()
     for node in tree.body:
+        if (isinstance(node,ast.ImportFrom) and node.module=='factorpool'
+                and any(alias.name=='Indicator' for alias in node.names)):
+            raise OperatorInterfaceError(f'line {node.lineno}: FactorPool exports PythonIndicator')
         if isinstance(node,ast.ImportFrom) and node.module=='factortrader':
             foreign_bases.update(alias.asname or alias.name for alias in node.names if alias.name in ('PythonIndicator','Indicator'))
         elif isinstance(node,ast.Import):
@@ -162,7 +148,7 @@ def validate_source_frontend(source):
             if (isinstance(base,ast.Name) and base.id in foreign_bases
                     or isinstance(base,ast.Attribute) and isinstance(base.value,ast.Name)
                     and base.value.id in foreign_modules and base.attr in ('PythonIndicator','Indicator')):
-                raise RemovedOperatorInterface(f'line {cls.lineno}: FactorPool factors must use from factorpool import PythonIndicator')
+                raise OperatorInterfaceError(f'line {cls.lineno}: FactorPool factors must use from factorpool import PythonIndicator')
     for node in tree.body:
         if isinstance(node, ast.Import):
             for alias in node.names:

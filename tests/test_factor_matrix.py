@@ -4,6 +4,7 @@ from datetime import date, timedelta
 import json
 import math
 from pathlib import Path
+from script_fixtures import result_values
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -116,6 +117,15 @@ def asof_frames(payload, basis):
 
 
 class FactorMatrixTests(unittest.TestCase):
+    def test_real_market_without_persisted_q_is_rejected_without_runtime_derivation(self):
+        payload = split_payload(3)
+        payload.update(provider='market_matrix', synthetic=False)
+        indicator, factory, _ = self.factor('self.ts.mean(input.close, 2)')
+        with patch('factorpool.market_adjustment.derive_adjustment',
+                   side_effect=AssertionError('real market adjustment was derived during a task')), \
+                self.assertRaisesRegex(ValueError, 'persisted Q'):
+            FactorMatrix(payload, indicator, factory, payload['frames'][-1]['date']).evaluate(2)
+
     def factor(self, expression, *, ready="self.ts.is_ready(value)"):
         source = ("from factorpool import PythonIndicator\n"
                   "class Factor(PythonIndicator):\n"
@@ -432,7 +442,7 @@ class FactorMatrixTests(unittest.TestCase):
             (path/"request.json").write_text(json.dumps(request))
             run(path)
             result = json.loads((path/"result.json").read_text())
-            rows = [json.loads(line) for line in (path/"values.jsonl").read_text().splitlines()]
+            rows = result_values(path)
         signals = [payload["frames"][i]["date"] for i in (0, 5, 10)]
         self.assertEqual(sorted({row["date"] for row in rows}), signals)
         self.assertEqual(len(rows), 9)

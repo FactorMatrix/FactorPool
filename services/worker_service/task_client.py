@@ -58,5 +58,4 @@ class TaskClient:
         return self.post("fail", dict(self.identity(task), status=status, error=error))
 
     def complete(self, task, result, receipt):
-        publication = receipt if isinstance(receipt, dict) else {"receipt": receipt}
-        return self.post("complete", dict(self.identity(task), result=result, **publication))
+        return self.post("complete", dict(self.identity(task), result=result, **receipt))

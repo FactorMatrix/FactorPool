@@ -71,6 +71,7 @@ class FactorMatrix:
         self._bounded = not self.unbounded and not valid_observations
         self._adjustment = self._segments = None
         self._stored_adjustment = None if quotes is None else quotes.get('adjustment')
+        self._fixture_input = payload.get('provider') == 'fixture'
         self._source_member = None if quotes is None else quotes.get('source_member')
         self._adapter, self._last = None, -1
         self._matrix_plan = self._matrix_adapter = None
@@ -89,6 +90,8 @@ class FactorMatrix:
             self._adjustment.setflags(write=False)
             self._segments.setflags(write=False)
             return
+        if not self._fixture_input:
+            raise ValueError('Market factor inputs require persisted Q and segment matrices')
         from .market_adjustment import derive_adjustment
         close, previous, volume, turnover = (self.values[self.field_positions[field]]
             for field in ('close', 'prev_close', 'volume', 'total_turnover'))
@@ -298,7 +301,7 @@ class FactorMatrix:
             out = update(self._adapter, t, t)
             self._last = t
             return out
-        # Completed-session windows have an exact finite depth. A legacy
+        # Completed-session windows have an exact finite depth. A
         # valid-observation window may skip derived NaNs even when raw inputs
         # are finite; only a complete prefix proves its state after rebasing.
         start = max(0, t - self.window + 1) if self._bounded else 0

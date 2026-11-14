@@ -19,8 +19,7 @@ function draw() {
   const d = props.data,
     p = props.portfolio,
     k = props.metric,
-    portfolioDates = d.portfolio_dates || d.portfolio_signal_dates,
-    dailyPortfolio = !!d.portfolio_dates;
+    portfolioDates = d.portfolio_dates;
   const base = {
     backgroundColor: "transparent",
     color: ["#18bed0", "#efb240", "#74b96a"],
@@ -116,7 +115,7 @@ function draw() {
         },
       ];
     } else if (props.mode === "pnl") {
-      const unit = p.pnl?.unit || d.pnl_book?.unit || "BOOK";
+      const unit = p.pnl.unit;
       option.tooltip = { trigger: "axis", formatter: rows => {
         const values = Array.isArray(rows) ? rows : [rows];
         return [escapeHtml(values[0]?.axisValueLabel || ""), ...values.map(row => `${row.marker}${escapeHtml(row.seriesName)}: ${row.value == null ? '--' : row.seriesIndex === 0 ? `${Number(row.value).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})} ${escapeHtml(unit)}` : `${(Number(row.value) * 100).toFixed(2)}%`}`)].join("<br/>");
@@ -138,7 +137,7 @@ function draw() {
           type: "line",
           showSymbol: portfolioDates?.length < 20,
           connectNulls: false,
-          data: p.pnl?.cumulative || p.constant_book_pnl,
+          data: p.pnl.cumulative,
         },
         {
           name: "半 book 回撤",
@@ -161,13 +160,13 @@ function draw() {
       option.xAxis.data = p.yearly.map((r) => r.period);
       option.series = [
         {
-          name: dailyPortfolio ? "逐日归属年度收益" : "退出年度归属收益",
+          name: "逐日归属年度收益",
           type: "bar",
           data: p.yearly.map((r) => r.value),
         },
       ];
     } else
-      option.series = [{ name: dailyPortfolio ? "日收益" : "持有期收益", type: "bar", data: p.returns }];
+      option.series = [{ name: "日收益", type: "bar", data: p.returns }];
   } else if (props.mode === "yearly") {
     option.xAxis.data = d.yearly[k].map((r) => r.period);
     option.series = [

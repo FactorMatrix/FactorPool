@@ -77,7 +77,7 @@ assert {'decay', 'neutralization', 'truncation', 'pasteurization', 'nanHandling'
 assert all(entry['official_default'] is None for entry in catalog['fields'])
 script_source, config = research_script(3)
 resolved = api('/script/resolve', dict(source_code=script_source))
-assert resolved['source_mode'] == 'script' and resolved['factor_class'] == 'MatrixFactor'
+assert 'source_mode' not in resolved and resolved['factor_class'] == 'MatrixFactor'
 assert resolved['factor_params'] == dict(period=3) and resolved['source_config'] == config
 for setting in ('nanHandling', 'unitHandling', 'maxTrade'):
     value = 'VERIFY' if setting == 'unitHandling' else 'ON'
@@ -99,7 +99,7 @@ assert script_task['snapshot']['source_code'] == script_source
 assert script_task['snapshot']['source_config'] == config
 assert script_task['snapshot']['factor_params'] == dict(period=3)
 assert script_result['metadata']['source_sha256'] == hashlib.sha256(script_source.encode()).hexdigest()
-assert script_result['metadata']['source_mode'] == 'script'
+assert 'source_mode' not in script_result['metadata']
 assert script_result['metadata']['warm_up_period'] == 3
 assert script_result['metadata']['report_horizons'] == [1, 5]
 assert script_result['metadata']['effective_config']['factor']['period'] == 3

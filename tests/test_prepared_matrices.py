@@ -22,6 +22,7 @@ from services.data_service.api import DataService
 from services.data_service.prepared_matrices import PreparedMatrices
 from services.data_service.redis_cache import Cache
 import test_data_service_boundary as grpc_cases
+from market_fixtures import field_snapshot, matrix_blocks
 
 
 class OriginalBlocks:
@@ -51,6 +52,7 @@ class OriginalBlocks:
             dates=[(date(2024, 1, 2)+timedelta(days=n)).isoformat() for n in range(8)],
             fields=list(FIELDS), blocks=blocks,
             cache=dict(version=CACHE_VERSION, codec='raw', tile_symbols=2, chunk_max_bytes=8192))
+        self.columns = field_snapshot(self.metadata, self.matrix)
         self.reads = []
         self.lock = threading.Lock()
         self.fail_start = None
@@ -76,6 +78,11 @@ class OriginalBlocks:
             self.stats['pg_blocks'] += 1
         count = block['row_count']
         return self.matrix[:, start:start+count].copy()
+
+    def read_fields(self, snapshot, block, fields):
+        self.original_block(snapshot, block)
+        start, count = block['start_index'], block['row_count']
+        return {field: self.columns[field][start:start+count].copy() for field in fields}
 
 
 def expected_field(matrix, field):
@@ -260,15 +267,22 @@ class PreparedPostgresTests(unittest.TestCase):
         original = OriginalBlocks(uuid.uuid4().hex)
         identity = original.metadata['snapshot_id']
         self.addCleanup(lambda: self.connection.execute('DELETE FROM market_snapshots WHERE id=%s', (identity,)))
-        self.addCleanup(lambda: self.connection.execute('DELETE FROM market_matrix_blocks WHERE snapshot_id=%s', (identity,)))
+        from services.data_service.market_store import TABLES
+        for table in TABLES:
+            self.addCleanup(lambda table=table: self.connection.execute(
+                f'DELETE FROM {table} WHERE snapshot_id=%s', (identity,)))
         with self.connection.transaction():
             self.connection.execute('INSERT INTO market_snapshots(id,manifest,symbols,dates,fields) VALUES(%s,%s,%s,%s,%s)',
                 (identity, Jsonb(original.metadata['manifest']), Jsonb(original.metadata['symbols']),
                  Jsonb(original.metadata['dates']), Jsonb(list(FIELDS))))
-            for block in original.metadata['blocks']:
-                self.connection.execute('INSERT INTO market_matrix_blocks(snapshot_id,start_index,row_count,payload,sha256) VALUES(%s,%s,%s,%s,%s)',
-                    (identity, block['start_index'], block['row_count'], original.payloads[block['start_index']], block['sha256']))
-        before = self.connection.execute('SELECT start_index,sha256,md5(payload) FROM market_matrix_blocks WHERE snapshot_id=%s ORDER BY start_index', (identity,)).fetchall()
+            for block in original.metadata['field_blocks']:
+                start, count = block['start_index'], block['row_count']
+                for field, descriptor in block['fields'].items():
+                    table = original.metadata['field_catalog'][field]['table']
+                    raw = original.columns[field][start:start+count].tobytes()
+                    self.connection.execute(f'INSERT INTO {table}(snapshot_id,field,start_index,row_count,dtype,payload,sha256) VALUES(%s,%s,%s,%s,%s,%s,%s)',
+                        (identity, field, start, count, descriptor['dtype'], raw, descriptor['sha256']))
+        before = self.connection.execute('SELECT field,start_index,sha256,md5(payload) FROM cn_stock_daily_bar WHERE snapshot_id=%s ORDER BY field,start_index', (identity,)).fetchall()
         source = PostgresMarketSource(self.connection)
         snapshot = source.snapshot(identity)
         with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ,
@@ -288,8 +302,8 @@ class PreparedPostgresTests(unittest.TestCase):
                 with grpc.insecure_channel(f'127.0.0.1:{port}') as channel:
                     client = DataClient(stub=data_pb2_grpc.DataServiceStub(channel), cache=redis)
                     metadata = client.snapshot(identity)
-                    with patch.object(source, 'original_block', side_effect=AssertionError('Prepared read decoded mixed PG block')):
-                        chunks = list(client.selected_blocks(metadata, 0, 8, np.arange(5), fields=fields))
+                    with patch.object(source, '_staging_block', side_effect=AssertionError('Prepared read decoded mixed PG block')):
+                        chunks = list(matrix_blocks(client, metadata, 0, 8, np.arange(5), fields=fields))
                     for start, count, values in chunks:
                         for n, field in enumerate(fields):
                             np.testing.assert_array_equal(values[n], expected_field(original.matrix, field)[start:start+count])
@@ -300,13 +314,13 @@ class PreparedPostgresTests(unittest.TestCase):
                     writable.flush()
                     del writable
                     redis.delete(tile_key(metadata, metadata['blocks'][0], 'total_turnover', 0))
-                    repaired = list(client.selected_blocks(metadata, 0, 3, np.array([0]), fields=('total_turnover',)))
+                    repaired = list(matrix_blocks(client, metadata, 0, 3, np.array([0]), fields=('total_turnover',)))
                     np.testing.assert_array_equal(repaired[0][2][0], original.matrix[6, :3, :1])
                     self.assertEqual(source.stats['pg_blocks'], 4)
                     client.close()
             finally:
                 server.stop(0).wait()
-        after = self.connection.execute('SELECT start_index,sha256,md5(payload) FROM market_matrix_blocks WHERE snapshot_id=%s ORDER BY start_index', (identity,)).fetchall()
+        after = self.connection.execute('SELECT field,start_index,sha256,md5(payload) FROM cn_stock_daily_bar WHERE snapshot_id=%s ORDER BY field,start_index', (identity,)).fetchall()
         self.assertEqual(before, after)
 
 

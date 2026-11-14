@@ -13,7 +13,7 @@ const props = defineProps({ operators: { type: Array, default: () => [] } });
 const settingsSnippet = `"settings": {\n    "decay": 0,\n    "neutralization": "MARKET",\n    "truncation": 0,\n    "visualization": True,\n}`;
 const pageId = ref("welcome");
 const expandedOperators = ref(new Set()), expandedSettings = ref(new Set());
-let requestedDetail = null;
+let requestedEntry = null;
 const sidebarOpen = ref(false), query = ref(""), operatorQuery = ref(""), settingsQuery = ref("");
 const catalog = ref(null), loading = ref(false), loadError = ref("");
 const viewport = ref(null), currentSection = ref(""), searchInput = ref(null);
@@ -66,12 +66,12 @@ function scrollToEntry(kind, name) {
   const target = [...(viewport.value?.querySelectorAll(`[${attribute}]`) || [])].find(item => item.getAttribute(attribute) === name);
   if (target && viewport.value) viewport.value.scrollTo({ top: target.offsetTop - 28 });
 }
-function applyRequestedDetail() {
-  if (!requestedDetail || requestedDetail.page !== pageId.value) return;
-  const { page, name } = requestedDetail;
+function applyRequestedEntry() {
+  if (!requestedEntry || requestedEntry.page !== pageId.value) return;
+  const { page, name } = requestedEntry;
   const items = page === "operators" ? coreOperators.value : catalog.value?.fields;
   if (!items || !items.length) return;
-  requestedDetail = null;
+  requestedEntry = null;
   const exists = items.some(item => (page === "operators" ? item.name : item.field) === name);
   if (!exists) return;
   if (page === "operators") { operatorQuery.value = ""; setExpanded(expandedOperators, name, true); }
@@ -82,10 +82,10 @@ function navigate(page, detail = {}) {
   query.value = ""; sidebarOpen.value = false;
   const name = detail.operator || detail.setting;
   if (name) {
-    requestedDetail = { page, name };
-    if (pageId.value === page) { applyRequestedDetail(); return; }
+    requestedEntry = { page, name };
+    if (pageId.value === page) { applyRequestedEntry(); return; }
   } else {
-    requestedDetail = null;
+    requestedEntry = null;
     if (page === "operators") operatorQuery.value = "";
   }
   const hash = `#learn/${page}`;
@@ -93,16 +93,14 @@ function navigate(page, detail = {}) {
 }
 function readRoute() {
   const parts = window.location.hash.slice(1).split("/");
-  const valid = navigation.value.some(item => item.id === parts[1]);
+  const valid = parts.length === 2 && navigation.value.some(item => item.id === parts[1]);
   pageId.value = parts[0] === "learn" && valid ? parts[1] : "welcome";
-  let detail = ""; try { detail = decodeURIComponent(parts[2] || ""); } catch { /* Invalid links open the index. */ }
-  if (detail && ["operators", "settings"].includes(pageId.value)) requestedDetail = { page: pageId.value, name: detail };
-  else if (requestedDetail?.page !== pageId.value) requestedDetail = null;
+  if (requestedEntry?.page !== pageId.value) requestedEntry = null;
   query.value = ""; sidebarOpen.value = false;
   nextTick(() => {
     viewport.value?.scrollTo({ top: 0 });
     currentSection.value = sections.value[0]?.id || "";
-    applyRequestedDetail();
+    applyRequestedEntry();
   });
 }
 function jumpToCategory(id) {
@@ -130,7 +128,7 @@ async function loadCatalog() {
   loading.value = true; loadError.value = "";
   try {
     catalog.value = await api("/simulation-settings");
-    nextTick(applyRequestedDetail);
+    nextTick(applyRequestedEntry);
   }
   catch (error) { loadError.value = error.message; }
   finally { loading.value = false; }
@@ -141,7 +139,7 @@ function searchShortcut(event) {
   }
   if (event.key === "Escape") { query.value = ""; sidebarOpen.value = false; }
 }
-watch(() => props.operators.length, () => nextTick(applyRequestedDetail));
+watch(() => props.operators.length, () => nextTick(applyRequestedEntry));
 onMounted(() => { readRoute(); loadCatalog(); window.addEventListener("hashchange", readRoute); window.addEventListener("keydown", searchShortcut); });
 onBeforeUnmount(() => { window.removeEventListener("hashchange", readRoute); window.removeEventListener("keydown", searchShortcut); if (scrollFrame) cancelAnimationFrame(scrollFrame); });
 </script>

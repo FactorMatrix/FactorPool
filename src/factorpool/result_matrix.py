@@ -284,7 +284,7 @@ def iter_result_chunks(path, *, max_bytes=4 * 1024 * 1024, validate_values=True)
 
 
 def rows_from_chunk(axes, chunk, *, offset=0, limit=None, api=False):
-    """Materialize only a page or explicit legacy export, never the whole matrix."""
+    """Materialize the requested rows of one decoded matrix chunk."""
     count = chunk['row_count']
     stop = count if limit is None else min(count,offset+limit)
     width = len(axes['symbols'])
@@ -299,16 +299,6 @@ def rows_from_chunk(axes, chunk, *, offset=0, limit=None, api=False):
                    forward_return=number(chunk['forward_return'][index]),group=group)
         if api:
             row['trading_date'] = row.pop('date')
-            row['factor_group'] = int(row.pop('group')) if group is not None else None
+            row.pop('group')
+            row['factor_group'] = int(group) if group is not None else None
         yield row
-
-
-def write_jsonl(path, matrix_path):
-    axes = None
-    with Path(path).open('w') as output:
-        for ordinal,count,payload,_ in iter_result_chunks(matrix_path,validate_values=False):
-            if axes is None:
-                axes = decode_axes(payload)
-                continue
-            for row in rows_from_chunk(axes,decode_chunk(payload,axes)):
-                output.write(json.dumps(row,allow_nan=False)+'\n')

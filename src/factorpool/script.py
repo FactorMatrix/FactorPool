@@ -103,7 +103,7 @@ def parse_source(source, workspace_config=None):
     for node in module.body:
         if isinstance(node, ast.ImportFrom) and node.module == "factorpool":
             aliases.update(alias.asname or alias.name for alias in node.names
-                           if alias.name in ("PythonIndicator", "Indicator"))
+                           if alias.name == "PythonIndicator")
         elif isinstance(node, ast.Import):
             modules.update(alias.asname or "factorpool" for alias in node.names if alias.name == "factorpool")
     def indicator_class(cls_name, seen):
@@ -115,7 +115,7 @@ def parse_source(source, workspace_config=None):
                 if base.id in aliases or (base.id in classes and indicator_class(base.id, seen)):
                     return True
             elif (isinstance(base, ast.Attribute) and isinstance(base.value, ast.Name)
-                  and base.value.id in modules and base.attr in ("PythonIndicator", "Indicator")):
+                  and base.value.id in modules and base.attr == "PythonIndicator"):
                 return True
         return False
     if not indicator_class(name, set()):
@@ -134,7 +134,7 @@ def parse_source(source, workspace_config=None):
     except ValueError as error:
         _fail(definition, str(error))
     result["source_config"] = deepcopy(config)
-    parsed = dict(source_mode="script", factor_class=name, workspace_config=deepcopy(workspace), **result)
+    parsed = dict(factor_class=name, workspace_config=deepcopy(workspace), **result)
     from .config import effective_config
     parsed["effective_config"] = effective_config(parsed)
     return parsed
@@ -142,8 +142,11 @@ def parse_source(source, workspace_config=None):
 
 def bind_request(request):
     """Recheck source authority in the worker; only a newly pinned ID may differ."""
-    if request.get("source_mode", "script") != "script":
-        raise ScriptError("line 1: only the Python script research entry is supported")
+    allowed = {"id", "name", "source_code", "workspace_config", "factor_class", "factor_params",
+               "data", "analysis", "source_config", "brain_settings", "simulation_type", "effective_config"}
+    unknown = set(request) - allowed
+    if unknown:
+        raise ScriptError(f"line 1: unsupported research request field: {sorted(unknown)[0]}")
     parsed = parse_source(request["source_code"], request.get("workspace_config"))
     for key in ("factor_class", "factor_params", "analysis", "source_config", "brain_settings"):
         if key in request and request[key] != parsed[key]:
@@ -169,6 +172,11 @@ def main():
         body = json.loads(sys.stdin.read(1048577))
         if not isinstance(body, dict):
             raise ScriptError("line 1: expected a source_code object")
+        unknown = set(body) - {"source_code", "workspace_config"}
+        if unknown:
+            raise ScriptError(f"line 1: unsupported script request field: {sorted(unknown)[0]}")
+        if "workspace_config" in body and not isinstance(body["workspace_config"], dict):
+            raise ScriptError("line 1: workspace_config must be an object")
         result = parse_source(body.get("source_code"), body.get("workspace_config"))
         print(json.dumps(result, ensure_ascii=False, allow_nan=False))
     except (ValueError, RecursionError):
