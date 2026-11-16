@@ -61,7 +61,7 @@ services:
     stop_grace_period: 15s
   frontend:
     profiles: [frontend]
-    image: factorpool/frontend:${FACTORPOOL_TEST_RELEASE:?}
+    image: factorpool/frontend:${FACTORPOOL_TEST_FRONTEND_RELEASE:-${FACTORPOOL_TEST_RELEASE:?}}
     ports: ["127.0.0.1:8089:80"]
     depends_on:
       backend: {condition: service_healthy}

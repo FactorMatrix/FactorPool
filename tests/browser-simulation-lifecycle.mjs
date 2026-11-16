@@ -156,7 +156,7 @@ try {
       assert.equal(h.counts.post,1,'Automatic report retry must not resubmit research')
       assert.equal(h.counts.values,0,'Value pagination is not a prerequisite for the main report')
       assert.equal(await h.page.getByLabel('结果曲线',{exact:true}).inputValue(),'pnl')
-      await h.page.getByRole('button',{name:'Stats',exact:true}).click()
+      await h.page.getByRole('button',{name:'Summary',exact:true}).click()
       await h.page.getByRole('table',{name:'年度统计表'}).waitFor()
       await h.page.screenshot({path:`${output}/simulation-lifecycle-recovered.png`,fullPage:true})
     } finally { await h.close('transient report failure recovers without another POST') }
@@ -234,7 +234,7 @@ try {
       await h.submit();await chart(h.page).waitFor()
       h.releaseFirst()
       await new Promise(resolve=>setTimeout(resolve,600))
-      await h.page.getByRole('button',{name:'Stats',exact:true}).click()
+      await h.page.getByRole('button',{name:'Summary',exact:true}).click()
       const rows=h.page.getByRole('table',{name:'年度统计表'}).locator('tbody')
       assert.match(await rows.innerText(),/2025/)
       assert.doesNotMatch(await rows.innerText(),/2024/)

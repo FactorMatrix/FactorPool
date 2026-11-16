@@ -18,7 +18,7 @@ const taskId = await runResearch(page)
 await page.getByRole('button', {name:'IC Analysis',exact:true}).click()
 await page.locator('.metrics').waitFor()
 const metric = await page.locator('.metrics strong').allTextContents()
-assert.deepEqual(metric, ['1.0000', '1.0000', '--', '100.00%'])
+assert.deepEqual(metric, ['1.0000', '1.0000', '—', '100.00%'])
 const valuesResponse = page.waitForResponse(response => response.request().method() === 'GET'
   && new URL(response.url()).pathname === `/api/tasks/${taskId}/values`)
 await page.getByRole('button', {name:'Factor Values',exact:true}).click()

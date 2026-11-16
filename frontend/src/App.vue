@@ -52,6 +52,8 @@ const task = ref(null),
   logs = ref(""),
   offset = ref(0),
   notice = ref("");
+const savedResultFactors = ref({});
+const savedResultFactor = computed(() => savedResultFactors.value[task.value?.id]);
 const submitting = ref(false), reportLoading = ref(false), reportError = ref("");
 const valuesLoading = ref(false), valuesError = ref("");
 let reportAttempts = 0, valuesLoaded = false, logsRequested = false, logsLoading = false;
@@ -210,6 +212,30 @@ async function save() {
     factorId.value = saved.id;
     notice.value = `已保存版本 v${saved.version}`;
     await refreshLists();
+  });
+}
+async function saveResultFactor() {
+  const run = task.value;
+  if (busy.value || !run?.snapshot?.source_code || run.status !== "SUCCEEDED"
+    || savedResultFactors.value[run.id]) return;
+  await action(async () => {
+    const workspace = clone(run.snapshot.workspace_config || {});
+    if (run.snapshot.data?.provider === "market_matrix")
+      workspace.data = { ...workspace.data, snapshot_id: run.snapshot.data.snapshot_id };
+    const saved = await api("/factors", {
+      name: run.snapshot.name || run.name,
+      source_code: run.snapshot.source_code,
+      workspace_config: workspace,
+    });
+    // This belongs to the immutable run, even if the editor draft has changed.
+    // Retain the real ID immediately, including if the following list GET fails.
+    savedResultFactors.value = { ...savedResultFactors.value,
+      [run.id]: { ...saved, name: run.name } };
+    notice.value = `已保存本次运行快照 v${saved.version}`;
+    await refreshLists();
+    const record = factors.value.find(item => item.id === saved.id);
+    if (record) savedResultFactors.value = { ...savedResultFactors.value,
+      [run.id]: { ...saved, ...record } };
   });
 }
 async function loadFactor(id) {
@@ -593,11 +619,13 @@ onBeforeUnmount(() => {
             :values-loading="valuesLoading"
             :values-error="valuesError"
             :states="states"
+            :saved-factor="savedResultFactor"
             @load-snapshot="loadSnapshot"
             @page="page"
             @retry-report="retryReport"
             @load-values="loadValues"
             @load-logs="loadLogs()"
+            @save-factor="saveResultFactor"
         /></template>
       </SplitPane>
     </main>

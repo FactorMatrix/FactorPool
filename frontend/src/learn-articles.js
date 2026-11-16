@@ -55,7 +55,7 @@ export const learnArticles = {
       ], code: quickStartCode, codeLabel: "入门完整脚本" },
       { id: "inspect-first-result", title: "先看因子值，再看收益", paragraphs: [
         "任务完成后，打开 Factor Values，确认输出日期、股票、因子值和 ready 状态符合你的表达式。窗口尚未完成时不会发布可用因子值。",
-        "结果默认打开 Chart 的 PnL 曲线，Stats 展示六项汇总与年度统计。基础报告默认只计算 1D；IC Analysis 和 Groups 是独立的研究入口。",
+        "结果是连续滚动的报告，顶部 Chart 默认展示 PnL，下方 Summary 展示六项汇总与年度统计。左侧图标定位区块；IC Analysis 和 Groups 放在研究扩展中按需展开。基础报告默认只计算 1D。",
       ] },
       { id: "change-one-parameter", title: "只改一个参数做比较", paragraphs: [
         "把 config.factor.period 从 3 改成 1，再运行一次。构造参数会传入 TutorialFactor 的 __init__，因此这次比较只改变成交量窗口。",
@@ -226,6 +226,13 @@ value = self.ts.delay(input.close, 1, clock="trading_days")`, codeLabel: "在 up
         "每个 horizon 从首个因子日开始，按互不重叠的持有段再平衡。段内先复合各只股票的收益，再按期初权重合成组合；持有权重随价格自然漂移。",
         "组合按权重比例计算，日线逐日估值；当前不计佣金、滑点和税费。某个非零持仓的收益缺失时，不会事后删掉它再重新分配权重。",
       ] },
+      { id: "continuous-report", title: "浏览报告与区间", paragraphs: [
+        "Chart、Summary、Correlation、IS Testing Status 和 Properties 在同一份连续报告中。图标用于滚动定位；研究扩展按需展开，因子值和日志在打开时加载。",
+        "有测试期时默认只显示训练期。Show test period 会显示完整曲线和年度表，Hide test period 回到训练期；TRAIN / TEST / IS 只切换顶部汇总，不筛掉已经显示的年度，也不改动图表。没有 OS 数据时按钮不可用。",
+        "PnL 与 Turnover 使用报告中的真实日序列；Sharpe 没有已保存的时间序列时不可用，不从年度统计插值。图内框选、底部滑条和显示全部只改变图表范围，不重算回测或 Summary。",
+        "Properties 可保存本次运行的源码和配置快照，不会拿编辑器里后来修改的草稿冒充原结果。关联的因子 ID 和保存时间只在真实保存成功后显示；类别、标签和颜色尚未接入。",
+        "Correlation 没有真实比较数据时显示缺失；Testing Status 展示本地任务与报告状态，不代表 BRAIN 提交审核。菜单排序通过拖动或上下按钮修改，Apply 后保存在当前浏览器。",
+      ] },
       { id: "pnl-and-nav", title: "区分 PnL 与净值", paragraphs: [
         "Net value 展示逐日复利净值；PnL 展示固定 book 的累积收益贡献。两种视角使用各自定义的序列，不应只看曲线名称就互换解释。",
         "book_size 仅把比例 PnL 缩放为名义金额，pnl_unit 只是单位标签；它们不会改变因子排名、IC、按比例收益或产生整手约束。",
@@ -313,7 +320,7 @@ value = self.ts.delay(input.close, 1, clock="trading_days")`, codeLabel: "在 up
       ] },
       { id: "evaluation-settings", title: "测试区间与可视化", paragraphs: [
         "testPeriod 从研究结束日向前划出测试期，支持 P30D、P2W、P1Y6M 等日历长度；默认 P0Y0M 不划分。Train/Test 只划分研究日期范围内的组合表现，不重新训练或筛选因子。",
-        "All 保留完整持有收益，包括研究结束后用于完成持有段的尾部，因此可能和 Train/Test 合计范围不同。",
+        "IS 保留完整持有收益，包括研究结束后用于完成持有段的尾部，因此可能和 TRAIN / TEST 合计范围不同。年度表按真实分段日期标记，区间外持有收益不会冒充测试期。",
         "visualization=False 关闭图表，数值和结果导出仍保留。完整参数和每个选项的支持状态可在“参数参考”中查阅。",
       ] },
     ],
@@ -384,7 +391,7 @@ value = self.ts.delay(input.close, 1, clock="trading_days")`, codeLabel: "在 up
       { id: "compare-results", title: "两次结果不同，怎么比较？", bullets: [
         "对照 Source 中的原始源码、构造参数与 effective_config。",
         "核对数据快照、研究日期、股票池、factor_price 与窗口时钟。",
-        "区分原始因子 IC、Alpha 权重设置、horizon 和 Train/Test/All 的统计范围。",
+        "区分原始因子 IC、Alpha 权重设置、horizon 和 TRAIN / TEST / IS 的统计范围。",
         "用相同条件复现后，再逐次只改一项参数。",
       ] },
     ],

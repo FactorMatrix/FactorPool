@@ -16,16 +16,10 @@ const port = computed(
     selected.value?.portfolios[strategy.value] ||
     selected.value?.portfolios.high_low,
 );
-const alpha = computed(() => selected.value?.portfolios.alpha);
 const visualization = computed(() => props.report.conventions.brain_settings.visualization);
-const settings = computed(() => props.report.conventions.brain_settings);
-const pnlBook = computed(() => ({ size: alpha.value?.pnl?.book_size,
-  unit: alpha.value?.pnl?.unit }));
-const bookLabel = computed(() => `${Number(pnlBook.value.size).toLocaleString("en-US", { maximumFractionDigits: 2 })} ${pnlBook.value.unit}`);
 const num = (x) => (x == null ? "--" : Number(x).toFixed(4));
 const pct = (x) => (x == null ? "--" : (Number(x) * 100).toFixed(2) + "%");
 const pval = (x) => (x == null ? "--" : Number(x).toExponential(3));
-const bp = (x) => (x == null ? "--" : (Number(x) * 10000).toFixed(2) + " bp");
 const title = (name) =>
   name === "alpha"
     ? "Alpha（连续因子权重）"
@@ -38,17 +32,6 @@ const title = (name) =>
           : name.replace("short_", "空头 ");
 watch(section, () => {
   view.value = section.value === "ic" ? "series" : "nav";
-});
-const brainCards = computed(() => {
-  const b = alpha.value?.brain_style || {};
-  return [
-    ["Sharpe", num(b.sharpe)],
-    ["Fitness", num(b.fitness)],
-    ["Returns", pct(b.returns)],
-    ["Turnover", pct(b.turnover)],
-    ["Drawdown", pct(b.drawdown)],
-    ["Margin", bp(b.margin)],
-  ];
 });
 </script>
 <template>
@@ -64,12 +47,7 @@ const brainCards = computed(() => {
         @click="section = 'portfolio'"
       >
         多空与分组</button
-      ><button
-        :class="{ active: section === 'brain' }"
-        @click="section = 'brain'"
       >
-        BRAIN 风格
-      </button>
     </div>
     <p v-if="!visualization" class="report-note" role="status">可视化已由 settings.visualization 关闭，以下展示数值结果。</p>
     <template v-if="section === 'ic'">
@@ -187,50 +165,7 @@ const brainCards = computed(() => {
         缺失收益留空，不补零或重分配权重。所有组合均无费用。
       </p>
     </template>
-    <template v-else>
-      <div class="brain-metrics">
-        <div v-for="[name, value] in brainCards" :key="name">
-          <span>{{ name }}</span
-          ><strong>{{ value }}</strong>
-        </div>
-      </div>
-      <p class="report-note">
-        研究 Alpha：连续因子权重，{{ settings.neutralization }} 中性化；Decay {{ settings.decay }}，Truncation {{ settings.truncation }}，Delay 1，每
-        {{ selected.horizon }} 期调仓。截断限制调仓目标，期内漂移敞口可变化。采用页面下方披露的研究公式，BRAIN
-        官方数值一致性尚未核验。
-      </p>
-      <ReportChart v-if="visualization" :data="selected" :portfolio="alpha" mode="pnl" />
-      <p class="report-note">固定名义 book：{{ bookLabel }}。金额 PnL 逐日累加，复利净值单独计算；无费用、无汇兑或实际账户。</p>
-      <div class="brain-missing">
-        <span>Self-correlation <b>--</b></span
-        ><span>Production correlation <b>--</b></span
-        ><span>市值暴露 <b>--</b></span
-        ><span>行业暴露 <b>--</b></span>
-      </div>
-      <details>
-        <summary>计算公式与数据缺口</summary>
-        <dl>
-          <dt>Sharpe</dt>
-          <dd>每日固定 book PnL 增量均值 / 样本标准差 × √年交易日</dd>
-          <dt>Returns</dt>
-          <dd>每日金额 PnL 均值 × 年交易日 / (book size × 0.5)；与 CAGR 分开</dd>
-          <dt>Turnover</dt>
-          <dd>
-            目标权重与价格漂移后的原权重之差的绝对值和；含首次建仓，折算日均
-          </dd>
-          <dt>Drawdown</dt>
-          <dd>累计金额 PnL 的峰谷差 / (book size × 0.5)；半 book 分母为本地研究预设</dd>
-          <dt>Fitness</dt>
-          <dd>Sharpe × √(|Returns| / max(Turnover, 0.125))</dd>
-          <dt>Margin</dt>
-          <dd>累计 PnL / 累计换手金额；以 bp 展示</dd>
-        </dl>
-        <p class="report-note">
-          没有指定 Alpha 参考池、BRAIN 生产池、合格市值或行业
-          Provider，对应指标留空。所有组合均为无费用研究结果。
-        </p>
-      </details>
-    </template>
+
   </section>
 </template>
 <style scoped>
@@ -287,54 +222,7 @@ const brainCards = computed(() => {
 .chosen {
   background: #e5f2f5;
 }
-.brain-metrics {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-  margin-top: 14px;
-}
-.brain-metrics > div {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 12px;
-  background: #edf2f6;
-  border-radius: 0;
-}
-.brain-metrics span {
-  font-size: 11px;
-  color: #8391a5;
-}
-.brain-metrics strong {
-  font-weight: 500;
-  font-size: 21px;
-}
-.brain-missing {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  font-size: 10px;
-  color: #8391a5;
-  margin: 12px 0;
-}
-.brain-missing b {
-  float: right;
-}
-dl {
-  font-size: 11px;
-  line-height: 1.9;
-}
-dt {
-  color: #4794a9;
-}
-dd {
-  margin: 0 0 8px;
-  color: #8190a3;
-}
 @media (max-width: 500px) {
-  .brain-metrics strong {
-    font-size: 17px;
-  }
   .report-controls select {
     max-width: 55%;
   }
