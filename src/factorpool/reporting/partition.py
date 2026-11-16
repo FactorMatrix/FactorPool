@@ -32,7 +32,8 @@ def add_test_period(diagnostics, period, factor_end, annual_days, factor_start=N
                     subset = lambda key: [values[key][i] for i in indices]
                     part = native.performance_stats(subset("returns"), subset("turnover_series"),
                                                     subset("book_pnl_series"), annual_days)
-                    for key in ("returns", "turnover_series", "book_pnl_series", "positions", "max_weight_series"):
+                    for key in ("returns", "turnover_series", "book_pnl_series", "positions",
+                                "long_positions", "short_positions", "max_weight_series"):
                         if key in values:
                             part[key] = subset(key)
                     part["monthly"] = portfolio_calendar(selected_dates, part["returns"])

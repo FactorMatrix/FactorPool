@@ -1,5 +1,7 @@
 """Amount labels and optional trace formatting around the existing matrix PnL."""
 import math
+from collections import defaultdict
+import _factorpool_native as native
 from ..reporting_options import monetary_options
 from ..result_matrix import REASONS
 
@@ -40,20 +42,52 @@ def format_trace(traces, info, dates, price_dates, analysis):
     return output
 
 
+def yearly_statistics(alpha, dates, book, annual_days):
+    """Compute calendar-year metrics using the existing fixed-book conventions."""
+    keys = ("returns", "turnover_series", "book_pnl_series")
+    if any(key not in alpha or len(alpha[key]) != len(dates) for key in keys):
+        return []
+    years = defaultdict(list)
+    for index, day in enumerate(dates):
+        years[day[:4]].append(index)
+
+    def average_positions(key, indices):
+        values = alpha.get(key)
+        if values is None or len(values) != len(dates):
+            return None
+        values = [_number(values[i]) for i in indices]
+        return sum(values) / len(values) if values and all(v is not None for v in values) else None
+
+    rows = []
+    for year, indices in sorted(years.items()):
+        samples = [[alpha[key][i] for i in indices] for key in keys]
+        stats = native.performance_stats(*samples, annual_days)["brain_style"]
+        amounts = [_number(v) for v in samples[2]]
+        pnl = _number(math.fsum(amounts) * book) if all(v is not None for v in amounts) else None
+        rows.append(dict(year=year, start=dates[indices[0]], end=dates[indices[-1]],
+                         days=len(indices), **stats, pnl=pnl,
+                         long_count=average_positions("long_positions", indices),
+                         short_count=average_positions("short_positions", indices)))
+    return rows
+
+
 def add_amounts(diagnostics, analysis):
     book, unit = monetary_options(analysis)
-    def amounts(alpha):
+    def amounts(alpha, dates=None):
         if "book_pnl_series" not in alpha:
             return
         scale = lambda values: [None if value is None else _number(value*book) for value in values]
         alpha["pnl"] = dict(book_size=book, unit=unit, daily=scale(alpha["book_pnl_series"]),
                             cumulative=scale(alpha["constant_book_pnl"]))
+        if dates is not None:
+            alpha["yearly_stats"] = yearly_statistics(alpha, dates, book, analysis.get("annual_days", 252))
     for horizon in diagnostics["horizons"].values():
         horizon["pnl_book"] = dict(size=book, unit=unit)
-        amounts(horizon["portfolios"]["alpha"])
+        amounts(horizon["portfolios"]["alpha"], horizon.get("portfolio_dates"))
         for section in horizon.get("partitions", {}).values():
-            amounts(section["alpha"])
+            amounts(section["alpha"], section.get("dates"))
     diagnostics["conventions"].update(book_size=book, pnl_unit=unit,
         book_policy="fixed nominal reference book; holding exposures drift with prices; PnL accumulates arithmetically; book_size scales amounts only, without currency conversion or a trading account",
         pnl_fields="alpha.pnl.daily/cumulative are nominal amounts; book_pnl_series/constant_book_pnl retain unit-gross-book fractions",
-        max_weight_scope="max_weight_series is the rebalance target concentration, repeated within each holding interval; actual weights drift with prices")
+        max_weight_scope="max_weight_series is the rebalance target concentration, repeated within each holding interval; actual weights drift with prices",
+        yearly_stats="calendar-year fixed-book performance using the same local formulas as aggregate; long/short counts are daily averages of nonzero target positions")
