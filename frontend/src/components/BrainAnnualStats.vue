@@ -100,17 +100,19 @@ const annualRows = computed(() => (Array.isArray(props.rows) ? props.rows : [])
 </template>
 
 <style scoped>
-.annual-stats { margin: 16px 0 4px; }
-.annual-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 10px; color: #778597; font-size: 12px; }
+.annual-stats { margin: 14px 0 4px; }
+.annual-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 6px; color: #778597; font-size: 11px; }
 .annual-toggle { display: inline-flex; align-items: center; gap: 4px; padding: 3px 5px; border: 0; border-radius: 3px; background: transparent; color: #6f7e8e; font-size: 12px; cursor: pointer; }
 .annual-toggle:hover { background: #eef2f5; color: #4c7345; }
 .annual-toggle:focus-visible { outline: 2px solid #56a954; outline-offset: 2px; }
 .annual-toggle svg.expanded { transform: rotate(90deg); }
-.annual-scroll { max-width: 100%; overflow-x: auto; border-top: 1px solid #dce2e9; border-bottom: 1px solid #dce2e9; }
-table { width: 100%; min-width: 700px; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 12px; }
-th, td { padding: 12px 10px; text-align: right; white-space: nowrap; border-bottom: 1px solid #edf0f3; }
-thead th { color: #778597; background: #f5f7fa; font-size: 12px; font-weight: 400; }
+.annual-scroll { max-width: 100%; overflow-x: auto; border-radius: 3px; border-bottom: 1px solid #d5dce5; }
+table { width: 100%; min-width: 580px; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 11px; }
+th, td { padding: 9px 5px; text-align: right; white-space: nowrap; border-bottom: 1px solid #dce2e9; }
+thead th { color: #fff; background: #58697d; font-size: 10px; font-weight: 500; }
 tbody th { position: relative; color: #59687a; font-weight: 500; }
+tbody tr:nth-child(even) { background: #e8ebef; }
+tbody tr:nth-child(odd) { background: #f6f7f9; }
 tbody tr.train-row > th:first-child { box-shadow: inset 3px 0 #56c8cf; }
 tbody tr.test-row > th:first-child { box-shadow: inset 3px 0 #df8d32; }
 tbody tr.mixed-row > th:first-child::before,
@@ -131,5 +133,5 @@ tbody tr:last-child th, tbody tr:last-child td { border-bottom: 0; }
 .period-legend .legend-train::before { background: #56c8cf; }
 .period-legend .legend-test::before { background: #df8d32; }
 .period-legend .legend-mixed::before { background: linear-gradient(90deg, #56c8cf 0 50%, #df8d32 50%); }
-@container (max-width: 640px) { .scroll-hint { display: block; } }
+@container (max-width: 580px) { .scroll-hint { display: block; } }
 </style>

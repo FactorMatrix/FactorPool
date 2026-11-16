@@ -47,7 +47,6 @@ const fullAlpha = computed(() => selected.value?.portfolios?.alpha);
 const alpha = computed(() => partition.value === "all" ? fullAlpha.value : selected.value?.partitions?.[partition.value]?.alpha);
 const annualRows = computed(() => hasTest.value && !showTest.value
   ? selected.value?.partitions?.train?.alpha?.yearly_stats : fullAlpha.value?.yearly_stats);
-const summaryTitle = computed(() => partition.value === "train" ? "Train Summary" : partition.value === "test" ? "Test Summary" : "IS Summary");
 const summaryDates = computed(() => partition.value === "all" ? selected.value?.portfolio_dates : selected.value?.partitions?.[partition.value]?.dates);
 const researchReport = computed(() => props.result?.diagnostics
   ? { ...props.result.diagnostics, horizons: { "1": selected.value } } : null);
@@ -69,7 +68,7 @@ const statusClass = computed(() => props.submitting ? "QUEUED" : props.task?.sta
   ? props.reportError ? "FAILED" : "RUNNING" : props.task?.status);
 function toggleTest() {
   showTest.value = !showTest.value;
-  if (!showTest.value) partition.value = "train";
+  partition.value = showTest.value && selected.value?.partitions?.test ? "test" : "train";
 }
 const panel = ref(null), rail = ref(null), menu = ref(null);
 const nodes = new Map();
@@ -175,34 +174,37 @@ function exportResult() {
       <p v-if="preferenceMessage" class="report-note" role="status">{{ preferenceMessage }}</p>
       <div v-if="submitting" class="empty" role="status"><UiIcon name="refresh" :size="42" /><h2>正在提交任务</h2><p>提交成功后会自动计算并加载报告。</p></div>
       <template v-else-if="result && supportedReport && selected">
+        <div v-if="hasTest" class="test-period-banner">
+          <button class="test-toggle" :aria-pressed="showTest" @click="toggleTest">{{ showTest ? 'Hide test period' : 'Show test period' }}</button>
+          <span>指定测试期时，默认隐藏测试期和整体统计。</span>
+        </div>
         <section v-for="[key, icon, label] in orderedCore" :key="key" :ref="element => remember(key, element)"
           :data-result-section="key" class="report-section" tabindex="-1" :aria-labelledby="`report-${key}-title`">
           <header class="results-toolbar">
-            <span><UiIcon :name="icon" /><h2 :id="`report-${key}-title`">{{ key === 'summary' ? summaryTitle : key === 'testing' ? 'IS Testing Status' : label }}</h2></span>
+            <span><UiIcon :name="icon" /><h2 :id="`report-${key}-title`">{{ key === 'summary' ? 'IS Summary' : key === 'testing' ? 'IS Testing Status' : label }}</h2></span>
             <select v-if="key === 'chart' && visualization" v-model="chartMode" aria-label="结果曲线">
               <optgroup label="Performance"><option value="pnl">PnL</option><option value="sharpe" :disabled="!hasSharpe">Sharpe · {{ hasSharpe ? '真实序列' : '暂无真实时间序列' }}</option><option value="turnover">Turnover</option></optgroup>
               <optgroup label="FactorPool 扩展"><option value="nav">Net value · 复利净值</option><option value="returns">Daily returns · 日收益</option><option value="drawdown">Drawdown · 净值回撤</option><option value="monthly">Monthly returns · 月度收益</option><option value="yearly">Yearly returns · 年度收益</option></optgroup>
             </select>
+            <div v-if="key === 'summary'" class="period-control" role="group" aria-label="汇总区间"><span>Period</span>
+              <button v-for="[value, title] in [['train','TRAIN'],['test','TEST'],['all','IS'],['os','OS']]" :key="value"
+                :disabled="value === 'os' || (!hasTest && value !== 'all') || (hasTest && !showTest && ['test','all'].includes(value)) || (hasTest && ['train','test'].includes(value) && !selected?.partitions?.[value])"
+                :aria-pressed="partition === value" :title="value === 'os' ? '没有真实 OS 结果' : title" @click="partition = value">{{ title }}</button>
+            </div>
           </header>
           <div v-if="key === 'chart'" class="simulation-chart-panel">
             <ReportChart v-if="visualization && chartData && chartAlpha" :data="chartData" :portfolio="chartAlpha" :mode="chartMode"
               :show-test="showTest" :train-dates="trainDates" :test-dates="testDates" />
             <p v-else class="report-note" role="status">{{ visualization ? '当前训练区间没有可用图表数据。' : '可视化已由 settings.visualization 关闭；统计与导出仍可使用。' }}</p>
-            <div class="chart-footnote"><span>{{ chartData?.portfolio_dates?.[0] || '—' }} — {{ chartData?.portfolio_dates?.at(-1) || '—' }}</span><span>1D · 收盘计算 · 无费用</span></div>
-            <p v-if="chartMode === 'pnl'" class="pnl-book-note">固定 book：{{ bookLabel }} · 真实累计 PnL；BOOK 为名义单位，不代表货币兑换。</p>
-            <p v-else-if="chartMode === 'nav'" class="pnl-book-note">初始净值 1，按比例收益逐日复利。</p>
-            <p v-if="hasTest && !showTest" class="report-note">测试期默认隐藏。可在 Summary 中选择 Show test period；缩放只改变图表显示。</p>
+            <details class="chart-metadata"><summary>查看图表口径</summary>
+              <p class="chart-meta-note">{{ chartData?.portfolio_dates?.[0] || '—' }} — {{ chartData?.portfolio_dates?.at(-1) || '—' }} · 1D · 收盘计算 · 无费用</p>
+              <p v-if="chartMode === 'pnl'" class="pnl-book-note">固定 book：{{ bookLabel }} · 真实累计 PnL；BOOK 为名义单位，不代表货币兑换。</p>
+              <p v-else-if="chartMode === 'nav'" class="pnl-book-note">初始净值 1，按比例收益逐日复利。</p>
+              <p class="chart-meta-note">缩放只改变图表显示。</p>
+            </details>
           </div>
           <template v-else-if="key === 'summary'">
-            <div class="summary-controls">
-              <div class="period-control" role="group" aria-label="汇总区间"><span>Period</span>
-                <button v-for="[value, title] in [['train','TRAIN'],['test','TEST'],['all','IS'],['os','OS']]" :key="value"
-                  :disabled="value === 'os' || (!hasTest && value !== 'all') || (hasTest && !showTest && ['test','all'].includes(value))"
-                  :aria-pressed="partition === value" :title="value === 'os' ? '没有真实 OS 结果' : title" @click="partition = value">{{ title }}</button>
-              </div>
-              <button v-if="hasTest" class="test-toggle" :aria-pressed="showTest" @click="toggleTest">{{ showTest ? 'Hide test period' : 'Show test period' }}</button>
-            </div>
-            <p class="summary-range">{{ summaryDates?.[0] || '—' }} — {{ summaryDates?.at(-1) || '—' }}</p>
+            <p class="summary-range">统计区间：{{ summaryDates?.[0] || '—' }} — {{ summaryDates?.at(-1) || '—' }}</p>
             <BrainSummary :summary="alpha?.brain_style" />
             <BrainAnnualStats :key="task?.id" :rows="annualRows" :test-start="testStart" :show-test="showTest" :train-dates="trainDates" :test-dates="testDates" />
           </template>
@@ -252,26 +254,31 @@ function exportResult() {
   </div>
 </template>
 <style scoped>
-.results-rail { background: #edf0f2; overflow-y: auto; scrollbar-width: thin; }
-.results-rail .nav-button { color: #6b9553; }
-.results-rail .nav-button.active { color: #64a73e; box-shadow: inset 3px 0 #74b34e; background: #fff; }
-.customize-button { margin-top: auto; color: #778475; }
-.result-panel { position: relative; padding-top: 0; background: #fff; scroll-padding-top: 12px; }
-.report-section { border-bottom: 1px solid #e2e6e9; padding: 18px 0 28px; scroll-margin-top: 12px; outline-offset: -2px; }
-.results-toolbar { position: static; height: auto; min-height: 45px; margin: 0 0 12px; padding: 0; gap: 12px; background: transparent; }
-.results-toolbar h2 { margin: 0; font-size: 18px; font-weight: 400; color: #526274; }
-.results-toolbar select { max-width: 255px; width: 48%; font-size: 12px; }
-.summary-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin: 6px 0 12px; }
-.period-control { display: flex; align-items: center; gap: 2px; font-size: 11px; color: #84909a; }
-.period-control > span { margin-right: 10px; }
-.period-control button { background: none; border: 0; border-bottom: 2px solid transparent; padding: 7px 9px; color: #7a8795; border-radius: 0; font-size: 11px; }
-.period-control button[aria-pressed=true] { color: #589b38; border-color: #6caf45; }
-.period-control button:disabled { color: #aeb6bf; }
-.test-toggle { border: 0; background: none; color: #4a8a31; padding: 4px 0; font-size: 12px; }
-.summary-range, .pnl-book-note { color: #778594; font-size: 11px; line-height: 1.8; margin: 8px 0 14px; overflow-wrap: anywhere; }
-.chart-footnote { font-size: 10px; border: 0; padding-bottom: 0; flex-wrap: wrap; }
-.extensions-heading { padding: 24px 0 12px; color: #879397; font-size: 11px; letter-spacing: .04em; }
-.research-extension { border-bottom: 1px solid #e2e6e9; padding: 15px 0; min-width: 0; }
+.results-rail { background: #d7e1e7; overflow-y: auto; scrollbar-width: thin; }
+.results-rail .nav-button { color: #7b8798; border-bottom: 1px solid #dde4e9; }
+.results-rail .nav-button.active { color: #55aa49; box-shadow: none; background: #f7f8fa; }
+.customize-button { margin-top: auto; color: #435168; }
+.result-panel { position: relative; padding: 0; background: #fff; scroll-padding-top: 0; }
+.test-period-banner { display: flex; align-items: center; gap: 15px; padding: 13px 22px; background: #ffcc4e; color: #514c3d; font-size: 12px; line-height: 1.5; }
+.test-toggle { flex-shrink: 0; padding: 9px 18px; border: 0; border-radius: 3px; background: #8995a4; color: #fff; font-size: 12px; font-weight: 600; }
+.test-toggle:hover { background: #758394; }
+.report-section { border-bottom: 1px solid #e3e7eb; padding: 20px 22px 24px; scroll-margin-top: 0; outline-offset: -2px; }
+.report-section[data-result-section="chart"], .report-section[data-result-section="correlation"] { background: #f5f7f9; }
+.result-panel > .report-note, .result-panel > .empty, .result-panel > .task-error { margin: 20px 22px; }
+.results-toolbar { position: static; height: auto; min-height: 30px; margin: 0 0 18px; padding: 0; gap: 12px; background: transparent; }
+.results-toolbar h2 { margin: 0; font-size: 20px; font-weight: 400; color: #344052; white-space: nowrap; }
+.results-toolbar select { max-width: 300px; width: 52%; font-size: 12px; border-color: #71b7e6; background: #fff; }
+.period-control { display: flex; align-items: center; gap: 4px; font-size: 11px; color: #526071; white-space: nowrap; }
+.period-control > span { margin-right: 8px; font-weight: 600; }
+.period-control button { background: #edf0f3; border: 0; padding: 5px 10px; color: #98a2ad; border-radius: 15px; font-size: 10px; }
+.period-control button[aria-pressed=true] { color: #fff; background: #2999d6; }
+.period-control button:disabled { color: #c7ced5; }
+.pnl-book-note, .chart-meta-note { color: #778594; font-size: 11px; line-height: 1.6; margin: 5px 0; overflow-wrap: anywhere; }
+.summary-range { margin: -8px 0 2px; color: #98a3b0; font-size: 10px; text-align: right; }
+.chart-metadata { padding-top: 8px; color: #8997a5; font-size: 10px; }
+.chart-metadata summary { cursor: pointer; width: fit-content; }
+.extensions-heading { padding: 24px 22px 12px; color: #879397; font-size: 11px; letter-spacing: .04em; }
+.research-extension { border-bottom: 1px solid #e2e6e9; margin: 0 22px; padding: 15px 0; min-width: 0; }
 .research-extension > summary { display: flex; align-items: center; gap: 10px; color: #5d6d7a; font-size: 13px; cursor: pointer; list-style: none; }
 .research-extension > summary::after { content: '＋'; margin-left: auto; color: #7b9d69; }
 .research-extension[open] > summary::after { content: '−'; }
@@ -284,5 +291,11 @@ function exportResult() {
 .results-menu li > span { flex: 1; }
 .results-menu li button { padding: 4px 9px; }
 .menu-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
-@container (max-width: 500px) { .results-toolbar { align-items: flex-start; } .results-toolbar select { width: 55%; font-size: 11px; } .period-control button { padding: 7px; } }
+@container (max-width: 500px) {
+  .results-toolbar { flex-wrap: wrap; align-items: center; }
+  .results-toolbar select { width: 55%; font-size: 11px; }
+  .period-control { margin-left: auto; }
+  .period-control button { padding: 5px 7px; }
+  .test-period-banner { flex-wrap: wrap; gap: 7px; }
+}
 </style>
