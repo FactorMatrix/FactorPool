@@ -1,5 +1,5 @@
 <script setup>
-defineProps({ rows: Array });
+defineProps({ rows: Array, testStart: String });
 const number = value => value == null ? "--" : Number(value).toFixed(2);
 const percent = value => value == null ? "--" : `${(Number(value) * 100).toFixed(2)}%`;
 const margin = value => value == null ? "--" : `${(Number(value) * 10000).toFixed(2)} ‱`;
@@ -14,7 +14,7 @@ const count = value => value == null ? "--" : Math.round(Number(value)).toLocale
           <th>Year</th><th>Sharpe</th><th>Turnover</th><th>Fitness</th><th>Returns</th>
           <th>Drawdown</th><th>Margin</th><th>Long Count</th><th>Short Count</th>
         </tr></thead>
-        <tbody><tr v-for="row in rows" :key="row.year">
+        <tbody><tr v-for="row in rows" :key="row.year" :class="testStart && row.start && row.end ? (row.start >= testStart ? 'test-row' : row.end < testStart ? 'train-row' : 'mixed-row') : ''">
           <th scope="row" :title="`${row.start} — ${row.end}`">{{ row.year }}</th>
           <td>{{ number(row.sharpe) }}</td><td>{{ percent(row.turnover) }}</td>
           <td>{{ number(row.fitness) }}</td><td>{{ percent(row.returns) }}</td>
@@ -37,6 +37,9 @@ table { width: 100%; min-width: 700px; border-collapse: collapse; font-variant-n
 th, td { padding: 12px 10px; text-align: right; white-space: nowrap; border-bottom: 1px solid #edf0f3; }
 thead th { color: #778597; background: #f5f7fa; font-size: 12px; font-weight: 400; }
 tbody th { color: #59687a; font-weight: 500; }
+tbody tr.train-row { border-left: 3px solid #56c8cf; }
+tbody tr.test-row { border-left: 3px solid #df8d32; }
+tbody tr.mixed-row { border-left: 3px solid #adb8c4; }
 td { color: #536174; }
 th:first-child { text-align: left; }
 tbody tr:last-child th, tbody tr:last-child td { border-bottom: 0; }

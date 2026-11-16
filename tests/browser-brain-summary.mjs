@@ -18,7 +18,8 @@ const year = (year, pnl, long_count, short_count) => ({year, start:`${year}-01-0
 const alpha = (yearly_stats, length=2) => ({brain_style:brain, yearly_stats,
   pnl:{book_size:1, unit:'BOOK', cumulative:[.01,.03].slice(0,length)},
   nav:[1.01,1.03].slice(0,length), drawdown_series:[0,-.01].slice(0,length),
-  constant_book_drawdown:[0,-.02].slice(0,length), returns:[.01,.02].slice(0,length)})
+  constant_book_drawdown:[0,-.02].slice(0,length), returns:[.01,.02].slice(0,length),
+  turnover_series:[.12,.15].slice(0,length)})
 const horizon = (full, train, test) => ({portfolio_dates:['2023-12-29','2024-01-02'],
   portfolios:{alpha:alpha(full)}, partitions:{
     train:{dates:['2023-12-29'], portfolios:{}, alpha:alpha(train,1)},
@@ -31,6 +32,8 @@ let result = {summary:{ic_mean:.03,rank_ic_mean:.04,icir:.2,coverage:.95},
     horizons:{'1':horizon(full,[full[0]],[full[1]]),
       '5':horizon([year('2024',.05,7,8)],[],[year('2024',.05,7,8)]),
       '20':horizon([year('2024',.20,9,10)],[],[year('2024',.20,9,10)])}}}
+result.diagnostics.horizons['1'].partitions.test.alpha.brain_style={...brain, sharpe:2.5}
+result.diagnostics.horizons['1'].portfolios.alpha.brain_style={...brain, sharpe:1.7}
 const task = {id:'mock',name:'示例因子',status:'SUCCEEDED'}
 await page.addInitScript(() => {
   sessionStorage.setItem('factorpool.task','mock')
@@ -49,8 +52,14 @@ try {
   await page.goto(base,{waitUntil:'networkidle'})
   const chart = page.locator('.simulation-chart-panel .report-chart')
   await chart.waitFor()
-  assert.equal(await page.locator('.results-toolbar strong').innerText(),'Chart')
+  assert.equal(await page.getByRole('region',{name:'Chart',exact:true}).count(),1)
+  assert.equal(await page.getByRole('region',{name:'IS Summary',exact:true}).count(),1)
   assert.equal(await page.getByLabel('结果曲线',{exact:true}).inputValue(),'pnl')
+  assert.equal(await page.locator('option[value=sharpe]').isDisabled(),true)
+  assert.equal(await page.locator('option[value=turnover]').isDisabled(),false)
+  await page.getByLabel('结果曲线',{exact:true}).selectOption('turnover')
+  assert.equal(await page.getByLabel('结果曲线',{exact:true}).inputValue(),'turnover')
+  await page.getByLabel('结果曲线',{exact:true}).selectOption('pnl')
   assert.equal(await page.locator('.result-periods').count(),0)
   assert.equal(await page.locator('.dataset-chip').count(),0)
   assert.equal(await page.locator('.result-factor-name').count(),0)
@@ -63,8 +72,12 @@ try {
   await page.getByRole('button',{name:'Stats',exact:true}).click()
   const table = page.getByRole('table',{name:'年度统计表'})
   await table.waitFor()
-  assert.equal(await page.getByLabel('验证区间').inputValue(),'train')
-  assert.equal(await page.getByText('Train Summary',{exact:true}).count(),1)
+  const periods = page.getByLabel('验证区间')
+  assert.match(await periods.getByRole('button',{name:'TRAIN',exact:true}).getAttribute('class'),/active/)
+  assert.equal(await periods.getByRole('button',{name:'TEST',exact:true}).isDisabled(),true)
+  assert.equal(await periods.getByRole('button',{name:'IS',exact:true}).isDisabled(),true)
+  assert.equal(await periods.getByRole('button',{name:'OS',exact:true}).isDisabled(),true)
+  assert.equal(await page.getByText('IS Summary',{exact:true}).count(),1)
   assert.equal(await page.locator('.summary-measure').count(),6)
   assert.equal(await page.locator('.factor-metrics').count(),0)
   assert.deepEqual(await table.locator('thead th').allTextContents(),
@@ -73,14 +86,25 @@ try {
   assert.doesNotMatch(await table.locator('tbody').innerText(),/2024/)
   assert.deepEqual(await table.locator('tbody tr').first().locator('td').allTextContents(),
     ['1.20','12.00%','1.10','18.00%','7.00%','4.00 ‱','2','3'])
-  await page.getByLabel('验证区间').selectOption('test')
-  assert.equal(await page.getByText('Test Summary',{exact:true}).count(),1)
+  await page.getByRole('button',{name:'Show test period',exact:true}).click()
+  assert.match(await periods.getByRole('button',{name:'TEST',exact:true}).getAttribute('class'),/active/)
   assert.match(await table.locator('tbody').innerText(),/2024/)
+  assert.match(await table.locator('tbody').innerText(),/2023/)
+  assert.equal(await table.locator('tbody tr').count(),2)
+  assert.equal(await page.locator('.summary-measure').first().locator('strong').innerText(),'2.50')
   assert.deepEqual(await table.locator('tbody tr').first().locator('td').allTextContents(),
-    ['1.20','12.00%','1.10','18.00%','7.00%','4.00 ‱','4','5'])
-  await page.getByLabel('验证区间').selectOption('all')
+    ['1.20','12.00%','1.10','18.00%','7.00%','4.00 ‱','2','3'])
+  await periods.getByRole('button',{name:'IS',exact:true}).click()
   assert.equal(await page.getByText('IS Summary',{exact:true}).count(),1)
+  assert.equal(await page.locator('.summary-measure').first().locator('strong').innerText(),'1.70')
   assert.equal(await table.locator('tbody tr').count(),2,'UI must use 1D even when API also contains 5D/20D')
+  await periods.getByRole('button',{name:'TRAIN',exact:true}).click()
+  assert.equal(await page.locator('.summary-measure').first().locator('strong').innerText(),'1.20')
+  assert.equal(await table.locator('tbody tr').count(),2,'Period switching must not hide the annual table once test period is shown')
+  await page.getByRole('button',{name:'收起年度统计',exact:true}).click()
+  assert.equal(await table.count(),0)
+  await page.getByRole('button',{name:'展开年度统计',exact:true}).click()
+  assert.equal(await table.count(),1)
   assert.equal(result.diagnostics.horizons['1'].portfolios.alpha.yearly_stats[0].pnl,.013,'PnL stays in the API result')
   await page.screenshot({path:`${output}/factorpool-brain-stats.png`,fullPage:true})
   await page.getByRole('button',{name:'Chart',exact:true}).click()

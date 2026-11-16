@@ -6,6 +6,7 @@ const props = defineProps({
   mode: String,
   metric: { type: String, default: "rank_ic" },
   portfolio: Object,
+  testStart: String,
 });
 const host = ref(null);
 let chart, observer;
@@ -83,6 +84,16 @@ function draw() {
     };
   } else if (p) {
     option.xAxis.data = portfolioDates;
+    const performanceChart = ["pnl", "turnover", "sharpe"].includes(props.mode);
+    if (performanceChart) {
+      option.legend = { show: false };
+      option.grid = { left: 55, right: 20, top: 30, bottom: 75 };
+      option.dataZoom = [
+        { type: "inside", xAxisIndex: 0, filterMode: "filter", zoomOnMouseWheel: false, moveOnMouseWheel: false, moveOnMouseMove: false },
+        { type: "slider", xAxisIndex: 0, bottom: 12, height: 18, showDataShadow: false, brushSelect: true },
+      ];
+      option.toolbox = { right: 0, top: 0, feature: { restore: { title: "恢复完整范围" } } };
+    }
     if (props.mode === "nav") {
       // A display anchor keeps every partition on the same unit-NAV basis.
       option.xAxis.data = ["初始", ...(portfolioDates || [])];
@@ -115,13 +126,11 @@ function draw() {
         },
       ];
     } else if (props.mode === "pnl") {
-      const unit = p.pnl.unit;
+      const unit = p.pnl?.unit || "";
       option.tooltip = { trigger: "axis", formatter: rows => {
         const values = Array.isArray(rows) ? rows : [rows];
-        return [escapeHtml(values[0]?.axisValueLabel || ""), ...values.map(row => `${row.marker}${escapeHtml(row.seriesName)}: ${row.value == null ? '--' : `${Number(row.value).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})} ${escapeHtml(unit)}`}`)].join("<br/>");
+        return [escapeHtml(values[0]?.axisValueLabel || ""), ...values.filter(row => row.value != null).map(row => `${row.marker}${escapeHtml(row.seriesName)}: ${Number(row.value).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})} ${escapeHtml(unit)}`)].join("<br/>");
       }};
-      option.legend = { show: false };
-      option.grid = { left: 55, right: 20, top: 30, bottom: 40 };
       option.yAxis = { ...base.yAxis, name: unit, axisLabel: { ...base.yAxis.axisLabel, formatter: compactAmount } };
       option.series = [
         {
@@ -129,17 +138,33 @@ function draw() {
           type: "line",
           showSymbol: portfolioDates?.length < 20,
           connectNulls: false,
-          data: p.pnl.cumulative,
+          data: p.pnl?.cumulative || [],
         },
       ];
-    } else if (props.mode === "turnover")
-      option.series = [
-        {
-          name: "调仓换手（含价格漂移）",
-          type: "bar",
-          data: p.turnover_series,
-        },
-      ];
+      if (!Array.isArray(p.pnl?.cumulative) || !p.pnl.cumulative.some(value => value != null && Number.isFinite(Number(value)))) {
+        option.title = { text: "暂无 PnL 时间序列", left: "center", top: "middle",
+          textStyle: { color: "#8491a2", fontWeight: "normal", fontSize: 13 } };
+      }
+    } else if (props.mode === "turnover" || props.mode === "sharpe") {
+      const turnover = props.mode === "turnover";
+      const values = turnover ? p.turnover_series : p.sharpe_series;
+      option.yAxis = { ...base.yAxis, axisLabel: { ...base.yAxis.axisLabel,
+        formatter: value => turnover ? `${(value * 100).toFixed(0)}%` : value } };
+      option.tooltip = { trigger: "axis", formatter: rows => {
+        const row = Array.isArray(rows) ? rows.find(item => item.value != null) || rows[0] : rows;
+        const value = row?.value;
+        const display = value == null || !Number.isFinite(Number(value)) ? "--" :
+          turnover ? `${(Number(value) * 100).toFixed(2)}%` : Number(value).toFixed(2);
+        const period = row?.seriesName === "Train" || row?.seriesName === "Test" ? `${row.seriesName} ` : "";
+        return `${escapeHtml(row?.axisValueLabel || "")}<br/>${period}${turnover ? "Turnover" : "Sharpe"}: ${display}`;
+      }};
+      option.series = [{ name: turnover ? "Turnover" : "Sharpe", type: "line",
+        showSymbol: portfolioDates?.length < 20, connectNulls: false, data: Array.isArray(values) ? values : [] }];
+      if (!Array.isArray(values) || !values.some(value => value != null && Number.isFinite(Number(value)))) {
+        option.title = { text: turnover ? "暂无换手率时间序列" : "暂无 Sharpe 时间序列",
+          left: "center", top: "middle", textStyle: { color: "#8491a2", fontWeight: "normal", fontSize: 13 } };
+      }
+    }
     else if (props.mode === "yearly") {
       option.xAxis.data = p.yearly.map((r) => r.period);
       option.series = [
@@ -196,6 +221,20 @@ function draw() {
             },
           ];
   }
+  if (p && props.testStart && ["pnl", "turnover", "sharpe"].includes(props.mode)
+      && Array.isArray(portfolioDates) && option.series?.length === 1) {
+    const data = option.series[0].data;
+    const split = portfolioDates.findIndex(date => date >= props.testStart);
+    if (Array.isArray(data) && split > 0 && split < data.length && data.length === portfolioDates.length) {
+      const baseSeries = option.series[0];
+      option.series = [
+        { ...baseSeries, name: "Train", itemStyle: { color: "#18bed0" },
+          data: data.map((value, i) => i < split ? value : null) },
+        { ...baseSeries, name: "Test", itemStyle: { color: "#df8d32" },
+          data: data.map((value, i) => i >= split - 1 ? value : null) },
+      ];
+    }
+  }
   chart.setOption(option, true);
 }
 onMounted(() => {
@@ -205,7 +244,7 @@ onMounted(() => {
   draw();
 });
 watch(
-  () => [props.data, props.mode, props.metric, props.portfolio],
+  () => [props.data, props.mode, props.metric, props.portfolio, props.testStart],
   async () => {
     await nextTick();
     draw();
@@ -217,11 +256,19 @@ onBeforeUnmount(() => {
   chart?.dispose();
 });
 </script>
-<template><div class="report-chart" ref="host"></div></template>
+<template><div class="report-chart" :class="{ 'brain-chart': portfolio && ['pnl', 'turnover', 'sharpe'].includes(mode) }" ref="host"></div></template>
 <style scoped>
 .report-chart {
   height: 310px;
   width: 100%;
   min-width: 0;
+}
+.report-chart.brain-chart {
+  height: 520px;
+}
+@media (max-width: 600px) {
+  .report-chart.brain-chart {
+    height: 390px;
+  }
 }
 </style>

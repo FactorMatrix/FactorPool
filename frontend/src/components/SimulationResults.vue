@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, watch } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 import UiIcon from "./UiIcon.vue";
 import BrainSummary from "./BrainSummary.vue";
 import BrainAnnualStats from "./BrainAnnualStats.vue";
@@ -24,14 +24,21 @@ const props = defineProps({
 const emit = defineEmits(["load-snapshot", "page", "retry-report", "load-values", "load-logs"]);
 const view = ref("chart"),
   chartMode = ref("pnl"),
-  partition = ref("all");
+  partition = ref("all"),
+  showTest = ref(false),
+  annualOpen = ref(true),
+  panel = ref(null),
+  chartSection = ref(null),
+  summarySection = ref(null);
+const reportView = computed(() => ["chart", "summary"].includes(view.value));
 const selected = computed(
   () => props.result?.diagnostics?.horizons?.["1"],
 );
 const hasTest = computed(() => Boolean(props.result?.diagnostics?.test_period?.start));
 function displayHorizon(horizon) {
   const part = horizon?.partitions?.[partition.value];
-  if (!hasTest.value || partition.value === "all" || !part) return horizon;
+  if (!hasTest.value || partition.value === "all") return horizon;
+  if (!part) return null;
   return { ...horizon, portfolio_dates: part.dates,
     portfolios: { ...part.portfolios, alpha: part.alpha } };
 }
@@ -43,12 +50,19 @@ const displayedReport = computed(() => {
 const supportedReport = computed(() => props.result?.metadata?.report_version === 3
   && props.result?.diagnostics?.version === 3 && props.result.metadata.brain_settings
   && props.result.diagnostics.conventions?.brain_settings);
-const alpha = computed(() => displayed.value?.portfolios.alpha);
-const pnlBook = computed(() => ({ size: alpha.value?.pnl?.book_size,
-  unit: alpha.value?.pnl?.unit }));
+const alpha = computed(() => displayed.value?.portfolios?.alpha);
+const fullAlpha = computed(() => selected.value?.portfolios?.alpha);
+const chartData = computed(() => hasTest.value && !showTest.value
+  ? displayHorizon(selected.value) : selected.value);
+const chartAlpha = computed(() => chartData.value?.portfolios?.alpha);
+const annualRows = computed(() => hasTest.value && !showTest.value
+  ? selected.value?.partitions?.train?.alpha?.yearly_stats
+  : fullAlpha.value?.yearly_stats);
+const pnlBook = computed(() => ({ size: chartAlpha.value?.pnl?.book_size,
+  unit: chartAlpha.value?.pnl?.unit }));
 const bookLabel = computed(() => `${Number(pnlBook.value.size).toLocaleString("en-US", { maximumFractionDigits: 2 })} ${pnlBook.value.unit}`);
 const visualization = computed(() => props.result?.metadata?.brain_settings?.visualization);
-const portfolioDates = computed(() => displayed.value?.portfolio_dates || []);
+const portfolioDates = computed(() => chartData.value?.portfolio_dates || []);
 const summary = computed(() => props.result?.summary || {});
 const statusText = computed(() => {
   if (props.submitting) return "正在提交";
@@ -59,11 +73,11 @@ const statusText = computed(() => {
 const statusClass = computed(() => props.submitting ? "QUEUED"
   : props.task?.status === "SUCCEEDED" && !props.result
     ? props.reportError ? "FAILED" : "RUNNING" : props.task?.status);
-const summaryTitle = computed(() => !hasTest.value || partition.value === "all"
-  ? "IS Summary" : partition.value === "train" ? "Train Summary" : "Test Summary");
 const num = (x) => (x == null ? "--" : Number(x).toFixed(4));
 const pct = (x) => (x == null ? "--" : (Number(x) * 100).toFixed(2) + "%");
 watch(() => props.result, () => {
+  showTest.value = false;
+  annualOpen.value = true;
   partition.value = hasTest.value ? "train" : "all";
   if (props.result && view.value === "values") emit("load-values");
 }, { immediate: true });
@@ -78,6 +92,22 @@ watch(
     chartMode.value = "pnl";
   },
 );
+async function navigate(key) {
+  view.value = key;
+  if (key === "chart" || key === "summary") {
+    await nextTick();
+    (key === "chart" ? chartSection.value : summarySection.value)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  } else if (panel.value) panel.value.scrollTop = 0;
+}
+function trackSection() {
+  if (!reportView.value || !chartSection.value || !summarySection.value || !panel.value) return;
+  const top = panel.value.getBoundingClientRect().top;
+  view.value = summarySection.value.getBoundingClientRect().top <= top + 90 ? "summary" : "chart";
+}
+function toggleTest() {
+  showTest.value = !showTest.value;
+  partition.value = showTest.value && selected.value?.partitions?.test ? "test" : "train";
+}
 function exportResult() {
   const blob = new Blob(
     [JSON.stringify({ task: props.task, result: props.result }, null, 2)],
@@ -110,26 +140,20 @@ const sections = [
         :class="{ active: view === key }"
         :aria-label="label"
         :title="label"
-        @click="view = key"
+        @click="navigate(key)"
       >
         <UiIcon :name="icon" :size="19" />
       </button>
     </aside>
-    <section class="result-panel">
-      <div class="results-toolbar">
+    <section ref="panel" class="result-panel" @scroll.passive="trackSection">
+      <div v-if="!reportView || !result" class="results-toolbar">
         <span
           ><UiIcon
             :name="sections.find((s) => s[0] === view)?.[1] || 'chart'"
           /><strong>{{
             sections.find((s) => s[0] === view)?.[2]
           }}</strong></span
-        ><select v-if="view === 'chart' && result && visualization" v-model="chartMode" aria-label="结果曲线">
-          <option value="pnl">PnL</option>
-          <option value="nav">Net value · 复利净值</option>
-          <option value="returns">Daily returns · 日收益</option>
-          <option value="monthly">Monthly returns · 月度收益</option>
-          <option value="yearly">Yearly returns · 年度收益</option>
-        </select>
+        >
       </div>
       <div v-if="submitting" class="empty" role="status">
         <UiIcon name="refresh" :size="42" />
@@ -137,17 +161,53 @@ const sections = [
         <p>提交成功后会自动计算并加载报告。</p>
       </div>
       <template v-else-if="result && supportedReport && selected">
-        <label v-if="hasTest && view !== 'trace'" class="validation-period">
-          Period
-          <select v-model="partition" aria-label="验证区间">
-            <option value="train">Train · 训练期</option>
-            <option value="test">Test · 测试期</option>
-            <option value="all">All · 完整期间</option>
-          </select>
-        </label>
-        <h2 v-if="view === 'summary'" class="summary-title">{{ summaryTitle }}</h2>
-        <BrainSummary v-if="alpha && view === 'summary'" :summary="alpha.brain_style" />
-        <BrainAnnualStats v-if="view === 'summary'" :rows="alpha?.yearly_stats" />
+        <div v-if="reportView && hasTest" class="test-period-notice">
+          <button @click="toggleTest">{{ showTest ? 'Hide test period' : 'Show test period' }}</button>
+          <span>指定测试期时，测试期及整体统计默认隐藏。</span>
+        </div>
+        <template v-if="reportView">
+          <section ref="chartSection" class="brain-report-section simulation-chart-panel" aria-label="Chart">
+            <div class="report-section-heading">
+              <h2><UiIcon name="chart" />Chart</h2>
+              <select v-if="visualization" v-model="chartMode" aria-label="结果曲线">
+                <optgroup label="Performance">
+                  <option value="pnl">PnL</option>
+                  <option value="sharpe" :disabled="!chartAlpha?.sharpe_series?.length">Sharpe</option>
+                  <option value="turnover" :disabled="!chartAlpha?.turnover_series?.length">Turnover</option>
+                </optgroup>
+                <optgroup label="FactorPool 扩展">
+                  <option value="nav">Net value · 复利净值</option>
+                  <option value="returns">Daily returns · 日收益</option>
+                  <option value="monthly">Monthly returns · 月度收益</option>
+                  <option value="yearly">Yearly returns · 年度收益</option>
+                </optgroup>
+              </select>
+            </div>
+            <ReportChart v-if="chartData && visualization" :data="chartData" :portfolio="chartAlpha" :mode="chartMode"
+              :test-start="showTest ? result.diagnostics?.test_period?.start : null" />
+            <p v-else class="report-note" role="status">{{ visualization ? '当前区间没有图表数据。' : '可视化已由 settings.visualization 关闭。' }}</p>
+            <div class="chart-footnote">{{ portfolioDates[0] || '--' }} — {{ portfolioDates.at(-1) || '--' }}
+              <span>快照日收益 · 逐日盯市 · 无费用 · 缺失值 --</span>
+            </div>
+            <p v-if="chartMode === 'nav'" class="pnl-book-note">初始净值 1，按比例权重计算收益并逐日复利；持有期内权重随价格自然漂移。</p>
+            <p v-else-if="chartMode === 'pnl' && chartAlpha?.pnl" class="pnl-book-note">固定 book：{{ bookLabel }} · PnL 逐日累加 · 1D 收盘计算</p>
+          </section>
+          <section ref="summarySection" class="brain-report-section" aria-label="IS Summary">
+            <div class="report-section-heading summary-heading">
+              <h2><UiIcon name="bars" />IS Summary</h2>
+              <div class="period-buttons" aria-label="验证区间">
+                <span>Period</span>
+                <button v-if="hasTest" :class="{ active: partition === 'train' }" :disabled="!selected?.partitions?.train" @click="partition = 'train'">TRAIN</button>
+                <button v-if="hasTest" :class="{ active: partition === 'test' }" :disabled="!showTest || !selected?.partitions?.test" @click="partition = 'test'">TEST</button>
+                <button :class="{ active: partition === 'all' }" :disabled="hasTest && !showTest" @click="partition = 'all'">IS</button>
+                <button disabled title="当前报告没有样本外数据">OS</button>
+              </div>
+            </div>
+            <BrainSummary :summary="alpha?.brain_style" />
+            <button class="annual-toggle" :aria-expanded="annualOpen" @click="annualOpen = !annualOpen">{{ annualOpen ? '收起年度统计' : '展开年度统计' }}</button>
+            <BrainAnnualStats v-if="annualOpen" :rows="annualRows" :test-start="showTest ? result.diagnostics?.test_period?.start : null" />
+          </section>
+        </template>
         <div v-if="view === 'ic'" class="metrics factor-metrics" aria-label="一期因子统计">
           <div
             v-for="[label, value] in [
@@ -162,24 +222,7 @@ const sections = [
             ><strong>{{ value }}</strong>
           </div>
         </div>
-        <div v-if="view === 'chart'" class="simulation-chart-panel">
-          <ReportChart
-            v-if="selected && visualization"
-            :data="displayed"
-            :portfolio="alpha"
-            :mode="chartMode"
-          />
-          <p v-else class="report-note" role="status">可视化已由 settings.visualization 关闭。可在 Stats、IC Analysis 和 Groups 查看数值，或导出完整结果。</p>
-          <div class="chart-footnote">
-            {{ portfolioDates[0] }} —
-            {{
-              portfolioDates.at(-1)
-            }}<span>快照日收益 · 逐日盯市 · 无费用 · 缺失值 --</span>
-          </div>
-          <p v-if="chartMode === 'nav'" class="pnl-book-note">初始净值 1，按比例权重计算收益并逐日复利；持有期内权重随价格自然漂移。</p>
-          <p v-else-if="chartMode === 'pnl'" class="pnl-book-note">固定 book：{{ bookLabel }} · PnL 逐日累加 · 1D 收盘计算</p>
-        </div>
-        <AlphaTrace v-else-if="view === 'trace'" :data="selected" :constraints="result.diagnostics?.alpha_constraints" />
+        <AlphaTrace v-if="view === 'trace'" :data="selected" :constraints="result.diagnostics?.alpha_constraints" />
         <FactorDiagnostics
           v-else-if="
             ['ic', 'groups'].includes(view)
@@ -319,7 +362,21 @@ const sections = [
   </div>
 </template>
 <style scoped>
-.validation-period { display: flex; align-items: center; gap: 12px; padding: 16px 0 4px; font-size: 12px; color: #687789; }
-.summary-title { margin: 24px 0 20px; color: #4a586c; font-size: 18px; font-weight: 400; }
+.test-period-notice { display: flex; align-items: center; gap: 12px; margin: 0 -22px; padding: 12px 22px; background: #ffdb75; color: #5f5541; font-size: 12px; }
+.test-period-notice button { flex-shrink: 0; background: #7a8698; color: white; border: 0; padding: 8px 12px; }
+.brain-report-section { padding: 18px 0 26px; border-bottom: 1px solid #e1e5ec; scroll-margin-top: 0; }
+.report-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+.report-section-heading h2 { display: flex; align-items: center; gap: 8px; margin: 0; color: #4a586c; font-size: 19px; font-weight: 400; white-space: nowrap; }
+.report-section-heading h2 svg { color: #69b756; }
+.report-section-heading select { width: 48%; max-width: 260px; font-size: 12px; border-color: #b4d2eb; }
+.period-buttons { display: flex; align-items: center; gap: 4px; font-size: 11px; color: #687789; }
+.period-buttons button { border: 0; border-radius: 14px; padding: 5px 9px; color: #8793a4; background: #e9edf2; font-size: 10px; }
+.period-buttons button.active { background: #319bd4; color: white; }
+.period-buttons button:disabled { opacity: .4; cursor: not-allowed; }
+.annual-toggle { margin-top: 10px; padding: 4px 0; border: 0; background: transparent; color: #6e9aac; font-size: 11px; }
 .pnl-book-note { color: #718095; font-size: 11px; line-height: 1.8; margin: 12px 0; overflow-wrap: anywhere; }
+@container (max-width: 500px) {
+  .test-period-notice, .summary-heading { flex-wrap: wrap; }
+  .period-buttons { flex-wrap: wrap; }
+}
 </style>
