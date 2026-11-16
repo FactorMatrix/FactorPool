@@ -4,9 +4,8 @@ import numpy as np
 from datetime import datetime, timedelta
 from factortrader import TradeBar
 from .entry import PythonIndicator
-from factortrader.binding.loading import _load_native_rows
-import os
 from .result_matrix import REASONS
+from .indicator_state import IndicatorState, native_binding
 
 
 def indicator_fields(indicator):
@@ -44,12 +43,31 @@ class IndicatorAdapter:
         self.slots = {}
         self.axis = None
         self.params = None
-        self.binding = _load_native_rows(os.environ["FACTORTRADER_NATIVE_LIBRARY"])
-        if self.binding is None:
-            raise RuntimeError("Matching native Indicator binding is unavailable")
+        self.vector_binding = self.binding = native_binding()
         from .operator_adapter import select_operator_binding
         self.binding = select_operator_binding(indicator, self.binding)
         self.graph = None
+        self.observed_rows = {}
+        self.state = IndicatorState(self)
+        indicator._pool_state = self.state
+
+    def reset(self):
+        if self.graph is not None:
+            self.binding.graph_reset(self.graph)
+            if self.axis is not None:
+                self.binding.graph_set_symbols(self.graph, self.axis)
+        for slot in self.slots.values():
+            slot.reset()
+        self.state.invalidate()
+
+    def publish(self, snapshot):
+        self.axis = tuple(snapshot['symbols'])
+        self.state.publish(snapshot)
+        self.indicator._pool_state = self.state
+
+    def _notify(self):
+        if self.indicator.updated._handlers:
+            self.indicator.updated.fire(self.indicator.current)
 
     def update_arrays(self, frame, factory, *, emit=True, fresh=False):
         return self.update(frame, factory, emit=emit, _arrays=True, _fresh=fresh)
@@ -64,8 +82,10 @@ class IndicatorAdapter:
             ids = tuple(sorted(ids))
             if len(ids) != len(set(ids)):
                 raise ValueError("Duplicate symbol in frame")
-        stamp = datetime.fromisoformat(frame["date"] + "T15:00:00")
+        stamp = frame.get("end_time") or datetime.fromisoformat(frame["date"] + "T15:00:00")
         rows = frame["rows"]
+        self.state.invalidate()
+        self.indicator._pool_state = self.state
         if self.mode == "native":
             indicator = self.indicator
             if self.axis is None:
@@ -103,6 +123,8 @@ class IndicatorAdapter:
                 binding.graph_set_symbols(self.graph, ids)
                 self.axis = ids
             binding.graph_update(self.graph, int(stamp.strftime("%Y%m%d%H%M%S")), columns, present, _fresh)
+            if emit:
+                self._notify()
             if not emit:
                 return None
             state = binding.graph_snapshot_columns(self.graph)
@@ -127,6 +149,8 @@ class IndicatorAdapter:
             return out if _arrays else rows_from_arrays(out)
         # Explicit single-symbol Python callbacks; no .cs fallback is possible.
         self.slots = {s: self.slots[s] for s in ids if s in self.slots}
+        self.axis = ids
+        self.observed_rows = rows
         out = []
         for symbol in ids:
             slot = self.slots.setdefault(symbol, None)
@@ -147,11 +171,16 @@ class IndicatorAdapter:
                 for field in ("prev_close", "total_turnover", "is_st", "is_suspended"):
                     if field in row:
                         setattr(bar, field, row[field])
-                slot.update(bar)
-                usable = slot._wrapped_is_ready() and math.isfinite(slot.current.value)
+                slot._receive(bar)
+                ready = slot._wrapped_is_ready()
+                usable = ready and math.isfinite(slot.current.value)
+            else:
+                ready = slot._wrapped_is_ready()
             if emit:
                 out.append(dict(symbol=symbol, value=slot.current.value if usable else None,
-                                valid=usable, ready=usable, reason="ok" if usable else "missing_bar" if row is None else "unready_or_invalid"))
+                                valid=usable, ready=ready, reason="ok" if usable else "missing_bar" if row is None else "unready_or_invalid"))
+        if emit:
+            self._notify()
         if _arrays and emit:
             return dict(symbols=ids,
                         value=np.array([np.nan if row['value'] is None else row['value'] for row in out]),

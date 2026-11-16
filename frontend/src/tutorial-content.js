@@ -10,7 +10,7 @@ config = {
     },
     "data": {"provider": "market_matrix", "universe": "all_a_dynamic", "factor_price": "quote_adjusted"},
     "factor": {"period": 3},
-    "analysis": {"groups": 3, "horizons": [1, 5]},
+    "analysis": {"groups": 3, "horizons": [1]},
     "settings": {
         "delay": 1,
         "decay": 0,
@@ -23,11 +23,12 @@ class TutorialFactor(PythonIndicator):
     def __init__(self, period=3):
         super().__init__()
         self.period = period
+        self.warm_up_period = period
 
     def update(self, input):
         mean_volume = self.ts.mean(input.volume, self.period)
         self.value = self.cs.rank_unit(-mean_volume)
-        return self.ts.is_ready(mean_volume)
+        return self.is_ready
 
 if __name__ == "__main__":
     TutorialFactor.run(config)

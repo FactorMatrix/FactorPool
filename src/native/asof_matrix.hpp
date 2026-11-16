@@ -22,6 +22,7 @@ struct AsOfResult {
     std::vector<double> current;
     std::vector<std::uint8_t> valid, ready, reason;
     std::size_t graph_updates = 0, replay_cells = 0, advance_cells = 0, cohorts = 0;
+    IndicatorPublication publication{};
 };
 // Both entries call the original pinned Graph's streaming arithmetic. Pool's
 // independent temporal ports are assembled before its unchanged CS suffix.

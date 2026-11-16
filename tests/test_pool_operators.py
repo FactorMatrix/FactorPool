@@ -3,19 +3,22 @@ import hashlib
 import inspect
 import json
 import math
+from datetime import datetime, timedelta
 from pathlib import Path
 from script_fixtures import result_values
 import tempfile
 import unittest
 from unittest.mock import patch
+from types import SimpleNamespace
 
 import numpy as np
+from factorpool import TradeBar
 from factorpool.adapter import IndicatorAdapter
 from factorpool.runner import load_factor, run
 
 
 class PoolOperatorTests(unittest.TestCase):
-    def factor(self, expression, statements="", ready="True", imports=""):
+    def factor(self, expression, statements="", ready="self.is_ready", imports=""):
         tail = "" if expression is None else "        self.value = " + expression + "\n        return " + ready + "\n"
         source = ("from factorpool import PythonIndicator\n" + imports + "\nclass Factor(PythonIndicator):\n"
                   "    def update(self, input):\n" + statements + tail)
@@ -32,7 +35,7 @@ class PoolOperatorTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(), digest)
         return instance, factory
 
-    def evaluate(self, expression, closes, volumes=None, *, statements="", ready="True", imports="", missing=()):
+    def evaluate(self, expression, closes, volumes=None, *, statements="", ready="self.is_ready", imports="", missing=()):
         indicator, factory = self.factor(expression, statements, ready, imports)
         adapter = IndicatorAdapter(indicator)
         names = [str(i) for i in range(len(closes))]
@@ -72,7 +75,7 @@ class PoolOperatorTests(unittest.TestCase):
             ("numeric.sqrt(input.close)", "import numpy as np\n", "        numeric = np\n", [2, 3]),
         ):
             with self.subTest(expression=expression, statements=statements):
-                adapter, values = self.evaluate(expression, [4, 9], imports=imports, statements=statements)
+                adapter, values = self.evaluate(expression, [4, 9], imports=imports, statements=statements, ready="True")
                 self.assertEqual(adapter.mode, "python")
                 self.assertFalse(hasattr(adapter.indicator, "_pool_ir"))
                 self.assert_values(values, expected)
@@ -132,7 +135,6 @@ class PoolOperatorTests(unittest.TestCase):
         for domain_expression, helper in (
             ("self.cs.rank_unit(input.close)", ""),
             ("self.ts.mean(input.close, 2)", ""),
-            ("input.valid", ""),
             ("self.native(input)", "    def native(self, input):\n        return self.cs.rank_unit(input.close)\n"),
         ):
             source = ("from factorpool import PythonIndicator\nclass Factor(PythonIndicator):\n"
@@ -143,6 +145,23 @@ class PoolOperatorTests(unittest.TestCase):
             indicator, _ = self.source_factor(source)
             with self.assertRaises(ValueError):
                 IndicatorAdapter(indicator)
+
+    def test_plain_python_callbacks_read_custom_data_fields_at_runtime(self):
+        source = ('from factorpool import PythonIndicator\nclass Factor(PythonIndicator):\n'
+                  '    def __init__(self):\n        super().__init__()\n        self.history=[]\n'
+                  '    def update(self, input):\n        self.history.append(input.close)\n'
+                  '        self.value=input.valid\n        return True\n')
+        indicator, factory = self.source_factor(source)
+        self.assertEqual(IndicatorAdapter(indicator).mode, 'python')
+        custom = factory()
+        self.assertTrue(custom._receive(SimpleNamespace(end_time=datetime(2024, 1, 2),
+            symbol='A', value=7., close=7., valid=3.5)))
+        self.assertEqual(custom.current.value, 3.5)
+        self.assertEqual(custom.samples, 1)
+        self.assertEqual(custom.history, [7.])
+        bar = TradeBar(datetime(2024, 1, 3), 'A', 7., 7., 7., 7., 100., timedelta(days=1))
+        with self.assertRaisesRegex(AttributeError, 'valid'):
+            factory()._receive(bar)
 
     def test_direct_math_has_native_results(self):
         for expression, source, expected in (
@@ -174,7 +193,7 @@ class PoolOperatorTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     indicator, _ = self.factor(expression)
                     IndicatorAdapter(indicator)
-        adapter, values = self.evaluate("input.close % input.volume", [-5, 5, 0], [3, -3, -2])
+        adapter, values = self.evaluate("input.close % input.volume", [-5, 5, 0], [3, -3, -2], ready="True")
         self.assertEqual(adapter.mode, "python")
         self.assertFalse(hasattr(adapter.indicator, "_pool_ir"))
         self.assert_values(values, [1, -1, 0])
@@ -235,7 +254,7 @@ class PoolOperatorTests(unittest.TestCase):
                       "        transformed = self.sqrt(first)\n"
                       "        ranked = self.cs.rank_unit(transformed)\n"
                       "        final = self.ts.mean(ranked, 2)\n")
-        indicator, factory = self.factor("final", statements, "self.ts.is_ready(final)")
+        indicator, factory = self.factor("final", statements, "self.is_ready")
         adapter = IndicatorAdapter(indicator)
         self.assertEqual(indicator.warm_up_period, 3)
         expected = [[None, None], [None, None], [0, 1], [None, .75], [0, .75]]

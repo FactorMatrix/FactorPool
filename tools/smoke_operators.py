@@ -85,7 +85,7 @@ extended = run(config, '''        safe = (self.sqrt(input.close) if input.close 
         ranked = self.cs.rank_unit(safe)
         value = self.ts.mean(ranked, 2, clock='trading_days')
         self.value = value
-        return self.ts.is_ready(value)''', '验收 · Pool原生算子与交易日窗口')
+        return self.is_ready''', '验收 · Pool原生算子与交易日窗口')
 assert extended['report']['metadata']['indicator_backend'] == 'pool_native'
 last = [row for row in extended['values'] if row['trading_date'] == '2024-01-08']
 assert [row['value'] for row in last] == [0., .75, .75], last
@@ -93,7 +93,7 @@ assert all(row['ready'] and row['valid'] for row in last), last
 price = dict(config, data=dict(provider='fixture', universe='fixture', factor_price='quote_adjusted'))
 body = '''        value = self.ts.mean(input.close, 2)
         self.value = value
-        return self.ts.is_ready(value)'''
+        return self.is_ready'''
 quoted = run(price, body, '验收 · 基础报价复权窗口')
 contract = price_contract(quoted)
 assert contract['factor_evaluations'] == 3 and contract['native_input_frames'] == 5, contract

@@ -20,14 +20,14 @@ class TurnoverMean(PythonIndicator):
     def update(self,input):
         value=self.ts.mean(input.total_turnover,2)
         self.value=value
-        return self.ts.is_ready(value)
+        return self.is_ready
 
 
 class ScalarMean(PythonIndicator):
     def update(self,input):
         value=self.ts.mean(input.close,2)
         self.value=value
-        return self.ts.is_ready(value)
+        return self.is_ready
 
 
 class PythonPreviousClose(PythonIndicator):
@@ -109,7 +109,7 @@ class IndicatorInputTests(unittest.TestCase):
         before=deepcopy(source)
         with tempfile.TemporaryDirectory() as directory:
             path=Path(directory)/'factor.py'
-            path.write_text('from factorpool import PythonIndicator\nclass Factor(PythonIndicator):\n    def update(self,input):\n        value=self.ts.mean(input.close,2)\n        self.value=value\n        return self.ts.is_ready(value)\n')
+            path.write_text('from factorpool import PythonIndicator\nclass Factor(PythonIndicator):\n    def update(self,input):\n        value=self.ts.mean(input.close,2)\n        self.value=value\n        return self.is_ready\n')
             factory=load_factor(path,'Factor',{})
             matrix=FactorMatrix(dict(provider='fixture',frames=source),factory(),factory,source[-1]['date'])
             for basis in range(len(source)):

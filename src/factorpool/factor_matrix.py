@@ -55,7 +55,7 @@ class FactorMatrix:
         self.adjusted = bool(self.fields & (PRICE_FIELDS | {'volume'}))
         self.window = max(1, indicator.warm_up_period)
         ops = {node.op for node in nodes}
-        unbounded = {'ema', 'rsi', 'atr', 'brain_ts_hump',
+        unbounded = {'ema', 'rsi', 'atr', 'indicator_samples', 'brain_ts_hump',
                      'brain_ts_days_from_last_change', 'brain_ts_ts_step',
                      'brain_cs_trade_when'}
         self.unbounded = indicator._ir is None or bool(ops & unbounded)
@@ -75,6 +75,18 @@ class FactorMatrix:
         self._source_member = None if quotes is None else quotes.get('source_member')
         self._adapter, self._last = None, -1
         self._matrix_plan = self._matrix_adapter = None
+        self.evaluations = self.input_frames = 0
+        indicator._pool_reset_callback = self.reset
+
+    def reset(self):
+        """Reset calculation state only; immutable quotes/Q remain borrowed."""
+        seen = set()
+        for adapter in (self._adapter, self._matrix_adapter):
+            if adapter is not None and id(adapter) not in seen:
+                seen.add(id(adapter))
+                adapter.reset()
+        self._adapter = self._matrix_adapter = self._matrix_plan = None
+        self._last = -1
         self.evaluations = self.input_frames = 0
 
     def _prepare_adjustment(self):
@@ -185,6 +197,10 @@ class FactorMatrix:
         requested.setflags(write=False)
         if self.indicator._ir is None:
             return None
+        if self.indicator.updated._handlers:
+            # A user explicitly observing each factor publication needs the
+            # existing ordered date loop, not a single end-of-batch callback.
+            return None
         if self.indicator._batch_ir is not None and getattr(self.indicator, '_pool_ir', None) is None:
             return None
         shape = (len(requested), len(self.symbols))
@@ -231,6 +247,8 @@ class FactorMatrix:
                                                requested.tolist(), axes, times, chronological)
         if state is None:
             return None
+        self._matrix_adapter.publish(state['publication'])
+        self._matrix_adapter._notify()
         result = dict(indices=requested, symbols=self._axis)
         for name, native_name, dtype in [('value', 'current', np.float64),
                                           ('valid', 'valid', np.bool_),

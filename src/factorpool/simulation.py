@@ -33,7 +33,7 @@ def _decayed(factors, members, period):
         def update(self, input):
             value = self.ts.decay_linear(input.value, self.period)
             self.value = value
-            return self.ts.is_ready(value)
+            return self.is_ready
 
     factory = lambda: LinearDecay(period)
     adapter = IndicatorAdapter(factory())

@@ -19,6 +19,7 @@ from factorpool.simulation import alpha_targets
 DATA = dict(provider='fixture', universe='fixture')
 
 
+# Fixed SDK numerical oracle; this class is not accepted as a Pool factor.
 class SharedDecayReference(SharedIndicator):
     def __init__(self, period=3):
         super().__init__()

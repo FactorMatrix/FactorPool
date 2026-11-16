@@ -32,6 +32,15 @@ struct TemporalFrame {
     std::span<const double> current;
     std::span<const std::uint8_t> valid, ready;
 };
+struct IndicatorPublication {
+    std::vector<std::string> symbols;
+    std::vector<double> current, previous, publication_current;
+    std::vector<std::uint8_t> valid, ready, publication_ready;
+    std::vector<std::int64_t> samples, end_time, previous_end_time;
+    std::int64_t time = 0;
+    std::string scope;
+};
+IndicatorPublication capture_publication(const graph::Snapshot&, std::string scope);
 bool independent_temporals(const Spec&);
 // Only extension operations live in Pool. Ordinary arithmetic/cross sections
 // and every stateful temporal calculation call the pinned shared kernels.
@@ -46,6 +55,9 @@ class Program {
     std::unordered_map<std::size_t, std::unique_ptr<BrainCross>> brain_cs_;
     std::vector<double> current_;
     std::vector<std::uint8_t> valid_, ready_;
+    std::vector<double> publication_current_, previous_;
+    std::vector<std::uint8_t> publication_ready_;
+    std::vector<std::int64_t> samples_, end_time_, previous_end_time_;
     std::int64_t time_ = 0;
     bool prepared_only_ = false;
     void update_impl(std::int64_t, std::span<const graph::Column>,
@@ -62,6 +74,14 @@ public:
     const auto& current() const { return current_; }
     const auto& valid() const { return valid_; }
     const auto& ready() const { return ready_; }
+    const auto& publication_current() const { return publication_current_; }
+    const auto& publication_ready() const { return publication_ready_; }
+    const auto& previous() const { return previous_; }
+    const auto& samples() const { return samples_; }
+    const auto& end_time() const { return end_time_; }
+    const auto& previous_end_time() const { return previous_end_time_; }
+    void reset();
+    IndicatorPublication publication(std::string scope = "streaming") const;
     std::int64_t time() const { return time_; }
 };
 }

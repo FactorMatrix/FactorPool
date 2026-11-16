@@ -1,11 +1,12 @@
 """The public operator surface is singular, native and numerically stable."""
 import json
+from datetime import datetime, timedelta
 from pathlib import Path
 import tempfile
 import unittest
 import numpy as np
 
-from factorpool import PythonIndicator
+from factorpool import PythonIndicator, TradeBar
 from factorpool.adapter import IndicatorAdapter
 from factorpool.operator_frontend import DOMAINS, validate_source_frontend
 from factorpool.runner import load_factor
@@ -16,7 +17,7 @@ class OperatorFrontendTests(unittest.TestCase):
         temp=tempfile.TemporaryDirectory();self.addCleanup(temp.cleanup)
         path=Path(temp.name)/'factor.py'
         if body is None:
-            body=statements+'        value='+expression+'\n        self.value=value\n        return '+(ready or 'self.ts.is_ready(value)')+'\n'
+            body=statements+'        value='+expression+'\n        self.value=value\n        return '+(ready or 'self.is_ready')+'\n'
         path.write_text(imports+'from factorpool import PythonIndicator\nclass Factor(PythonIndicator):\n    def update(self,input):\n'+body)
         factory=load_factor(path,'Factor',{});return IndicatorAdapter(factory()),factory
 
@@ -46,6 +47,39 @@ class OperatorFrontendTests(unittest.TestCase):
         for name in ('group_zscore','group_rank','group_mean','vec_avg','bucket','trade_when','log','if_else','rank'):
             with self.assertRaisesRegex(AttributeError,'public operator'):
                 getattr(indicator.cs,name)
+
+    def test_domain_readiness_and_aliases_are_rejected_by_static_and_runtime_interfaces(self):
+        indicator = PythonIndicator()
+        for domain in ('ts', 'cs', 'vc', 'gp', 'tf'):
+            for statements, call in (
+                ('', f'self.{domain}.is_ready(input.close)'),
+                (f'        domain = self.{domain}\n', 'domain.is_ready(input.close)'),
+                (f'        ready = self.{domain}.is_ready\n', 'ready(input.close)'),
+                ('', f'getattr(self.{domain}, "is_ready")(input.close)'),
+            ):
+                source = ('from factorpool import PythonIndicator\n'
+                          'class Factor(PythonIndicator):\n'
+                          '    def update(self, input):\n' + statements +
+                          f'        self.value = {call}\n        return self.is_ready\n')
+                with self.subTest(domain=domain, call=call), self.assertRaisesRegex(ValueError, 'public operator|removed'):
+                    validate_source_frontend(source)
+            namespace = getattr(indicator, domain)
+            self.assertNotIn('is_ready', dir(namespace))
+            with self.subTest(domain=domain, mode='runtime'), self.assertRaisesRegex(AttributeError, 'public operator|removed'):
+                getattr(namespace, 'is_ready')
+
+    def test_indicator_readiness_keeps_explicit_sample_guards_and_invalid_values_distinct(self):
+        adapter, factory = self.build('self.ts.mean(input.close, 2)', ready='self.is_ready and self.samples >= 3')
+        for t in range(3):
+            result = adapter.update(self.frame(t, tuple((t+1)*n for n in (1, 2, 3, 4))), factory)
+            self.assertEqual([row['ready'] for row in result], [t == 2]*4)
+            self.assertEqual([row['valid'] for row in result], [t == 2]*4)
+        self.assertEqual([row['value'] for row in result], [2.5, 5., 7.5, 10.])
+        result = adapter.update(self.frame(3, (np.nan, 8, 12, 16)), factory)
+        self.assertTrue(result[0]['ready'])
+        self.assertFalse(result[0]['valid'])
+        self.assertIsNone(result[0]['value'])
+        self.assertEqual([row['value'] for row in result[1:]], [7., 10.5, 14.])
 
     def test_obsolete_calls_and_aliases_fail_before_native_or_python_execution(self):
         for call,statements,imports in (
@@ -148,13 +182,34 @@ class OperatorFrontendTests(unittest.TestCase):
 
     def test_document_classes_can_read_only_the_output_assigned_in_this_update(self):
         for body in (
-            '        x=input.volume\n        mean=self.ts.mean(x,20)\n        self.value=-self.cs.rank_unit(mean)\n        return self.ts.is_ready(self.value)\n',
-            '        x=self.vc.avg((input.open,input.close))\n        y=self.ts.mean(x,3)\n        group=self.tf.bucket(self.cs.rank_unit(input.volume),buckets="0.33,0.66")\n        self.value=self.gp.zscore(y,group)\n        return self.ts.is_ready(self.value)\n',
+            '        x=input.volume\n        mean=self.ts.mean(x,20)\n        self.value=-self.cs.rank_unit(mean)\n        return self.is_ready\n',
+            '        x=self.vc.avg((input.open,input.close))\n        y=self.ts.mean(x,3)\n        group=self.tf.bucket(self.cs.rank_unit(input.volume),buckets="0.33,0.66")\n        self.value=self.gp.zscore(y,group)\n        return self.is_ready\n',
         ):
             adapter,factory=self.build('',body=body)
             for t in range(22):actual=adapter.update(self.frame(t),factory)
             self.assertEqual(adapter.mode,'native')
             self.assertTrue(any(r['valid'] for r in actual))
             json.dumps(actual,allow_nan=False)
-        with self.assertRaises(ValueError):
-            self.build('',body='        prior=self.value\n        self.value=prior+input.close\n        return self.ts.is_ready(self.value)\n')
+        for expression in ('self.ts.mean(prior+input.close,2)', 'self.cs.rank_unit(prior+input.close)'):
+            with self.subTest(expression=expression), self.assertRaisesRegex(ValueError, 'state|native|assigned|output'):
+                self.build('', body=f'        prior=self.value\n        self.value={expression}\n        return self.is_ready\n')
+
+    def test_recursive_python_state_uses_the_managed_readiness_contract(self):
+        body = '        prior=self.value\n        self.value=prior+input.close\n        return self.is_ready\n'
+        for custom_property in (False, True):
+            source_body = body
+            if custom_property:
+                source_body += '\n    @property\n    def is_ready(self):\n        return self.samples >= 2\n'
+            with self.subTest(custom_property=custom_property):
+                adapter, factory = self.build('', body=source_body)
+                self.assertEqual(adapter.mode, 'python')
+                # The adapter's instance owns its batch publication; use an
+                # independent instance for this managed single-input stream.
+                indicator = factory()
+                for n, (close, expected, previous) in enumerate(((2., 2., 0.), (3., 5., 2.)), start=1):
+                    bar = TradeBar(datetime(2024, 1, n+1), 'A', close, close, close, close, 100., timedelta(days=1))
+                    self.assertEqual(indicator._receive(bar), custom_property and n == 2)
+                    self.assertEqual(indicator.samples, n)
+                    self.assertEqual(indicator.current.value, expected)
+                    self.assertEqual(indicator.previous.value, previous)
+                    self.assertEqual(indicator.is_ready, custom_property and n == 2)

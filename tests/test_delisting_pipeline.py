@@ -47,7 +47,7 @@ class MeanTurnover(PythonIndicator):
     def update(self, input):
         value = self.ts.mean(input.total_turnover, 2)
         self.value = value
-        return self.ts.is_ready(value)
+        return self.is_ready
 if __name__ == "__main__":
     MeanTurnover.run(config)
 '''.replace('CONFIG', repr(config))

@@ -54,7 +54,15 @@ Port prepare_port(const graph::Spec& spec, const AsOfHistory& history, bool comp
 struct Publication {
     std::vector<double> current;
     std::vector<std::uint8_t> valid, ready;
-    explicit Publication(std::size_t cells): current(cells, missing), valid(cells), ready(cells) {}
+    IndicatorPublication final;
+    Publication(std::size_t cells, std::span<const std::string> symbols): current(cells, missing), valid(cells), ready(cells) {
+        final.symbols.assign(symbols.begin(), symbols.end());
+        final.current.assign(symbols.size(), missing); final.previous.assign(symbols.size(), 0);
+        final.publication_current.assign(symbols.size(), 0); final.valid.resize(symbols.size());
+        final.ready.resize(symbols.size()); final.publication_ready.resize(symbols.size());
+        final.samples.resize(symbols.size()); final.end_time.resize(symbols.size()); final.previous_end_time.resize(symbols.size());
+        final.scope = "asof_temporal_cohort";
+    }
 };
 struct Counts { std::size_t updates = 0, replay = 0, advance = 0, cohorts = 0; };
 struct Cohort {
@@ -207,6 +215,17 @@ void evaluate_task(const Task& task, const Port& port, const AsOfHistory& histor
             const bool valid = state.valid[slot] && state.end_time[slot] == history.times[basis];
             output.current[cell] = valid ? state.current[slot] : missing;
             output.valid[cell] = valid; output.ready[cell] = state.ready[slot];
+            if (row + 1 == history.requested.size()) {
+                const auto target = cohort.axis[slot];
+                output.final.current[target] = output.current[cell];
+                output.final.valid[target] = valid; output.final.ready[target] = state.ready[slot];
+                output.final.publication_current[target] = state.current[slot];
+                output.final.publication_ready[target] = state.ready[slot];
+                output.final.previous[target] = state.previous[slot];
+                output.final.samples[target] = static_cast<std::int64_t>(state.samples[slot]);
+                output.final.end_time[target] = state.end_time[slot];
+                output.final.previous_end_time[target] = state.previous_end_time[slot];
+            }
         }
         previous = basis;
     }
@@ -227,7 +246,7 @@ AsOfResult evaluate(const Spec* pool_spec, const graph::Spec* scalar_spec, const
     for (std::size_t day = 0; day < history.axes.size(); ++day)
         for (auto n : history.axes[day]) active[day * width + n] = 1;
     std::vector<Publication> publications; publications.reserve(ports.size());
-    for (std::size_t i = 0; i < ports.size(); ++i) publications.emplace_back(cells);
+    for (std::size_t i = 0; i < ports.size(); ++i) publications.emplace_back(cells, history.symbols);
     const auto workers = std::min(width, fp::compute_threads());
     const auto tasks = plan_tasks(ports, history, active);
     std::vector<Counts> counts(tasks.size());
@@ -294,8 +313,21 @@ AsOfResult evaluate(const Spec* pool_spec, const graph::Spec* scalar_spec, const
             result.valid[cell] = usable; result.ready[cell] = ready[slot];
             result.reason[cell] = usable ? 0 : !observed[slot] ? 1 : source_missing[slot] ? 2 : valid[slot] && !ready[slot] ? 3 : 4;
         }
+        if (row + 1 == rows && program) result.publication = program->publication("asof_suffix_worker");
       }
     });
+    if (!pool_spec) {
+        const auto& source = publications[0].final;
+        auto& final = result.publication;
+        final.scope = source.scope; final.time = history.times[history.requested.back()];
+        for (auto column : history.axes[history.requested.back()]) {
+            final.symbols.push_back(source.symbols[column]); final.current.push_back(source.current[column]);
+            final.previous.push_back(source.previous[column]); final.publication_current.push_back(source.publication_current[column]);
+            final.valid.push_back(source.valid[column]); final.ready.push_back(source.ready[column]);
+            final.publication_ready.push_back(source.publication_ready[column]); final.samples.push_back(source.samples[column]);
+            final.end_time.push_back(source.end_time[column]); final.previous_end_time.push_back(source.previous_end_time[column]);
+        }
+    }
     return result;
 }
 } // namespace

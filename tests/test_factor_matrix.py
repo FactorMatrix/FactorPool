@@ -126,7 +126,7 @@ class FactorMatrixTests(unittest.TestCase):
                 self.assertRaisesRegex(ValueError, 'persisted Q'):
             FactorMatrix(payload, indicator, factory, payload['frames'][-1]['date']).evaluate(2)
 
-    def factor(self, expression, *, ready="self.ts.is_ready(value)"):
+    def factor(self, expression, *, ready="self.is_ready"):
         source = ("from factorpool import PythonIndicator\n"
                   "class Factor(PythonIndicator):\n"
                   "    def update(self, input):\n"

@@ -28,6 +28,15 @@ class PoolOperatorBinding:
     def graph_snapshot_columns(self, graph):
         return self.native.snapshot_columns(graph)
 
+    def graph_reset(self, graph):
+        return self.native.reset(graph)
+
+    def graph_symbols_snapshot(self, graph):
+        return self.native.snapshot(graph)['symbols']
+
+    def graph_warm_up_period(self, graph):
+        return self.ir['warm_up_period']
+
     def graph_evaluate_many(self, graph, *args):
         return self.native.evaluate_matrix(graph, *args)
 

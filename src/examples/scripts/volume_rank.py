@@ -55,13 +55,14 @@ class VolumeRankFactor(PythonIndicator):
         super().__init__()
         self.volume_period = volume_period
         self.rank_period = rank_period
+        self.warm_up_period = volume_period + rank_period - 1
 
     def update(self, input):
         volume_mean = self.ts.mean(input.volume, self.volume_period)
         first_rank = self.cs.rank_unit(volume_mean)
         rank_mean = self.ts.mean(first_rank, self.rank_period)
         self.value = self.cs.rank_unit(rank_mean)
-        return self.ts.is_ready(rank_mean)
+        return self.is_ready
 
 
 if __name__ == "__main__":

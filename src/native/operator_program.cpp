@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <map>
 #include <set>
+#include <limits>
 
 namespace factorpool::operators {
 namespace {
@@ -18,7 +19,7 @@ const std::map<std::string, CalendarOp> calendar_ops{
     {"calendar_min", CalendarOp::Min}, {"calendar_max", CalendarOp::Max},
     {"calendar_std", CalendarOp::Std}, {"calendar_decay_linear", CalendarOp::DecayLinear}};
 std::size_t arity(const std::string& op) {
-    if (op == "input" || op == "constant" || op == "valid") return 0;
+    if (op == "input" || op == "constant" || op == "valid" || op == "indicator_samples") return 0;
     if (op == "brain_ready") return 1;
     if (op == "if_else" || op == "select" || op == "scatter") return 3;
     if (calendar_ops.contains(op) || op == "sqrt" || op == "log" || op == "sign" || op == "is_nan" ||
@@ -27,7 +28,7 @@ std::size_t arity(const std::string& op) {
     return 2;
 }
 bool known(const std::string& op) {
-    if (is_extension(op) || calendar_ops.contains(op) || op == "temporal" || op == "brain_ready") return true;
+    if (is_extension(op) || calendar_ops.contains(op) || op == "temporal" || op == "brain_ready" || op == "indicator_samples") return true;
     if (op.starts_with("brain_ts_")) return is_brain_temporal(op.substr(9));
     if (op.starts_with("brain_cs_")) return BrainCross::supports(op.substr(9));
     try { shared::parse_op(op); return op != "dependency" && op != "value"; }
@@ -102,6 +103,9 @@ Program::Program(Spec spec, std::vector<std::string> symbols, bool prepared_only
     if (!prepared_only_)
         for (const auto& port : spec_.temporals) ports_.push_back(std::make_unique<graph::Graph>(port.spec, symbols_));
     current_.assign(symbols_.size(), shared::missing); valid_.resize(symbols_.size()); ready_.resize(symbols_.size());
+    publication_current_.assign(symbols_.size(), 0); previous_.assign(symbols_.size(), 0);
+    publication_ready_.assign(symbols_.size(), 0); samples_.assign(symbols_.size(), 0);
+    end_time_.assign(symbols_.size(), 0); previous_end_time_.assign(symbols_.size(), 0);
 }
 void Program::set_symbols(std::vector<std::string> symbols) {
     check_symbols(symbols);
@@ -110,13 +114,55 @@ void Program::set_symbols(std::vector<std::string> symbols) {
     for (auto& [index, state] : calendar_) { (void)index; state->set_axis(symbols); }
     for (auto& [index, state] : brain_ts_) { (void)index; state->set_axis(symbols); }
     for (auto& [index, state] : brain_cs_) { (void)index; state->set_axis(symbols); }
+    std::vector<double> next_current(symbols.size(), 0), next_previous(symbols.size(), 0);
+    std::vector<std::uint8_t> next_ready(symbols.size(), 0);
+    std::vector<std::int64_t> next_samples(symbols.size(), 0), next_end_time(symbols.size(), 0),
+        next_previous_end_time(symbols.size(), 0);
+    // Both axes are ordered and unique. Reconcile every publication column
+    // with one merge; departed members are discarded and new members stay cold.
+    for (std::size_t old = 0, next = 0; old < symbols_.size() && next < symbols.size();) {
+        const auto order = symbols_[old].compare(symbols[next]);
+        if (order < 0) { ++old; continue; }
+        if (order > 0) { ++next; continue; }
+        next_current[next] = publication_current_[old];
+        next_ready[next] = publication_ready_[old];
+        next_previous[next] = previous_[old];
+        next_samples[next] = samples_[old];
+        next_end_time[next] = end_time_[old];
+        next_previous_end_time[next] = previous_end_time_[old];
+        ++old; ++next;
+    }
+    publication_current_ = std::move(next_current); publication_ready_ = std::move(next_ready);
+    previous_ = std::move(next_previous); samples_ = std::move(next_samples);
+    end_time_ = std::move(next_end_time); previous_end_time_ = std::move(next_previous_end_time);
     symbols_ = std::move(symbols);
     current_.assign(symbols_.size(), shared::missing); valid_.assign(symbols_.size(), 0); ready_.assign(symbols_.size(), 0);
+}
+void Program::reset() {
+    *this = Program(spec_, symbols_, prepared_only_);
+}
+IndicatorPublication Program::publication(std::string scope) const {
+    return {symbols_, current_, previous_, publication_current_, valid_, ready_, publication_ready_,
+            samples_, end_time_, previous_end_time_, time_, std::move(scope)};
+}
+IndicatorPublication capture_publication(const graph::Snapshot& state, std::string scope) {
+    IndicatorPublication result{state.symbols, state.current, state.previous, state.current,
+        state.valid, state.ready, state.ready, {}, state.end_time, state.previous_end_time,
+        state.batch_time, std::move(scope)};
+    result.samples.reserve(state.samples.size());
+    for (auto count : state.samples) {
+        if (count > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()))
+            throw std::overflow_error("Indicator sample count exceeds int64");
+        result.samples.push_back(static_cast<std::int64_t>(count));
+    }
+    if (!result.time && !state.end_time.empty())
+        result.time = *std::max_element(state.end_time.begin(), state.end_time.end());
+    return result;
 }
 bool Program::independent_frames() const {
     return ports_.empty() && calendar_.empty() && brain_ts_.empty() &&
         std::none_of(spec_.nodes.begin(), spec_.nodes.end(), [](const auto& node) {
-            return node.op == "brain_cs_trade_when" || node.op == "brain_cs_group_backfill";
+            return node.op == "brain_cs_trade_when" || node.op == "brain_cs_group_backfill" || node.op == "indicator_samples";
         });
 }
 bool independent_temporals(const Spec& spec) {
@@ -124,7 +170,7 @@ bool independent_temporals(const Spec& spec) {
         return port.deferred || !port.bindings.empty();
     })) return false;
     return std::none_of(spec.nodes.begin(), spec.nodes.end(), [](const auto& node) {
-        return node.op.starts_with("calendar_") || node.op.starts_with("brain_ts_") ||
+        return node.op.starts_with("calendar_") || node.op.starts_with("brain_ts_") || node.op == "indicator_samples" ||
                node.op == "brain_cs_trade_when" || node.op == "brain_cs_group_backfill";
     });
 }
@@ -157,6 +203,12 @@ void Program::update_impl(std::int64_t time, std::span<const graph::Column> colu
     if (time < time_ || (!calendar_.empty() && time <= time_))
         throw std::invalid_argument("Pool operator updates must be chronological; calendar dates must be unique");
     if (present.size() != width) throw std::invalid_argument("Pool present mask differs from symbol axis");
+    for (std::size_t row = 0; row < width; ++row)
+        if (present[row]) {
+            if (samples_[row] == std::numeric_limits<std::int64_t>::max())
+                throw std::overflow_error("Indicator sample count exceeds int64");
+            ++samples_[row];
+        }
     std::map<std::string, const graph::Column*> by_field;
     std::vector<std::vector<std::uint8_t>> column_masks(columns.size());
     std::vector<graph::Column> finite_columns;
@@ -229,6 +281,12 @@ void Program::update_impl(std::int64_t time, std::span<const graph::Column> colu
             for (std::size_t row = 0; row < width; ++row) {
                 cell.value.values[row] = cells.at(node.inputs[0]).ready[row]; cell.value.valid[row] = present[row];
             }
+        } else if (op == "indicator_samples") {
+            cell.value = shared::Value::vector(width);
+            for (std::size_t row = 0; row < width; ++row) {
+                cell.value.values[row] = static_cast<double>(samples_[row]);
+                cell.value.valid[row] = present[row];
+            }
         } else if (op == "input") {
             cell.value = shared::Value::vector(width);
             if (const auto found = by_field.find(node.field); found != by_field.end()) {
@@ -263,7 +321,9 @@ void Program::update_impl(std::int64_t time, std::span<const graph::Column> colu
                 const bool current_valid = state.valid[row] &&
                     (prepared || snapshot->end_time[row] == time);
                 if (node.field == "ready") {
-                    cell.value.values[row] = state.ready[row] && current_valid;
+                    // Readiness describes the completed window, not whether
+                    // today's numeric projection is finite/currently valid.
+                    cell.value.values[row] = state.ready[row];
                     cell.value.valid[row] = present[row]; cell.ready[row] = 1;
                 } else {
                     cell.value.values[row] = current_valid ? state.current[row] : shared::missing;
@@ -325,6 +385,13 @@ void Program::update_impl(std::int64_t time, std::span<const graph::Column> colu
         ready_[row] = present[row] && output.ready[row] && readiness.ready[row] && valid_at(readiness.value, row) && number_at(readiness.value, row) != 0;
         valid_[row] = ready_[row] && valid_at(output.value, row) && std::isfinite(number_at(output.value, row));
         if (valid_[row]) current_[row] = number_at(output.value, row);
+        if (present[row]) {
+            previous_[row] = publication_current_[row];
+            previous_end_time_[row] = end_time_[row];
+            publication_current_[row] = current_[row];
+            publication_ready_[row] = ready_[row];
+            end_time_[row] = time;
+        }
     }
     time_ = time;
 }

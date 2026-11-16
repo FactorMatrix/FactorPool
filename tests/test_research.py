@@ -202,7 +202,7 @@ class Factor(PythonIndicator):
     def update(self,input):
         value=self.ts.mean(input.close,3)
         self.value=value
-        return self.ts.is_ready(value)
+        return self.is_ready
 '''
         frames=fixture()['frames'][:6]
         for i,frame in enumerate(frames):
@@ -223,7 +223,7 @@ class Factor(PythonIndicator):
         b=self.cs.rank_unit(a, normalization='percentile')
         c=self.ts.mean(b,5)
         self.value=self.cs.rank_unit(c, normalization='percentile')
-        return self.ts.is_ready(c)
+        return self.is_ready
 '''
         frames=fixture()['frames']
         self.assertTrue(all(not r['ready'] for r in self.assert_parity(source,frames[:23])))

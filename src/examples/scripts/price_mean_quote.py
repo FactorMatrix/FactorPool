@@ -19,11 +19,12 @@ class QuotePriceMean(PythonIndicator):
     def __init__(self, period=2):
         super().__init__()
         self.period = period
+        self.warm_up_period = period
 
     def update(self, input):
         mean_close = self.ts.mean(input.close, self.period)
         self.value = mean_close
-        return self.ts.is_ready(mean_close)
+        return self.is_ready
 
 
 if __name__ == '__main__':

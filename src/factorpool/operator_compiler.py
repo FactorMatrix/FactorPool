@@ -24,7 +24,7 @@ class _Operator:
 def _check_contract(indicator):
     from .entry import PythonIndicator
     names=('__getattribute__','__getattr__','__setattr__','__dict__',
-           'ts','cs','vc','gp','tf',*DIRECT,'value','current','previous','is_ready',
+           'ts','cs','vc','gp','tf',*DIRECT,'value','current','previous',
            'samples','warm_up_period','Value','Current','Previous','IsReady','Samples',
            'WarmUpPeriod','updated','Updated','_consume')
     missing=object()
@@ -33,19 +33,88 @@ def _check_contract(indicator):
             raise UnsupportedIndicator('Custom '+name+' semantics require Python execution')
 
 
-def _output_local(syntax):
+def _output_local(syntax, indicator=None, *, implicit_ready=True, warmup=None):
     """Read this update's assigned output as SSA, never prior instance state."""
     name='__pool_current_output'
     names={n.id for n in ast.walk(syntax) if isinstance(n,ast.Name)}
     while name in names:name+='_'
     own=syntax.args.args[0].arg if syntax.args.args else 'self'
+    custom = None
+    if indicator is not None:
+        from .entry import PythonIndicator
+        ready = inspect.getattr_static(type(indicator), 'is_ready', None)
+        if ready is not inspect.getattr_static(PythonIndicator, 'is_ready', None):
+            if not isinstance(ready, property) or not inspect.isfunction(ready.fget):
+                raise UnsupportedIndicator('Custom is_ready must be a property; unsupported native readiness requires Python execution')
+            try:
+                getter = ast.parse(textwrap.dedent(inspect.getsource(ready.fget))).body[0]
+            except (OSError, TypeError, SyntaxError):
+                raise UnsupportedIndicator('Custom is_ready source is unavailable for native compilation') from None
+            statements = [s for s in getter.body if not (isinstance(s, ast.Expr) and isinstance(s.value, ast.Constant)
+                          and isinstance(s.value.value, str)) and not isinstance(s, ast.Pass)]
+            if len(statements) != 1 or not isinstance(statements[0], ast.Return) or statements[0].value is None:
+                raise UnsupportedIndicator('Custom is_ready needs one pure return expression for native execution')
+            custom = copy.deepcopy(statements[0].value)
+            getter_self = getter.args.args[0].arg
+            for node in ast.walk(custom):
+                if isinstance(node, ast.Name) and node.id == getter_self: node.id = own
+    def internal(kind, args, location):
+        node = ast.Call(func=ast.Name(id='__pool_indicator_state', ctx=ast.Load()), args=args, keywords=[])
+        node._pool_state = kind
+        return ast.copy_location(node, location)
     def output(node):
         return isinstance(node,ast.Attribute) and isinstance(node.value,ast.Name) and node.value.id==own and node.attr=='value'
     class OutputLocal(ast.NodeTransformer):
+        reading_custom = False
+        reading_return = False
+        reads_warmup = False
         def visit_Attribute(self,node):
             if output(node) and isinstance(node.ctx,ast.Load):
                 return ast.copy_location(ast.Name(id=name,ctx=ast.Load()),node)
+            if indicator is not None and isinstance(node.value, ast.Name) and node.value.id == own:
+                if node.attr == 'is_ready':
+                    if custom is not None:
+                        if self.reading_custom:
+                            raise UnsupportedIndicator('Custom is_ready cannot recursively read itself')
+                        self.reading_custom = True
+                        try: return self.visit(copy.deepcopy(custom))
+                        finally: self.reading_custom = False
+                    return internal('ready', [ast.Name(id=name, ctx=ast.Load())], node)
+                if node.attr == 'samples': return internal('samples', [], node)
+                if node.attr == 'warm_up_period':
+                    self.reads_warmup = True
+                    value = warmup if warmup is not None else object.__getattribute__(indicator, '__dict__').get('_warm_up_period', 0)
+                    return ast.copy_location(ast.Constant(value=value), node)
             return self.generic_visit(node)
+        def visit_BoolOp(self, node):
+            if not (self.reading_custom or self.reading_return): return self.generic_visit(node)
+            values = [self.visit(value) for value in node.values]
+            result = values[-1]
+            for value in reversed(values[:-1]):
+                # Preserve per-symbol short circuiting: an unused missing
+                # branch must not invalidate an already decided predicate.
+                yes, no = (result, value) if isinstance(node.op, ast.And) else (value, result)
+                result = ast.copy_location(ast.IfExp(test=value, body=yes, orelse=no), node)
+            return result
+        def visit_UnaryOp(self, node):
+            if (self.reading_custom or self.reading_return) and isinstance(node.op, ast.Not):
+                return ast.copy_location(ast.UnaryOp(op=ast.Invert(), operand=self.visit(node.operand)), node)
+            return self.generic_visit(node)
+        def visit_Return(self, node):
+            if indicator is None: return self.generic_visit(node)
+            fallback = node.value is None or isinstance(node.value, ast.Constant) and node.value.value is None
+            if fallback:
+                node.value = ast.Attribute(value=ast.Name(id=own, ctx=ast.Load()), attr='is_ready', ctx=ast.Load())
+            self.reading_return = True
+            try: result = self.generic_visit(node)
+            finally: self.reading_return = False
+            # LEAN's wrapper first accepts a true Update return, otherwise it
+            # consults a custom readiness property. Output dependency masks
+            # still gate this result inside the native Program.
+            if custom is not None and not fallback:
+                prop = self.visit(ast.Attribute(value=ast.Name(id=own, ctx=ast.Load()), attr='is_ready', ctx=ast.Load()))
+                result.value = ast.copy_location(ast.IfExp(test=result.value, body=ast.Constant(value=True), orelse=prop), node)
+            return result
         def visit_Assign(self,node):
             if len(node.targets)==1 and output(node.targets[0]):
                 value=self.visit(node.value)
@@ -53,10 +122,38 @@ def _output_local(syntax):
                 publish=ast.copy_location(ast.Assign(targets=node.targets,value=ast.Name(id=name,ctx=ast.Load())),node)
                 return [local,publish]
             return self.generic_visit(node)
-    return ast.fix_missing_locations(OutputLocal().visit(copy.deepcopy(syntax)))
+    syntax = copy.deepcopy(syntax)
+    if indicator is not None and implicit_ready and (not syntax.body or not isinstance(syntax.body[-1], ast.Return)):
+        syntax.body.append(ast.copy_location(ast.Return(value=None), syntax))
+    lowering = OutputLocal()
+    syntax = ast.fix_missing_locations(lowering.visit(syntax))
+    syntax._pool_reads_warmup = lowering.reads_warmup
+    return syntax
+
+
+class _ScalarCompiler(_Compiler):
+    def call(self, syntax):
+        if getattr(syntax, '_pool_state', None) == 'ready':
+            value = self.series(self.expression(syntax.args[0]))
+            return self.node('ready', (value.node,))
+        return super().call(syntax)
+
+    def compile(self):
+        result = super().compile()
+        # A user's true return cannot make an unfinished native dependency
+        # ready. This is the same conjunction used by Pool's batch Program.
+        node = type(result.nodes[0])
+        nodes = (*result.nodes, node('ready', (result.output,)))
+        ready = len(nodes)
+        nodes = (*nodes, node('and', (result.ready, ready - 1)))
+        return replace(result, nodes=nodes, ready=ready)
 
 
 class PoolCompiler(_UpdateCompiler):
+    def __init__(self, indicator, function, filename, first_line):
+        super().__init__(indicator, function, filename, first_line)
+        self.scalar = _ScalarCompiler(indicator, function)
+
     def extension(self, method, syntax, variables):
         if syntax.keywords or len(syntax.args)!=EXTENSIONS[method]:
             raise self.error(syntax,f'{method} requires {EXTENSIONS[method]} positional arguments')
@@ -99,11 +196,6 @@ class PoolCompiler(_UpdateCompiler):
         return cleaned
 
     def _ts(self,method,syntax,variables):
-        if method=='is_ready':
-            if len(syntax.args)!=1 or syntax.keywords:raise self.error(syntax,'self.ts.is_ready takes exactly one value')
-            value=self.expression(syntax.args[0],variables)
-            if isinstance(value,_Value):return self.node('brain_ready',(value.node,))
-            return super().call(syntax,variables)
         clocks=[kw for kw in syntax.keywords if kw.arg=='clock']
         if len(clocks)>1:raise self.error(syntax,'Repeated clock')
         clock=literal(self,clocks[0].value) if clocks else ('valid_observations' if method in OBSERVATION_TS or method in ('min','max') else 'trading_days')
@@ -160,6 +252,22 @@ class PoolCompiler(_UpdateCompiler):
         return prepare_core_call(self,'cs','rank_unit',cooked,variables)
 
     def call(self,syntax,variables):
+        state = getattr(syntax, '_pool_state', None)
+        if state == 'samples':
+            self.used_cross_section = True
+            result = self.node('indicator_samples')
+            self.axes[result.node] = 'full'
+            return result
+        if state == 'ready':
+            from factortrader.indicator.update_compiler import _Temporal
+            value = self.expression(syntax.args[0], variables)
+            if isinstance(value, _Temporal):
+                return self.temporal(value.series, syntax, field='ready', guard=value.guard)
+            value = self.value(value, syntax)
+            self.used_cross_section = True
+            result = self.node('brain_ready', (value.node,))
+            self.axes[result.node] = self.axes[value.node] or 'full'
+            return result
         target=None
         if isinstance(syntax.func,ast.Attribute):
             if isinstance(syntax.func.value,ast.Name) and syntax.func.value.id==self.self_name and syntax.func.attr in DIRECT:
@@ -228,23 +336,13 @@ class PoolCompiler(_UpdateCompiler):
         return result
 
 
-def compile_pool_indicator(indicator):
-    declared=validate_indicator_frontend(indicator)
-    function=inspect.getattr_static(type(indicator),'_indicator_function',None)
-    if not inspect.isfunction(function):return None
-    try:lines,first=inspect.getsourcelines(function)
-    except (OSError,TypeError):return None
-    filename=inspect.getsourcefile(function) or '<unknown>'
-    tree=ast.parse(textwrap.dedent(''.join(lines)))
-    if len(tree.body)!=1 or not isinstance(tree.body[0],ast.FunctionDef):return None
-    syntax=_output_local(tree.body[0])
-    try:
-        _check_contract(indicator)
-        compiler=PoolCompiler(indicator,syntax,filename,first);result=compiler.compile()
-        if not compiler.used_cross_section:return _Compiler(indicator,syntax).compile(),None
-    except UnsupportedIndicator:
-        if declared or getattr(type(indicator),'_indicator_native_domains',False):raise
-        return None
+def _compile_prepared(indicator, syntax, filename, first):
+    declared_warmup = object.__getattribute__(indicator, '__dict__').get('_warm_up_period', 0)
+    compiler=PoolCompiler(indicator,syntax,filename,first)
+    result=compiler.compile()
+    if not compiler.used_cross_section:
+        result=_ScalarCompiler(indicator,syntax).compile()
+        return replace(result,warm_up_period=max(declared_warmup,result.warm_up_period)),None
     if result.dependencies:raise UnsupportedIndicator('Pool expressions must be self-contained')
     depths=[]
     for node in result.nodes:
@@ -258,8 +356,49 @@ def compile_pool_indicator(indicator):
                 if name in ('ts_delay','ts_delta'):depth+=1
         if depth>2147483647:raise UnsupportedIndicator('Pool expression warmup exceeds supported range')
         depths.append(depth)
-    result=replace(result,warm_up_period=max(depths[result.output],depths[result.ready]))
-    payload={**result.to_dict(),'version':CONTRACT_VERSION}
+    result=replace(result,warm_up_period=max(declared_warmup,depths[result.output],depths[result.ready]))
+    payload={**result.to_dict(),'version':CONTRACT_VERSION,'warm_up_period':result.warm_up_period}
     for node in payload['nodes']:
         if node['op'].startswith(('brain_ts_','brain_cs_')):node['options']=json.loads(node['field'])
     return result,payload
+
+
+def compile_pool_indicator(indicator):
+    declared=validate_indicator_frontend(indicator)
+    function=inspect.getattr_static(type(indicator),'_indicator_function',None)
+    if not inspect.isfunction(function):return None
+    try:lines,first=inspect.getsourcelines(function)
+    except (OSError,TypeError):return None
+    filename=inspect.getsourcefile(function) or '<unknown>'
+    tree=ast.parse(textwrap.dedent(''.join(lines)))
+    if len(tree.body)!=1 or not isinstance(tree.body[0],ast.FunctionDef):return None
+    native_state = declared or getattr(type(indicator), '_indicator_native_domains', False)
+    lower_current_ready = native_state
+    if not native_state:
+        from .entry import PythonIndicator
+        if inspect.getattr_static(type(indicator), 'is_ready', None) is not inspect.getattr_static(PythonIndicator, 'is_ready', None):
+            return None
+        returns = [node for node in ast.walk(tree.body[0]) if isinstance(node, ast.Return)]
+        if not returns or any(node.value is None or isinstance(node.value, ast.Constant)
+                              and node.value.value is None for node in returns):
+            return None
+        own = tree.body[0].args.args[0].arg
+        lower_current_ready = any(isinstance(node, ast.Attribute) and node.attr == 'is_ready'
+                                  and isinstance(node.value, ast.Name) and node.value.id == own
+                                  for statement in returns for node in ast.walk(statement))
+    try:
+        _check_contract(indicator)
+        warmup = None
+        # Only explicit warmup reads need this static resolution. No user
+        # callback or graph update is executed while preparing the program.
+        for _ in range(3):
+            syntax=_output_local(tree.body[0], indicator if lower_current_ready else None,
+                                 implicit_ready=native_state, warmup=warmup)
+            result,payload=_compile_prepared(indicator,syntax,filename,first)
+            if not syntax._pool_reads_warmup or warmup == result.warm_up_period:
+                return result,payload
+            warmup=result.warm_up_period
+        raise UnsupportedIndicator('Native warm_up_period has a circular dependency; declare an independent window/readiness expression')
+    except UnsupportedIndicator:
+        if declared or getattr(type(indicator),'_indicator_native_domains',False):raise
+        return None

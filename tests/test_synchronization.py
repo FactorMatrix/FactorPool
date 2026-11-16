@@ -28,7 +28,7 @@ class MeanRankMean(PythonIndicator):
         ranked = self.cs.rank_unit(average, normalization="percentile")
         smoothed = self.ts.mean(ranked, 3)
         self.value = smoothed
-        return self.ts.is_ready(smoothed)
+        return self.is_ready
 
 
 class MeanRankMeanRank(PythonIndicator):
@@ -39,7 +39,7 @@ class MeanRankMeanRank(PythonIndicator):
         ranked = self.cs.rank_unit(average, normalization="ordinal")
         smoothed = self.ts.mean(ranked, 2)
         self.value = self.cs.rank_unit(smoothed, normalization="percentile")
-        return self.ts.is_ready(smoothed)
+        return self.is_ready
 
 
 class IndependentWindows(PythonIndicator):
@@ -48,7 +48,7 @@ class IndependentWindows(PythonIndicator):
         fast = self.ts.mean(input.close, 2)
         selected = slow if input.volume < 0 else fast
         self.value = self.cs.rank_unit(selected, normalization="percentile")
-        return self.ts.is_ready(fast)
+        return self.is_ready
 
 
 class TopDecileThreshold(PythonIndicator):

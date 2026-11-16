@@ -114,7 +114,7 @@ class Core66Tests(unittest.TestCase):
  def build(self, expression, statements=""):
   directory=tempfile.TemporaryDirectory();self.addCleanup(directory.cleanup)
   path=Path(directory.name)/'factor.py'
-  path.write_text('from factorpool import PythonIndicator\nclass Factor(PythonIndicator):\n    def update(self,input):\n'+statements+'        value='+expression+'\n        self.value=value\n        return self.ts.is_ready(value)\n')
+  path.write_text('from factorpool import PythonIndicator\nclass Factor(PythonIndicator):\n    def update(self,input):\n'+statements+'        value='+expression+'\n        self.value=value\n        return self.is_ready\n')
   factory=load_factor(path,'Factor',{});indicator=factory();return IndicatorAdapter(indicator),factory
  def frame(self,t):
   names=['A','B','C','D','E']

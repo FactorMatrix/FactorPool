@@ -38,7 +38,7 @@ def main():
                    '    def update(self, input):\n'
                    '        x = self.ts.mean(input.volume, 20)\n'
                    '        self.value = self.cs.rank_unit(-x)\n'
-                   '        return self.ts.is_ready(x)\n'
+                   '        return self.is_ready\n'
                    'if __name__ == "__main__":\n    Factor.run()\n',
                    workspace_config=dict(
                        base=dict(start_date=data['factor_start'], end_date=data['factor_end'],

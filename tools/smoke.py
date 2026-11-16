@@ -56,7 +56,7 @@ class MatrixFactor(PythonIndicator):
     def update(self, input):
         mean_close = self.ts.mean(input.close, self.period)
         self.value = mean_close
-        return self.ts.is_ready(mean_close)
+        return self.is_ready
 
 if __name__ == "__main__":
     MatrixFactor.run(config)
@@ -161,7 +161,7 @@ class LowVolumeFactor(PythonIndicator):
     def update(self,input):
         mean_volume=self.ts.mean(input.volume,self.period)
         self.value=self.cs.rank_unit(-mean_volume)
-        return self.ts.is_ready(mean_volume)
+        return self.is_ready
 
 if __name__ == "__main__":
     LowVolumeFactor.run()

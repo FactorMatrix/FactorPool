@@ -15,7 +15,7 @@ split_payload = reference.split_payload
 class AsOfMatrixTests(unittest.TestCase):
     factor = reference.FactorMatrixTests.factor
 
-    def compare(self, payload, expression, indices=None, ready='self.ts.is_ready(value)'):
+    def compare(self, payload, expression, indices=None, ready='self.is_ready'):
         dates = payload['quotes']['dates']
         indices = list(range(len(dates))) if indices is None else list(indices)
         indicator, factory, _ = self.factor(expression, ready=ready)
@@ -71,10 +71,14 @@ class AsOfMatrixTests(unittest.TestCase):
         values.flags.writeable = False
         payload['quotes'].update(values=values, adjustment=dict(q=q, segment=segments))
         for expression in ('self.cs.rank_unit(-self.ts.mean(input.volume, 4))',
-                           'self.ts.mean(input.volume, 4) + self.ts.mean(input.total_turnover, 3)',
-                           'self.ts.mean(self.ts.is_ready(self.ts.mean(input.volume, 2)) + input.total_turnover*0, 2)'):
+                           'self.ts.mean(input.volume, 4) + self.ts.mean(input.total_turnover, 3)'):
             with self.subTest(expression=expression):
                 self.compare(payload, expression)
+
+    def test_removed_domain_readiness_cannot_be_used_as_a_numeric_temporal_input(self):
+        expression = 'self.ts.mean(self.ts.is_ready(self.ts.mean(input.volume, 2)) + input.total_turnover*0, 2)'
+        with self.assertRaisesRegex(ValueError, 'public operator|removed'):
+            self.factor(expression)
 
     def test_missing_bars_membership_exit_reentry_and_sparse_signals_are_exact(self):
         payload = split_payload(44)

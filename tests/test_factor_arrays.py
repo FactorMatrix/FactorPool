@@ -18,7 +18,7 @@ from test_factor_matrix import payload_from_frames, split_payload
 
 
 class FactorArrayTests(unittest.TestCase):
-    def factory(self, expression, ready='True'):
+    def factory(self, expression, ready='self.is_ready'):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         path = Path(temporary.name)/'factor.py'
@@ -119,7 +119,7 @@ class FactorArrayTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'ordered unique quote positions'):
             evaluator.evaluate_arrays(2)
 
-    def assert_batch_matches_daily(self, payload, expression, ready='True', *, indices=None):
+    def assert_batch_matches_daily(self, payload, expression, ready='self.is_ready', *, indices=None):
         factory = self.factory(expression, ready)
         daily = FactorMatrix(payload, factory(), factory, payload['frames'][-1]['date'])
         count, symbols = len(daily.frames), len(daily.symbols)

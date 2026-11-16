@@ -240,23 +240,37 @@ bool put(PyObject* target, const char* key, PyObject* value) {
 template<class T> PyObject* bytes(const std::vector<T>& values) {
     return PyBytes_FromStringAndSize(reinterpret_cast<const char*>(values.data()), values.size() * sizeof(T));
 }
+PyObject* publication(const pool::IndicatorPublication& state) {
+    Owned result(PyDict_New()), symbols(PyTuple_New(state.symbols.size()));
+    if (!result.value || !symbols.value) return nullptr;
+    for (std::size_t i = 0; i < state.symbols.size(); ++i) {
+        auto* value = PyUnicode_FromStringAndSize(state.symbols[i].data(), state.symbols[i].size());
+        if (!value || PyTuple_SetItem(symbols.value, i, value) < 0) return nullptr;
+    }
+    if (!put(result.value, "symbols", symbols.release()) || !put(result.value, "current", bytes(state.current)) ||
+        !put(result.value, "valid", bytes(state.valid)) || !put(result.value, "ready", bytes(state.ready)) ||
+        !put(result.value, "publication_current", bytes(state.publication_current)) ||
+        !put(result.value, "publication_ready", bytes(state.publication_ready)) ||
+        !put(result.value, "previous", bytes(state.previous)) || !put(result.value, "samples", bytes(state.samples)) ||
+        !put(result.value, "end_time", bytes(state.end_time)) || !put(result.value, "previous_end_time", bytes(state.previous_end_time)) ||
+        !put(result.value, "batch_time", PyLong_FromLongLong(state.time)) ||
+        !put(result.value, "state_scope", PyUnicode_FromString(state.scope.c_str())) ||
+        !put(result.value, "complete", PyBool_FromLong(1)) ||
+        !put(result.value, "tradable", PyBool_FromLong(std::any_of(state.valid.begin(), state.valid.end(), [](auto value) { return value != 0; })))) return nullptr;
+    return result.release();
+}
+PyObject* reset(PyObject*, PyObject* args) {
+    try {
+        PyObject* capsule;
+        if (!PyArg_ParseTuple(args, "O:reset", &capsule)) return nullptr;
+        handle(capsule).reset(); Py_RETURN_NONE;
+    } catch (const std::exception& error) { return failure(error); }
+}
 PyObject* snapshot(PyObject*, PyObject* args) {
     try {
         PyObject* capsule;
         if (!PyArg_ParseTuple(args, "O:snapshot", &capsule)) return nullptr;
-        auto& program = handle(capsule);
-        Owned result(PyDict_New()), symbols(PyTuple_New(program.symbols().size()));
-        if (!result.value || !symbols.value) return nullptr;
-        for (std::size_t i = 0; i < program.symbols().size(); ++i) {
-            const auto& symbol = program.symbols()[i];
-            auto* item = PyUnicode_FromStringAndSize(symbol.data(), symbol.size());
-            if (!item || PyTuple_SetItem(symbols.value, i, item) < 0) return nullptr;
-        }
-        if (!put(result.value, "symbols", symbols.release()) || !put(result.value, "current", bytes(program.current())) ||
-            !put(result.value, "valid", bytes(program.valid())) || !put(result.value, "ready", bytes(program.ready())) ||
-            !put(result.value, "batch_time", PyLong_FromLongLong(program.time())) || !put(result.value, "complete", PyBool_FromLong(1)) ||
-            !put(result.value, "tradable", PyBool_FromLong(std::any_of(program.valid().begin(), program.valid().end(), [](auto value) { return value != 0; })))) return nullptr;
-        return result.release();
+        return publication(handle(capsule).publication());
     } catch (const std::exception& error) { return failure(error); }
 }
 PyObject* snapshot_columns(PyObject*, PyObject* args) {
@@ -453,6 +467,7 @@ PyObject* evaluate_matrix(PyObject*, PyObject* args) {
         // Each worker creates the original numerical plan on its own thread.
         // Temporal frames use one plan on the caller thread, in time order.
         const auto workers = std::min(steps, chronological ? std::size_t{1} : fp::compute_threads());
+        pool::IndicatorPublication final_publication;
         PyThreadState* thread = PyEval_SaveThread();
         try {
             fp::parallel_for(workers, workers ? cells / workers : 0, [&](std::size_t worker) {
@@ -486,6 +501,10 @@ PyObject* evaluate_matrix(PyObject*, PyObject* args) {
                         if (!chronological) graph->invalidate_missing(mask);
                         graph->update(times[step], input, mask);
                     }
+                    if (step + 1 == steps) {
+                        final_publication = program ? program->publication(chronological ? "streaming" : "matrix_worker")
+                            : pool::capture_publication(graph->current_snapshot(), chronological ? "streaming" : "matrix_worker");
+                    }
                     if (chronological && (emitted >= requested.size() || source != requested[emitted])) continue;
                     const auto row = chronological ? emitted++ : step;
                     const auto* state = graph ? &graph->current_snapshot() : nullptr;
@@ -512,7 +531,8 @@ PyObject* evaluate_matrix(PyObject*, PyObject* args) {
         } catch (...) { PyEval_RestoreThread(thread); throw; }
         PyEval_RestoreThread(thread);
         if (!put(output.value, "current", current.release()) || !put(output.value, "valid", valid.release()) ||
-            !put(output.value, "ready", ready.release()) || !put(output.value, "reason", reason.release())) return nullptr;
+            !put(output.value, "ready", ready.release()) || !put(output.value, "reason", reason.release()) ||
+            !put(output.value, "publication", publication(final_publication))) return nullptr;
         return output.release();
     } catch (const std::exception& error) { return failure(error); }
 }
@@ -631,7 +651,8 @@ PyObject* evaluate_asof_matrix(PyObject*, PyObject* args) {
             !put(stats.value, "replayed_cells", PyLong_FromSize_t(result.replay_cells)) ||
             !put(stats.value, "advanced_cells", PyLong_FromSize_t(result.advance_cells)) ||
             !put(stats.value, "cohorts", PyLong_FromSize_t(result.cohorts)) ||
-            !put(output.value, "cohort_stats", stats.release())) return nullptr;
+            !put(output.value, "cohort_stats", stats.release()) ||
+            !put(output.value, "publication", publication(result.publication))) return nullptr;
         return output.release();
     } catch (const std::exception& error) { return failure(error); }
 }
@@ -642,6 +663,7 @@ PyMethodDef methods[] = {
     {"set_symbols", set_symbols, METH_VARARGS, "Set the active sorted axis; removed temporal state is released."},
     {"update", update, METH_VARARGS, "Evaluate one complete daily frame with independent column masks."},
     {"snapshot", snapshot, METH_VARARGS, "Copy the current numerical publication into owned buffers."},
+    {"reset", reset, METH_VARARGS, "Reset a Pool native program and its Indicator publication."},
     {"snapshot_columns", snapshot_columns, METH_VARARGS, "Copy numerical columns without rebuilding the unchanged symbol axis."},
     {"shared_set_symbols", shared_set_symbols, METH_VARARGS, "Convert an active axis and call the original pinned Graph reconciliation."},
     {"shared_update", shared_update, METH_VARARGS, "Copy numerical buffers into the original pinned shared Graph update."},

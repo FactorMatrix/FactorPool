@@ -177,7 +177,7 @@ onBeforeUnmount(() => { window.removeEventListener("hashchange", readRoute); win
             <template v-if="pageId === 'operators'">
               <section data-section="operator-guide" class="doc-section operator-guide">
                 <p>算术使用 Python 运算符或 <code>self.log(x)</code> 等直接方法；<code>self.ts</code> 处理历史，<code>self.cs</code> 处理截面，<code>self.vc</code> 处理证券内分量，<code>self.gp</code> 处理分组，<code>self.tf</code> 处理分桶与条件更新。点击名称原地展开。</p>
-                <details class="operator-usage"><summary>查看调用示例</summary><DocCode :code="'mean_volume = self.ts.mean(input.volume, 20)\nself.value = self.cs.rank_unit(-mean_volume)\nreturn self.ts.is_ready(mean_volume)'" /></details>
+                <details class="operator-usage"><summary>查看调用示例</summary><DocCode :code="'mean_volume = self.ts.mean(input.volume, 20)\nself.value = self.cs.rank_unit(-mean_volume)\nreturn self.is_ready'" /></details>
                 <p class="doc-caption">BRAIN核心清单 {{ coreOperators.length }} 项，当前已接通 {{ connectedCount }} 项。下方按标准分类完整列出，并逐项标明实际支持状态。</p>
               </section>
               <section data-section="operator-index" class="doc-section">

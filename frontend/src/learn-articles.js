@@ -64,26 +64,41 @@ export const learnArticles = {
     ],
   },
   indicator: {
-    id: "indicator", title: "编写 Indicator", subtitle: "用 update 定义因子，让时序与截面计算组成同一个表达式。", readingTime: "5 分钟",
+    id: "indicator", title: "编写 Indicator", subtitle: "保留 LEAN Indicator 基础接口，通过 ts / cs 扩展表达计算。", readingTime: "6 分钟",
     sections: [
       { id: "indicator-structure", title: "类、输入和输出", paragraphs: [
-        "因子类继承 PythonIndicator。构造函数接收 config.factor 中的参数；update(input) 接收当前已经完成的日线输入。",
-        "把本次计算结果赋给 self.value。使用窗口时，再通过 self.ts.is_ready(value) 返回表达式是否已经完成预热。",
+        "因子类继承 PythonIndicator。input 是 IndicatorDataPoint、TradeBar 等数据对象；研究框架传入当前已经完成的日线，不要求因子接受矩阵。构造函数接收 config.factor 中的参数。",
+        "在 update(input) 中设置 self.value，使用 Indicator 的 self.is_ready 表达就绪状态。ts / cs 只负责计算维度，不提供就绪接口。原生计算链把本次输出的逐证券状态反馈给 Indicator，ready 与有效值分开。",
       ], code: `class MeanClose(PythonIndicator):
     def __init__(self, period=20):
         super().__init__()
         self.period = period
+        self.warm_up_period = period
 
     def update(self, input):
         value = self.ts.mean(input.close, self.period)
         self.value = value
-        return self.ts.is_ready(value)`, codeLabel: "因子类示例" },
+        return self.is_ready`, codeLabel: "因子类示例" },
+      { id: "lean-base", title: "LEAN 基础与计算扩展", table: { columns: ["接口", "职责"], rows: [
+        ["value / current / previous", "本次输出、当前与上次数据点"],
+        ["is_ready / samples / warm_up_period", "指标就绪、实际更新计数与预热声明；预热长度不替代真实就绪判断"],
+        ["update(input) / reset()", "输入更新与状态重置；自定义队列在 reset 中清理后调用 super().reset()"],
+        ["ts / cs / vc / gp / tf", "Pool 计算扩展，分别表达时间、截面、向量、分组和变换，不属于 LEAN 原生算子域"],
+      ] }, paragraphs: ["普通 Python 队列指标可自定义 @property is_ready；它走明确的 Python 回调。可编译的扩展表达式走 C++ 原生图，不为每只股票增加 Python 回调。", "多股状态按证券读取，不能用全池统一布尔值代替不同股票的就绪情况。未知输入、未预热、有效零与计算无效分别保留。"] },
+      { id: "lean-update-contract", title: "更新、重置与状态查询", paragraphs: [
+        "普通 Python 指标由框架托管更新时，update 的 bool 先写入内部就绪状态；返回 None 时读取 is_ready 属性。内部已经为 True 时保持就绪，否则还会读取自定义属性。因此，返回 False 配合自定义属性 True，托管结果仍可为 True。默认属性与 None 不会自动变成 True。",
+        "直接手动调用普通 Python 的 update 时，current 和更新事件由指标代码维护；框架托管调用会发布 current、previous、samples 和一次更新事件。自定义 reset 应清理自己的队列，再调用 super().reset()。",
+        "框架更新多股后用 indicator[symbol].is_ready、indicator[symbol].current.value、indicator[symbol].samples 查看逐股状态。自定义属性仍属于原 Python 类，不应把模板上的单一属性当作整个股票池的状态。",
+        "原生批量回测公开的是计算结束时实际最后一个 worker 或 cohort 的状态；samples 反映该局部图的真实更新数，不是整个研究区间天数。读取属性不会重放历史。原生支持 current 和 previous，暂不提供输出 Window 或整数历史索引。",
+        "原生表达式默认保持批量 C++ 路径；主动订阅更新事件才按日期发布完整截面。手动原生更新只支持单股，多股通过完整研究截面运行。普通 Python 队列走回调；无法安全编译的截面与复杂 Python 混用会在准备阶段报错。",
+        "Pool 不创建交易 Runtime，不提供独立的自动注册或自动订阅。已验证共享原生 Consolidator 到托管指标的真实事件接入；交易 Runtime 的注册需要由交易环境提供。",
+      ] },
       { id: "ts-and-cs", title: "时序 TS 与截面 CS", paragraphs: [
         "self.ts 沿单股历史计算，self.cs 沿同日证券截面计算；self.vc 处理每只股票内部的分量，self.tf 处理分桶与条件更新，self.gp 处理同日分组。算术直接使用 self.log(x)、self.max(x, y) 等方法或Python运算符。",
         "可以先做时序，再做截面。下面的表达式会对每只股票的 20 期均量做同日排名；截面步骤等待完整的同日数据，不按股票到达顺序提前消费。",
       ], code: `mean_volume = self.ts.mean(input.volume, 20)
 self.value = self.cs.rank_unit(-mean_volume)
-return self.ts.is_ready(mean_volume)`, codeLabel: "update 内的组合表达式" },
+return self.is_ready`, codeLabel: "update 内的组合表达式" },
       { id: "operator-domains", title: "组合算子入口", paragraphs: [
         "普通算术直接用Python符号或self上的数学方法，无需导入math或算子函数。逻辑选择写yes if condition else no，由表达式编译器逐证券处理。",
         "下面先对每只证券的价格分量求均值，再做时序均值；成交量截面排名分桶后，作为真实表达式标签参与组内标准化。桶不代表行业。",
@@ -93,7 +108,7 @@ return self.ts.is_ready(mean_volume)`, codeLabel: "update 内的组合表达式"
     group = self.tf.bucket(self.cs.rank_unit(input.volume), buckets="0.33,0.66")
     value = self.gp.zscore(y, group)
     self.value = value
-    return self.ts.is_ready(value)`, codeLabel: "vc、ts、cs、tf、gp 组合" },
+    return self.is_ready`, codeLabel: "vc、ts、cs、tf、gp 组合" },
       { id: "ready-and-valid", title: "ready 和 valid 表示什么", table: { columns: ["状态", "含义", "常见原因"], rows: [
         ["ready=False", "历史窗口还未完成", "均线样本不足、股票重新进入计算轴"],
         ["ready=True，valid=False", "窗口时间已到，但本次结果不可用", "所需值缺失、除数为零、标准差为零"],

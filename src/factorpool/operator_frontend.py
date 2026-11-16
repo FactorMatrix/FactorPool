@@ -16,7 +16,7 @@ from .brain_schema import TS
 DIRECT = frozenset(('abs', 'add', 'subtract', 'multiply', 'log', 'sqrt', 'min',
                     'max', 'sign', 'signed_power', 'is_nan'))
 DOMAINS = {
-    'ts': frozenset(TS) | {'min', 'max', 'is_ready'},
+    'ts': frozenset(TS) | {'min', 'max'},
     'cs': frozenset(('densify', 'normalize', 'quantile', 'rank_unit', 'scale', 'winsorize', 'zscore')),
     'vc': frozenset(('avg', 'sum')),
     'tf': frozenset(('bucket', 'trade_when')),
@@ -39,6 +39,8 @@ class OperatorNamespace:
     def __init__(self, domain):
         self._domain = domain
     def __getattr__(self, name):
+        if name == 'is_ready':
+            raise AttributeError(f'self.{self._domain}.is_ready is not a public operator; use Indicator self.is_ready')
         if name in DOMAINS[self._domain]:
             return _native_only
         raise AttributeError(f'self.{self._domain}.{name} is not a public operator; supported: {public_methods(self._domain)}')
@@ -117,6 +119,8 @@ def _scan_function(syntax, imports, globals_=None):
             _, domain, method = value
             allowed = DIRECT if domain == 'self' else DOMAINS[domain]
             if method not in allowed:
+                if method == 'is_ready' and domain != 'self':
+                    raise OperatorInterfaceError(f'line {node.lineno}: self.{domain}.is_ready is not a public operator; use Indicator self.is_ready')
                 raise OperatorInterfaceError(f'line {node.lineno}: self.{domain+"." if domain != "self" else ""}{method} is not a public operator; supported: {public_methods(domain)}')
         if isinstance(node, ast.Call):
             called = origin(node.func)
@@ -157,7 +161,7 @@ def validate_source_frontend(source):
             for alias in node.names:imports[alias.asname or alias.name]=('math_function',alias.name)
         elif isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef)):
             imports[node.name]=('python_function',node.name)
-    for function in (node for node in ast.walk(tree) if isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef))):
+    for function in (node for node in ast.walk(tree) if isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef,ast.Lambda))):
         _scan_function(function,imports)
     return tree
 
@@ -170,7 +174,13 @@ def validate_indicator_frontend(indicator):
         if isinstance(function,property):function=function.fget
         if not inspect.isfunction(function) or function in seen:continue
         seen.add(function)
-        try:syntax=ast.parse(textwrap.dedent(inspect.getsource(function))).body[0]
+        try:
+            tree=ast.parse(textwrap.dedent(inspect.getsource(function)))
+            syntax=tree.body[0]
+            if not isinstance(syntax,(ast.FunctionDef,ast.AsyncFunctionDef,ast.Lambda)):
+                candidates=[node for node in ast.walk(syntax) if isinstance(node,ast.Lambda)]
+                if not candidates:continue
+                syntax=candidates[0]
         except (OSError,TypeError,SyntaxError):continue
         imports={}
         for name,value in function.__globals__.items():

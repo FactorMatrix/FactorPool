@@ -12,7 +12,7 @@ from factorpool.runner import load_factor
 
 
 class BrainCrossTests(unittest.TestCase):
-    def adapter(self, expression, ready="True"):
+    def adapter(self, expression, ready="self.is_ready"):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         path = Path(directory.name) / "factor.py"

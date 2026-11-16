@@ -38,7 +38,7 @@ class MatrixFactor(PythonIndicator):
     def update(self, input):
         mean_value = self.ts.mean(input.${meanClose ? 'close' : 'volume'}, self.period)
         self.value = ${meanClose ? 'mean_value' : 'self.cs.rank_unit(-mean_value)'}
-        return self.ts.is_ready(mean_value)
+        return self.is_ready
 
 
 if __name__ == "__main__":

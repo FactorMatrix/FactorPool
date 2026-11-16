@@ -57,10 +57,14 @@ class CloseMeanPython(PythonIndicator):
         self.warm_up_period = period
         self.values = deque(maxlen=period)
 
+    @property
+    def is_ready(self):
+        return len(self.values) == self.period
+
     def update(self, input):
         self.values.append(input.close)
         self.value = sum(self.values) / len(self.values)
-        return len(self.values) == self.period
+        return self.is_ready
 
     def reset(self):
         self.values.clear()
