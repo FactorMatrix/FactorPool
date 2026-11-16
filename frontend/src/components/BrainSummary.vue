@@ -36,6 +36,38 @@ const metrics = computed(() => {
 </template>
 
 <style scoped>
+.brain-summary {
+  display: grid;
+  grid-template-columns: minmax(82px, 1.05fr) repeat(6, minmax(0, 1fr));
+  align-items: end;
+  gap: 6px;
+  padding: 9px 0 13px;
+  border-bottom: 1px solid #dce1e8;
+}
+.aggregate-label {
+  grid-column: auto;
+  align-self: center;
+  margin: 0 6px 0 0;
+  color: #4f5c70;
+  font-size: 12px;
+  font-weight: 600;
+}
+.summary-measure {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: #8a96a6;
+  font-size: 12px;
+}
+.summary-measure strong {
+  color: #49596e;
+  font-size: 20px;
+  font-weight: 400;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
 .metric-caption { position: relative; display: flex; align-items: center; gap: 4px; }
 .metric-help { display: inline-grid; place-items: center; width: 13px; height: 13px; padding: 0;
   border: 1px solid #a9b4c0; border-radius: 50%; background: transparent; color: #8793a2;
@@ -48,7 +80,14 @@ const metrics = computed(() => {
 .metric-caption:has(.metric-help:hover) .metric-description,
 .metric-caption:focus-within .metric-description { display: block; }
 .summary-measure:nth-child(n+5) .metric-description { left: auto; right: 0; }
-@container (max-width: 500px) {
+@container (max-width: 760px) {
+  .brain-summary { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  .aggregate-label { grid-column: 1 / -1; margin: 0; }
+}
+@container (max-width: 620px) {
+  .brain-summary { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px 10px; }
+  .aggregate-label { grid-column: 1 / -1; margin: 0; }
+  .summary-measure strong { font-size: 20px; }
   .summary-measure:nth-child(3n+2) .metric-description { left: 0; right: auto; }
   .summary-measure:nth-child(3n+3) .metric-description,
   .summary-measure:nth-child(3n+4) .metric-description { left: auto; right: 0; }

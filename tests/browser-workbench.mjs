@@ -91,7 +91,8 @@ const asPercent = value => value == null ? '—' : (value*100).toFixed(2)+'%'
 const firstHorizon = fullResult.diagnostics.horizons['1']
 assert.equal(await returnCard.innerText(), asPercent(firstHorizon.partitions.train.alpha.brain_style.returns))
 assert.equal(await page.getByRole('table', {name:'年度统计表'}).count(), 1)
-assert.equal(await page.getByText('Train Summary', {exact:true}).count(), 1)
+assert.equal(await page.getByRole('heading', {name:'IS Summary', exact:true}).count(), 1)
+assert.equal(await page.locator('[data-result-section=summary] header').getByRole('group', {name:'汇总区间', exact:true}).count(), 1)
 assert.equal(await page.locator('.factor-metrics').count(), 0)
 assert.deepEqual(await page.getByRole('table', {name:'年度统计表'}).locator('thead th').allTextContents(),
   ['Year','Sharpe','Turnover','Fitness','Returns','Drawdown','Margin','Long Count','Short Count'])
@@ -99,6 +100,7 @@ await page.getByRole('button', {name:'Chart', exact:true}).click()
 await page.locator('.simulation-chart-panel .report-chart').waitFor()
 assert.equal(await page.getByLabel('结果曲线', {exact:true}).inputValue(), 'pnl')
 await page.getByLabel('结果曲线', {exact:true}).selectOption('nav')
+await page.locator('.chart-metadata > summary').click()
 assert.match(await page.locator('.simulation-chart-panel .pnl-book-note').innerText(), /初始净值 1/)
 // The chart and annual data depend on test visibility; summary selection is separate.
 async function checkNavAnchor(dates) {
@@ -115,7 +117,7 @@ await checkNavAnchor(firstHorizon.partitions.train.dates)
 await page.screenshot({path:`${output}/workbench-unit-nav.png`, fullPage:true})
 await page.getByRole('button', {name:'Summary', exact:true}).click()
 await page.getByRole('button', {name:'Show test period', exact:true}).click()
-await validation.getByRole('button', {name:'TEST', exact:true}).click()
+assert.equal(await validation.getByRole('button', {name:'TEST', exact:true}).getAttribute('aria-pressed'), 'true')
 await page.getByRole('button', {name:'Chart', exact:true}).click()
 await checkNavAnchor(firstHorizon.portfolio_dates)
 await page.getByRole('button', {name:'Summary', exact:true}).click()
