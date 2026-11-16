@@ -308,7 +308,7 @@ class FactorArrayTests(unittest.TestCase):
         factory = self.factory('self.cs.rank_unit(self.ts.mean(input.total_turnover, 3))')
         self.assertEqual(set(indicator_fields(factory())), {'total_turnover'})
 
-    def test_array_exports_match_list_contract_and_own_their_lifetime(self):
+    def test_buffer_exports_match_boolean_membership_and_own_their_lifetime(self):
         factors = np.array([[0.,1.,2.],[np.nan,1.,0.],[2.,1.,0.]], dtype=np.float64)
         returns = np.array([[0.,0.,0.],[.1,np.nan,-.2],[0.,-1.,.1],[.2,.3,.4]], dtype=np.float64)
         mask = np.array([[True,True,True],[True,False,True],[False,True,True]], dtype=bool)
@@ -316,8 +316,8 @@ class FactorArrayTests(unittest.TestCase):
             for stride in (1,2):
                 with self.subTest(dtype=dtype, stride=stride):
                     prepared = native.prepare_research(factors, returns, mask.astype(dtype))
-                    expected = native.analyze(factors, returns, 3, 2, 1, mask.astype(np.float64), 1, stride)
-                    actual = native.analyze(prepared, None, 3, 2, 1, None, 1, stride, True)
+                    expected = native.analyze(native.prepare_research(factors, returns, mask.astype(np.float64)), 3, 2, 1, 1, stride)
+                    actual = native.analyze(prepared, 3, 2, 1, 1, stride)
                     self.assertEqual(actual['summary'], expected['summary'])
                     self.assertEqual(actual['daily'], expected['daily'])
                     for name in ('forward_returns','groups'):

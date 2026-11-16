@@ -23,15 +23,16 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class ResearchTests(unittest.TestCase):
     def test_hand_calculated_sample_and_missing_return(self):
-        out = native.analyze([[1, .5, 0]], [[0, 0, 0], [.1, 0, -.1]], 3, 3, 1)
+        out = native.analyze(native.prepare_research([[1, .5, 0]], [[0, 0, 0], [.1, 0, -.1]], None), 3, 3, 1)
         self.assertAlmostEqual(out['summary']['ic_mean'], 1)
         self.assertAlmostEqual(out['summary']['rank_ic_mean'], 1)
         self.assertIsNone(out['summary']['icir'])
-        np.testing.assert_allclose(out['daily'][0]['group_returns'], [-.1, 0, .1], atol=1e-15)
-        out = native.analyze([[1, .5, 0]], [[0, 0, 0], [.1, 0, None]], 3, 3, 1)
+        np.testing.assert_array_equal(out['groups'][0], [3, 2, 1])
+        np.testing.assert_allclose(out['forward_returns'][0], [.1, 0, -.1], atol=1e-15)
+        out = native.analyze(native.prepare_research([[1, .5, 0]], [[0, 0, 0], [.1, 0, None]], None), 3, 3, 1)
         self.assertIsNone(out['summary']['ic_mean'])
         self.assertEqual(out['daily'][0]['pairs'], 2)
-        self.assertIsNone(out['forward_returns'][0][2])
+        self.assertTrue(np.isnan(out['forward_returns'][0][2]))
 
     def test_icir_ddof_and_ties_against_independent_numpy(self):
         factors, returns = [[1, 2, 3]]*3, [[0, 0, 0]]
@@ -39,24 +40,24 @@ class ResearchTests(unittest.TestCase):
         z = np.array([1., -2, 1]); z /= np.linalg.norm(z)
         for rho in (.1, .2, .3):
             returns.append(((rho*x+math.sqrt(1-rho*rho)*z)*.01).tolist())
-        out = native.analyze(factors, returns, 3, 3, 1)
+        out = native.analyze(native.prepare_research(factors, returns, None), 3, 3, 1)
         np.testing.assert_allclose([day['ic'] for day in out['daily']], [.1, .2, .3], atol=1e-13)
         self.assertAlmostEqual(out['summary']['icir'], 2, places=10)
-        out = native.analyze([[1, 1, 2]], [[0, 0, 0], [.1, 0, -.1]], 3, 3, 1)
+        out = native.analyze(native.prepare_research([[1, 1, 2]], [[0, 0, 0], [.1, 0, -.1]], None), 3, 3, 1)
         reference = np.corrcoef([1.5, 1.5, 3], [3, 2, 1])[0, 1]
         self.assertAlmostEqual(out['daily'][0]['rank_ic'], reference)
 
     def test_zero_valid_constant_missing_returns_and_small_groups(self):
-        out = native.analyze([[0, None, 2]], [[0, 0, 0], [.1, .2, None]], 5, 3, 1)
+        out = native.analyze(native.prepare_research([[0, None, 2]], [[0, 0, 0], [.1, .2, None]], None), 5, 3, 1)
         self.assertAlmostEqual(out['summary']['coverage'], 2/3)
-        self.assertEqual(out['daily'][0]['group_members'], [1, 0, 1, 0, 0])
+        np.testing.assert_array_equal(out['groups'][0], [1, np.nan, 3])
         self.assertEqual(out['daily'][0]['pairs'], 1)
-        self.assertIsNone(out['forward_returns'][0][2])
-        self.assertIsNone(native.analyze([[1, 1, 1]], [[0]*3]*2, 3, 3, 1)['summary']['ic_mean'])
+        self.assertTrue(np.isnan(out['forward_returns'][0][2]))
+        self.assertIsNone(native.analyze(native.prepare_research([[1, 1, 1]], [[0]*3]*2, None), 3, 3, 1)['summary']['ic_mean'])
         for factors, returns, groups in (([[1, 2]], [[0]], 3), ([[1], [1, 2]], [[0], [0]], 3),
                                          ([[1]], [[0]], 0)):
             with self.assertRaises(ValueError):
-                native.analyze(factors, returns, groups, 3, 1)
+                native.analyze(native.prepare_research(factors, returns, None), groups, 3, 1)
 
     def test_runner_uses_explicit_previous_close_without_reconstructing_adjustments(self):
         source = """from factorpool import PythonIndicator

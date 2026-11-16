@@ -36,7 +36,13 @@ def inputs(t, n, seed, kind):
 
 def result_hash(obj):
     h = hashlib.sha256()
-    for chunk in json.JSONEncoder(sort_keys=True, separators=(',', ':'), allow_nan=False).iterencode(obj):
+    def encode(value):
+        if isinstance(value, np.ndarray):
+            return dict(shape=value.shape, dtype=value.dtype.str,
+                        sha256=hashlib.sha256(value.tobytes()).hexdigest())
+        raise TypeError(f"Unserializable research value: {type(value).__name__}")
+    for chunk in json.JSONEncoder(sort_keys=True, separators=(',', ':'), allow_nan=False,
+                                  default=encode).iterencode(obj):
         h.update(chunk.encode())
     return h.hexdigest()
 
@@ -45,8 +51,8 @@ def execute(data, analysis):
     factors, returns, members, dates, return_dates = data
     checkpoint = time.perf_counter()
     prepared = native.prepare_research(factors, returns, members)
-    primary = native.analyze(prepared, None, analysis['groups'], 3, 1)
-    diagnostic = build(prepared, None, None, dates, return_dates, analysis, primary=primary)
+    primary = native.analyze(prepared, analysis['groups'], 3, 1)
+    diagnostic = build(prepared, dates, return_dates, analysis, primary=primary)
     elapsed = time.perf_counter() - checkpoint
     if diagnostic['version'] != 3:
         raise ValueError('This benchmark requires the returns-matrix-v3 kernel; old open-price images have a different numerical contract')

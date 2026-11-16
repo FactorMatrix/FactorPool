@@ -16,7 +16,7 @@ import numpy as np
 
 from factorpool.data_client import DataClient
 from factorpool.data_client.contract import (CACHE_VERSION, FIELDS, FORMAT, PREFIX,
-    decode_tile, encode_tile, json_bytes, metadata_key, pack_block, pack_metadata, tile_key)
+    axis_digest, decode_tile, encode_tile, json_bytes, metadata_key, pack_block, pack_metadata, tile_key)
 from factorpool.data_client.generated import data_pb2 as pb
 from services.data_service.api import DataService
 from services.data_service.redis_cache import Cache
@@ -163,6 +163,16 @@ class CacheFaultTests(unittest.TestCase):
         np.testing.assert_array_equal(self.load(client, pinned), expected)
         self.assertEqual(client.stats["redis_errors"], 1)
         self.assertGreater(client.stats["grpc_blocks"], 0)
+
+    def test_one_axis_hash_covers_all_date_blocks_and_bounded_batches(self):
+        metadata, values = fixture()
+        redis = MemoryRedis()
+        stub = MatrixStub(metadata, values, redis)
+        client = DataClient(stub=stub, cache=redis)
+        with patch("factorpool.data_client.client.axis_digest", wraps=axis_digest) as digest:
+            np.testing.assert_array_equal(self.load(client, metadata), values[:, :, [2, 0]])
+        self.assertGreater(stub.block_calls, len(metadata["blocks"]))
+        digest.assert_called_once_with(metadata)
 
     def test_corrupt_header_axes_and_payload_become_misses(self):
         for corruption in ("wrong_type", "axes", "length"):

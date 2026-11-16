@@ -6,6 +6,7 @@ from unittest.mock import patch
 import numpy as np
 from scipy.stats import rankdata
 import _factorpool_native as native
+from native_publication import publication_bits
 
 
 def forward_returns(returns, horizon):
@@ -59,7 +60,7 @@ class ReusedReturnOrderTests(unittest.TestCase):
                     series = native.ic_series(prepared, h, minimum)
                     self.assert_series(series['ic'], expected[0])
                     self.assert_series(series['rank_ic'], expected[1])
-                    decay = native.ic_decay(prepared, None, None, h, 4, minimum)
+                    decay = native.ic_decay(prepared, h, 4, minimum)
                     for k, item in enumerate(decay):
                         pair = paired_correlations(factors, members, forward, k * h, minimum)
                         self.assertEqual(item['entry_lag'], k * h)
@@ -67,7 +68,7 @@ class ReusedReturnOrderTests(unittest.TestCase):
                         self.assert_summary(item['rank_ic'], pair[1])
                     # A second entry point uses the same cached rows, but must
                     # still honor its own minimum and the paired sample mask.
-                    primary = native.analyze(prepared, None, 3, minimum, 1, None, h)
+                    primary = native.analyze(prepared, 3, minimum, 1, h)
                     self.assert_series([row['rank_ic'] for row in primary['daily']], expected[1])
                     self.assertEqual(native.ic_series(prepared, h, minimum), series)
 
@@ -114,7 +115,7 @@ class ReusedReturnOrderTests(unittest.TestCase):
                 series = native.ic_series(prepared, h, minimum, stride)
                 self.assert_series(series['ic'], expected[0][::stride])
                 self.assert_series(series['rank_ic'], expected[1][::stride])
-                decay = native.ic_decay(prepared, None, None, h, 3, minimum, stride)
+                decay = native.ic_decay(prepared, h, 3, minimum, stride)
                 for k, item in enumerate(decay):
                     lagged = paired_correlations(
                         factors, members, forward_returns(returns, h), k*h, minimum)
@@ -122,8 +123,8 @@ class ReusedReturnOrderTests(unittest.TestCase):
                     self.assert_summary(item['rank_ic'], lagged[1][::stride])
                 fresh = native.prepare_research(factors, returns, members)
                 self.assertEqual(
-                    native.analyze(prepared, None, groups, minimum, ddof, None, h, stride),
-                    native.analyze(fresh, None, groups, minimum, ddof, None, h, stride))
+                    publication_bits(native.analyze(prepared, groups, minimum, ddof, h, stride)),
+                    publication_bits(native.analyze(fresh, groups, minimum, ddof, h, stride)))
 
     def test_parallel_cache_rows_survive_sparse_then_dense_block_publication(self):
         with patch.dict(os.environ, FACTORPOOL_COMPUTE_THREADS='2'):
@@ -145,13 +146,13 @@ class ReusedReturnOrderTests(unittest.TestCase):
                     series = native.ic_series(prepared, 2, minimum, stride)
                     self.assert_series(series['ic'], expected[0][::stride])
                     self.assert_series(series['rank_ic'], expected[1][::stride])
-                    decay = native.ic_decay(prepared, None, None, 2, 2, minimum, stride)
+                    decay = native.ic_decay(prepared, 2, 2, minimum, stride)
                     self.assert_summary(decay[0]['ic'], expected[0][::stride])
                     self.assert_summary(decay[0]['rank_ic'], expected[1][::stride])
                     fresh = native.prepare_research(factors, returns, members)
                     self.assertEqual(
-                        native.analyze(prepared, None, 4, minimum, 1, None, 2, stride),
-                        native.analyze(fresh, None, 4, minimum, 1, None, 2, stride))
+                        publication_bits(native.analyze(prepared, 4, minimum, 1, 2, stride)),
+                        publication_bits(native.analyze(fresh, 4, minimum, 1, 2, stride)))
 
 
 if __name__ == '__main__':

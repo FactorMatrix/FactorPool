@@ -13,7 +13,7 @@ def alpha_report(factors, returns, *, weights=None, members=None, horizon=1, tra
     members = np.ones_like(factors) if members is None else np.asarray(members, dtype=np.float64)
     prepared = native.prepare_research(factors, np.asarray(returns, dtype=np.float64), members,
                                        None if weights is None else np.asarray(weights, dtype=np.float64))
-    report = native.portfolio_report(prepared, None, None, 3, horizon, 252, list(traces))
+    report = native.portfolio_report(prepared, 3, horizon, 252, list(traces))
     return report['strategies']['alpha'], report.get('trace', [])
 
 
@@ -25,7 +25,7 @@ class ZeroExposureTests(unittest.TestCase):
                 self.assertEqual(alpha['returns'], [0])
                 self.assertEqual(alpha['book_pnl_series'], [0])
                 self.assertEqual(alpha['turnover_series'], [0])
-                self.assertEqual(alpha['positions'], [0])
+                self.assertEqual([None if long is None else long + short for long, short in zip(alpha['long_positions'], alpha['short_positions'])], [0])
                 self.assertEqual(alpha['nav'], [1])
                 self.assertEqual(alpha['max_drawdown'], 0)
                 self.assertEqual(alpha['brain_style']['drawdown'], 0)
@@ -42,7 +42,7 @@ class ZeroExposureTests(unittest.TestCase):
         # Exit marks -.5*1.1 and .5*1.2; reentry starts from a flat book;
         # the later long lost everything, leaving only -.5*1.2 to close.
         np.testing.assert_allclose(alpha['turnover_series'], [1, 1.15, 1, .6], atol=1e-14)
-        self.assertEqual(alpha['positions'], [2, 0, 2, 0])
+        self.assertEqual([None if long is None else long + short for long, short in zip(alpha['long_positions'], alpha['short_positions'])], [2, 0, 2, 0])
         np.testing.assert_allclose(alpha['nav'], [1.05, 1.05, .42, .42], atol=1e-14)
         self.assertAlmostEqual(alpha['brain_style']['turnover'], 3.75/4)
         self.assertAlmostEqual(alpha['brain_style']['margin'], -.55/3.75)
@@ -53,7 +53,7 @@ class ZeroExposureTests(unittest.TestCase):
         alpha, _ = alpha_report([[np.nan]*3]*2, [[0.]*3, [np.nan]*3, [np.nan]*3],
                                 weights=[[0.]*3, [np.nan]*3])
         self.assertEqual(alpha['returns'], [0, None])
-        self.assertEqual(alpha['positions'], [0, None])
+        self.assertEqual([None if long is None else long + short for long, short in zip(alpha['long_positions'], alpha['short_positions'])], [0, None])
         self.assertEqual(alpha['turnover_series'], [0, None])
         self.assertEqual(alpha['nav'], [1, None])
 
@@ -62,7 +62,7 @@ class ZeroExposureTests(unittest.TestCase):
             with self.subTest(factors=factors, members=members):
                 alpha, trace = alpha_report(factors, [[0.]*3, [.1]*3], members=members, traces=[0])
                 self.assertEqual(alpha['returns'], [None])
-                self.assertEqual(alpha['positions'], [None])
+                self.assertEqual([None if long is None else long + short for long, short in zip(alpha['long_positions'], alpha['short_positions'])], [None])
                 self.assertEqual(trace[0]['status'], 'no_valid_weights')
 
     def test_held_missing_return_is_not_repaired_by_a_later_cash_target(self):
@@ -70,7 +70,7 @@ class ZeroExposureTests(unittest.TestCase):
                                 [[0., 0], [np.nan, .2], [0, np.nan], [.1, 0]])
         self.assertEqual(alpha['returns'][:2], [None, 0])
         self.assertAlmostEqual(alpha['returns'][2], .05)
-        self.assertEqual(alpha['positions'], [2, 0, 2])
+        self.assertEqual([None if long is None else long + short for long, short in zip(alpha['long_positions'], alpha['short_positions'])], [2, 0, 2])
         self.assertEqual(alpha['turnover_series'], [1, None, 1])
         self.assertEqual(alpha['nav'], [None]*3)
         self.assertEqual(alpha['constant_book_pnl'], [None]*3)
@@ -80,7 +80,7 @@ class ZeroExposureTests(unittest.TestCase):
 
     def test_zero_weight_missing_return_is_ignored_without_dropping_valid_zero_factors(self):
         alpha, trace = alpha_report([[0., 1, 2]], [[0.]*3, [-1, np.nan, 0]], traces=[0])
-        self.assertEqual(alpha['positions'], [2])
+        self.assertEqual([None if long is None else long + short for long, short in zip(alpha['long_positions'], alpha['short_positions'])], [2])
         self.assertEqual(alpha['returns'], [.5])
         self.assertEqual(trace[0]['rows'][0]['raw_alpha'], 0)
         self.assertEqual(trace[0]['rows'][1]['status'], 'zero_weight')
@@ -88,9 +88,9 @@ class ZeroExposureTests(unittest.TestCase):
     def test_cash_over_multiple_days_ignores_positive_zero_total_loss_and_missing_returns(self):
         alpha, _ = alpha_report([[1., 1]], [[0., 0], [.2, -1], [0, 2], [np.nan, np.nan]], horizon=3)
         self.assertEqual(alpha['returns'], [0]*3)
-        self.assertEqual(alpha['period_returns'], [0])
+        self.assertEqual(alpha['book_pnl_series'], [0]*3)
         self.assertEqual(alpha['turnover_series'], [0]*3)
-        self.assertEqual(alpha['positions'], [0]*3)
+        self.assertEqual([None if long is None else long + short for long, short in zip(alpha['long_positions'], alpha['short_positions'])], [0]*3)
         self.assertEqual(alpha['nav'], [1]*3)
 
     def test_native_custom_transforms_mark_only_finite_zero_norm_rows_as_cash(self):

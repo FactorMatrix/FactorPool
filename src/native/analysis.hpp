@@ -3,9 +3,11 @@
 PyObject *analyze(PyObject *, PyObject *);
 
 PyObject *series_stats(PyObject *, PyObject *);
-// Six-argument reports remain unchanged. An optional seventh list requests
-// bounded, fixed-book Alpha contribution traces for selected factor indices.
+// Optional trace indices request bounded, fixed-book Alpha contributions.
 PyObject *portfolio_report(PyObject *, PyObject *);
 PyObject *ic_decay(PyObject *, PyObject *);
 PyObject *compound_return(PyObject *, PyObject *);
 PyObject *performance_stats(PyObject *, PyObject *);
+PyObject *brain_summary(PyObject *, PyObject *);
+PyObject *series_mean(PyObject *, PyObject *);
+PyObject *report_rolling_mean(PyObject *, PyObject *);

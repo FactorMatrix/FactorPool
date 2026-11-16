@@ -59,7 +59,7 @@ class PreparedProcess:
         (directory/"values-ready.json").write_text(json.dumps(marker))
         (directory / "result.json").write_text(json.dumps({
             "metadata": {"value_count": 1,"value_artifact":{"count":1,"sha256":marker["sha256"]}},
-            "summary": {}, "daily": []}))
+            "summary": {}, "diagnostics": {}}))
         controls["logs"].append(b"finished\n")
 
 
@@ -116,7 +116,7 @@ class ReadyProcess:
             if self.failure is not None:
                 raise self.failure
             result = dict(metadata=dict(value_count=self.result_count,
-                value_artifact=dict(count=self.artifact_count, sha256=self.artifact_sha)), summary={}, daily=[])
+                value_artifact=dict(count=self.artifact_count, sha256=self.artifact_sha)), summary={}, diagnostics={})
             (self.directory / "result.json").write_text(
                 json.dumps(result) if self.raw_result is None else self.raw_result)
         finally:
@@ -237,7 +237,7 @@ class WorkerProtocolTests(unittest.TestCase):
             def run(self, directory, timeout, **controls):
                 path=Path(directory)
                 (path/'values.jsonl').write_text('{"value":1}\n')
-                (path/'result.json').write_text(json.dumps(dict(metadata=dict(value_count=1),summary={},daily=[])))
+                (path/'result.json').write_text(json.dumps(dict(metadata=dict(value_count=1),summary={},diagnostics={})))
         control,data=FakeControl(),FakeData()
         with tempfile.TemporaryDirectory() as tmp:
             worker=Worker(control,root=tmp,process_manager=MissingMarkerProcess(),data_factory=lambda:data)
@@ -478,7 +478,9 @@ class WorkerPipeliningTests(unittest.TestCase):
 
     def test_complete_report_count_and_artifact_hash_are_bound_to_early_publication(self):
         for changes in (dict(result_count=2), dict(artifact_count=2),
-                        dict(artifact_count=True), dict(artifact_sha="b" * 64), dict(raw_result="{")):
+                        dict(artifact_count=True), dict(artifact_sha="b" * 64),
+                        dict(raw_result=json.dumps(dict(metadata={}, summary={}, daily=[]))),
+                        dict(raw_result="{")):
             with self.subTest(changes=changes):
                 process, data = ReadyProcess(**changes), ReadyData()
                 control = self.execute(process, data,

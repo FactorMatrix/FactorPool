@@ -35,7 +35,7 @@ def reference_portfolios(factors, returns, membership, groups, horizon):
         weights = reference_weights(factors[signal], membership[signal], groups)
         growth = np.cumprod(1+returns[signal+1:signal+horizon+1], axis=0)
         for name, w in weights.items():
-            state = output.setdefault(name, dict(returns=[], pnl=[], turnover=[], period_returns=[], previous=np.zeros(factors.shape[1])))
+            state = output.setdefault(name, dict(returns=[], pnl=[], turnover=[], previous=np.zeros(factors.shape[1])))
             if w is None:
                 raise AssertionError('The dense reference fixture must have a nondegenerate target')
             wealth = 1+(growth-1)@w
@@ -43,7 +43,6 @@ def reference_portfolios(factors, returns, membership, groups, horizon):
             state['returns'].extend(daily_return)
             state['pnl'].extend(np.diff(np.r_[1, wealth]))
             state['turnover'].extend([np.sum(abs(w-state['previous']))]+[0]*(len(growth)-1))
-            state['period_returns'].append(wealth[-1]-1)
             state['previous'] = w*growth[-1]
     return output
 
@@ -58,8 +57,7 @@ class ReturnMatrixTests(unittest.TestCase):
         factors[::7, 1] = np.nan
         returns = rng.normal(0, .012, (75, 13))
         dates = [(date(2024, 1, 15)+timedelta(days=i)).isoformat() for i in range(len(returns))]
-        result = build(factors, returns, members, dates[:len(factors)], dates,
-                       dict(groups=4, horizons=[1, 5, 20], decay_steps=3))
+        result = build(native.prepare_research(factors, returns, members), dates[:len(factors)], dates, dict(groups=4, horizons=[1, 5, 20], decay_steps=3))
         for h in (1, 5, 20):
             with self.subTest(horizon=h):
                 horizon = result['horizons'][str(h)]
@@ -74,14 +72,17 @@ class ReturnMatrixTests(unittest.TestCase):
                     nav = np.cumprod(1+daily)
                     peaks = np.maximum.accumulate(np.r_[1, nav])[1:]
                     np.testing.assert_allclose(actual['returns'], daily, rtol=1e-11, atol=3e-14, err_msg=name)
-                    np.testing.assert_allclose(actual['period_returns'], expected['period_returns'], rtol=1e-11, atol=3e-14, err_msg=name)
                     np.testing.assert_allclose(actual['nav'], nav, rtol=1e-11, atol=3e-14, err_msg=name)
                     np.testing.assert_allclose(actual['drawdown_series'], nav/peaks-1, rtol=1e-11, atol=3e-14, err_msg=name)
                     np.testing.assert_allclose(actual['turnover_series'], expected['turnover'], rtol=1e-11, atol=3e-14, err_msg=name)
-                    np.testing.assert_allclose(actual['book_pnl_series'], pnl, rtol=1e-11, atol=3e-14, err_msg=name)
-                    np.testing.assert_allclose(actual['constant_book_pnl'], np.cumsum(pnl), rtol=1e-11, atol=3e-14, err_msg=name)
                     self.assertAlmostEqual(actual['sharpe'], np.mean(daily)/np.std(daily, ddof=1)*np.sqrt(252), places=9)
                     self.assertAlmostEqual(actual['max_drawdown'], np.min(nav/peaks-1), places=12)
+                    if name != 'alpha':
+                        self.assertNotIn('brain_style', actual)
+                        self.assertNotIn('book_pnl_series', actual)
+                        continue
+                    np.testing.assert_allclose(actual['book_pnl_series'], pnl, rtol=1e-11, atol=3e-14, err_msg=name)
+                    np.testing.assert_allclose(actual['constant_book_pnl'], np.cumsum(pnl), rtol=1e-11, atol=3e-14, err_msg=name)
                     brain = actual['brain_style']
                     self.assertAlmostEqual(brain['returns'], np.mean(pnl)*252*2, places=10)
                     self.assertAlmostEqual(brain['sharpe'], np.mean(pnl)/np.std(pnl, ddof=1)*np.sqrt(252), places=9)

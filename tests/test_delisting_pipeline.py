@@ -90,7 +90,7 @@ if __name__ == "__main__":
             self.assertAlmostEqual(first['pnl_fraction'],
                                    float(np.dot(weights, [.01, -.02, .03, .04])), places=14)
             alpha = horizon['portfolios']['alpha']
-            for key in ('returns', 'nav', 'constant_book_pnl', 'drawdown_series',
+            for key in ('returns', 'nav', 'drawdown_series',
                         'turnover_series'):
                 self.assertEqual(len(alpha[key]), len(horizon['portfolio_dates']))
                 self.assertTrue(all(value is not None for value in alpha[key]), (h, key))
@@ -101,9 +101,9 @@ if __name__ == "__main__":
         # The secondary report receives its own normalized target matrix,
         # rather than removing A from already-normalized primary weights.
         overrides = [call.args for call in reports.call_args_list
-                     if len(call.args) == 8 and call.args[4] == 5]
+                     if len(call.args) == 6 and call.args[2] == 5]
         self.assertEqual(len(overrides), 1)
-        np.testing.assert_allclose(overrides[0][7][0], expected[5], atol=3e-14, rtol=0)
+        np.testing.assert_allclose(overrides[0][5][0], expected[5], atol=3e-14, rtol=0)
         primary_constraint = result['diagnostics']['alpha_constraints']['daily'][0]
         secondary_constraint = horizons['5']['alpha_constraints'][0]
         self.assertEqual(primary_constraint['valid_count'], 4)

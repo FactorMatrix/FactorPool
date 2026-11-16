@@ -3,6 +3,7 @@ import unittest
 
 import numpy as np
 import _factorpool_native as native
+from native_publication import publication_bits
 
 
 def prepared(factors, returns, exits=None, members=None, weights=None):
@@ -14,7 +15,7 @@ def prepared(factors, returns, exits=None, members=None, weights=None):
 
 
 def report(value, horizon=2, traces=None, weights=None):
-    return native.portfolio_report(value, None, None, 2, horizon, 252, traces, weights)
+    return native.portfolio_report(value, 2, horizon, 252, traces, weights)
 
 
 class DelistingFilterTests(unittest.TestCase):
@@ -62,8 +63,8 @@ class DelistingFilterTests(unittest.TestCase):
         self.assertEqual(longer['trace'][0]['rows'][0]['target_weight'], 0)
         self.assertEqual(report(value, 1, [0]), before)
         plain = prepared(factors, returns)
-        self.assertEqual(native.analyze(value, None, 2, 2, 1, None, 3),
-                         native.analyze(plain, None, 2, 2, 1, None, 3))
+        self.assertEqual(publication_bits(native.analyze(value, 2, 2, 1, 3)),
+                         publication_bits(native.analyze(plain, 2, 2, 1, 3)))
         self.assertEqual(native.ic_series(value, 3, 2), native.ic_series(plain, 3, 2))
 
     def test_real_missing_return_within_lifetime_remains_unknown(self):
@@ -78,7 +79,6 @@ class DelistingFilterTests(unittest.TestCase):
         actual = report(value, 1, [1])
         for strategy in actual['strategies'].values():
             self.assertEqual(strategy['returns'][1], 0)
-            self.assertEqual(strategy['positions'][1], 0)
             self.assertIsNotNone(strategy['nav'][1])
         alpha = actual['strategies']['alpha']
         np.testing.assert_allclose(alpha['nav'], [.875, .875])

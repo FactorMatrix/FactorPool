@@ -114,114 +114,142 @@ PyObject *moments(const std::vector<double> &values, int ddof, int lag) {
   put(result.p, "hac_lag", PyLong_FromLong(lag));
   return Py_NewRef(result.p);
 }
-PyObject *performance(const std::vector<double> &pnl,
-                      const std::vector<double> &turnover, int h,
-                      int annual_days, const std::vector<double> *book_source) {
-  const auto &book = book_source ? *book_source : pnl;
+namespace {
+struct BasicMoments {
+  std::size_t n = 0;
+  double mean = missing, sd = missing;
+};
+BasicMoments basic_moments(const std::vector<double>& values) {
+  // Match moments()' finite sample order, long-double mean recurrence and
+  // second-pass variance exactly; performance has no use for higher moments.
+  BasicMoments result;
+  long double mean = 0;
+  for (auto value : values)
+    if (std::isfinite(value)) mean += (value - mean) / ++result.n;
+  long double m2 = 0;
+  for (auto value : values)
+    if (std::isfinite(value)) {
+      const long double difference = value - mean;
+      m2 += difference * difference;
+    }
+  if (result.n) result.mean = double(mean);
+  if (result.n > 1) result.sd = std::sqrt(double(m2 / (result.n - 1)));
+  return result;
+}
+struct BookPerformance {
+  BasicMoments sample;
+  long double traded = 0, total_pnl = 0;
+  double max_drawdown = 0;
+  bool all_trades = true, broken = false;
+  std::vector<double> cumulative;
+};
+BookPerformance book_performance(const std::vector<double>& book,
+                                 const std::vector<double>& turnover,
+                                 bool timeline,
+                                 const BasicMoments* sample = nullptr) {
+  BookPerformance result;
+  result.sample = sample ? *sample : basic_moments(book);
+  if (timeline) result.cumulative.reserve(book.size());
+  long double cumulative = 0, peak = 0;
+  for (std::size_t i = 0; i < book.size(); ++i) {
+    if (!std::isfinite(turnover[i])) result.all_trades = false;
+    else result.traded += turnover[i];
+    if (!std::isfinite(book[i])) result.broken = true;
+    else result.total_pnl += book[i];
+    if (!result.broken) {
+      cumulative += book[i];
+      peak = std::max(peak, cumulative);
+      result.max_drawdown = std::max(result.max_drawdown, double((peak - cumulative) / .5L));
+    }
+    if (timeline) result.cumulative.push_back(result.broken ? missing : double(cumulative));
+  }
+  return result;
+}
+PyObject* brain_statistics(const BookPerformance& book, std::size_t size,
+                           int horizon, int annual_days) {
+  const double annual = double(annual_days) / horizon;
+  const double sharpe = book.sample.sd > 0
+      ? book.sample.mean / book.sample.sd * std::sqrt(annual) : missing;
+  const double turnover = book.all_trades && size
+      ? double(book.traded) / (size * horizon) : missing;
+  const double returns = 2 * book.sample.mean * annual;
+  Owned result{PyDict_New()};
+  put(result.p, "sharpe", number(sharpe));
+  put(result.p, "returns", number(returns));
+  put(result.p, "turnover", number(turnover));
+  put(result.p, "drawdown", number(!book.broken && book.sample.n ? book.max_drawdown : missing));
+  put(result.p, "fitness",
+      number(std::isfinite(sharpe) && std::isfinite(turnover)
+          ? sharpe * std::sqrt(std::abs(returns) / std::max(turnover, .125)) : missing));
+  put(result.p, "margin", number(book.all_trades && book.sample.n == size && book.traded > 0
+      ? double(book.total_pnl / book.traded) : missing));
+  return Py_NewRef(result.p);
+}
+void performance_axes(const std::vector<double>& pnl,
+                       const std::vector<double>& turnover,
+                       const std::vector<double>& book, int h, int annual_days) {
   if (pnl.size() != turnover.size() || pnl.size() != book.size() || h < 1 || annual_days < 1)
     throw std::invalid_argument("Performance axes/options differ");
-  Owned result{moments(pnl, 1, 0)};
-  const auto n = PyLong_AsSize_t(PyDict_GetItemString(result.p, "n"));
-  const auto mean = PyDict_GetItemString(result.p, "mean"),
-             sd = PyDict_GetItemString(result.p, "std");
-  double mu = mean == Py_None ? missing : PyFloat_AsDouble(mean),
-         sigma = sd == Py_None ? missing : PyFloat_AsDouble(sd);
+}
+} // namespace
+PyObject *performance(const std::vector<double> &pnl,
+                      const std::vector<double> &turnover, int h,
+                      int annual_days, const std::vector<double> *book_source,
+                      bool include_book) {
+  const auto &book = book_source ? *book_source : pnl;
+  performance_axes(pnl, turnover, book, h, annual_days);
+  const auto sample = basic_moments(pnl);
+  BookPerformance book_stats;
+  if (include_book)
+    book_stats = book_performance(book, turnover, true, &book == &pnl ? &sample : nullptr);
   const double annual = double(annual_days) / h;
-  double ann = mu * annual, vol = sigma * std::sqrt(annual),
-         sharpe = vol > 0 ? ann / vol : missing;
-  Owned book_stats{moments(book, 1, 0)};
-  const auto book_n = PyLong_AsSize_t(PyDict_GetItemString(book_stats.p, "n"));
-  const auto book_mean = PyDict_GetItemString(book_stats.p, "mean"),
-             book_sd = PyDict_GetItemString(book_stats.p, "std");
-  const double book_mu = book_mean == Py_None ? missing : PyFloat_AsDouble(book_mean),
-               book_sigma = book_sd == Py_None ? missing : PyFloat_AsDouble(book_sd),
-               book_sharpe = book_sigma > 0 ? book_mu / book_sigma * std::sqrt(annual) : missing;
-  std::vector<double> nav, dd, book_pnl, book_drawdown;
-  long double wealth = 1, peak = 1, cumulative = 0, pnl_peak = 0;
-  bool broken = false, book_broken = false;
-  double maxdd = 0, brain_dd = 0;
-  long double wins = 0, losses = 0, traded = 0, total_pnl = 0;
+  const double ann = sample.mean * annual, vol = sample.sd * std::sqrt(annual),
+               sharpe = vol > 0 ? ann / vol : missing;
+  std::vector<double> nav, dd;
+  nav.reserve(pnl.size()); dd.reserve(pnl.size());
+  long double wealth = 1, peak = 1, wins = 0, losses = 0;
+  bool broken = false;
+  double maxdd = 0;
   std::size_t nw = 0, nl = 0;
-  bool all_trades = true;
-  for (std::size_t i = 0; i < pnl.size(); ++i) {
-    auto r = pnl[i];
+  for (auto r : pnl) {
     if (std::isfinite(r)) {
-      if (r > 0) {
-        wins += r;
-        ++nw;
-      }
-      if (r < 0) {
-        losses -= r;
-        ++nl;
-      }
+      if (r > 0) { wins += r; ++nw; }
+      if (r < 0) { losses -= r; ++nl; }
     }
-    if (!std::isfinite(turnover[i]))
-      all_trades = false;
-    else
-      traded += turnover[i];
-    if (!std::isfinite(book[i]))
-      book_broken = true;
-    else
-      total_pnl += book[i];
-    if (!book_broken) {
-      cumulative += book[i];
-      pnl_peak = std::max(pnl_peak, cumulative);
-      brain_dd = std::max(brain_dd, double((pnl_peak - cumulative) / .5L));
-      book_pnl.push_back(double(cumulative));
-      book_drawdown.push_back(double((cumulative - pnl_peak) / .5L));
-    } else {
-      book_pnl.push_back(missing);
-      book_drawdown.push_back(missing);
-    }
-    if (!std::isfinite(r) || 1 + r < 0)
-      broken = true;
+    if (!std::isfinite(r) || 1 + r < 0) broken = true;
     if (!broken) {
       wealth *= 1 + r;
       peak = std::max(peak, wealth);
       const double drawdown = double(wealth / peak - 1);
       maxdd = std::min(maxdd, drawdown);
-      nav.push_back(double(wealth));
-      dd.push_back(drawdown);
+      nav.push_back(double(wealth)); dd.push_back(drawdown);
     } else {
-      nav.push_back(missing);
-      dd.push_back(missing);
+      nav.push_back(missing); dd.push_back(missing);
     }
   }
-  const double daily_turnover = all_trades && !turnover.empty()
-                                    ? double(traded) / (pnl.size() * h)
-                                    : missing;
-  const double returns = 2 * book_mu * annual;
+  Owned result{PyDict_New()};
+  put(result.p, "n", PyLong_FromSize_t(sample.n));
   put(result.p, "annual_return", number(ann));
   put(result.p, "annual_volatility", number(vol));
   put(result.p, "sharpe", number(sharpe));
-  put(result.p, "cagr",
-      number(!broken && n ? std::expm1(double(std::log(wealth) * annual / n))
-                          : missing));
-  put(result.p, "max_drawdown", number(!broken && n ? maxdd : missing));
-  put(result.p, "win_rate", number(n ? double(nw) / n : missing));
-  put(result.p, "payoff_ratio",
-      number(nw && nl && losses > 0 ? double((wins / nw) / (losses / nl))
-                                    : missing));
-  Owned brain{PyDict_New()};
-  put(brain.p, "sharpe", number(book_sharpe));
-  put(brain.p, "returns", number(returns));
-  put(brain.p, "turnover", number(daily_turnover));
-  put(brain.p, "drawdown", number(!book_broken && book_n ? brain_dd : missing));
-  put(brain.p, "fitness",
-      number(std::isfinite(book_sharpe) && std::isfinite(daily_turnover)
-                 ? book_sharpe * std::sqrt(std::abs(returns) /
-                                      std::max(daily_turnover, .125))
-                 : missing));
-  put(brain.p, "margin",
-      number(all_trades && book_n == book.size() && traded > 0
-                 ? double(total_pnl / traded)
-                 : missing));
-  put(result.p, "brain_style", Py_NewRef(brain.p));
+  put(result.p, "cagr", number(!broken && sample.n
+      ? std::expm1(double(std::log(wealth) * annual / sample.n)) : missing));
+  put(result.p, "max_drawdown", number(!broken && sample.n ? maxdd : missing));
+  put(result.p, "win_rate", number(sample.n ? double(nw) / sample.n : missing));
+  put(result.p, "payoff_ratio", number(nw && nl && losses > 0
+      ? double((wins / nw) / (losses / nl)) : missing));
+  if (include_book)
+    put(result.p, "brain_style", brain_statistics(book_stats, pnl.size(), h, annual_days));
   put(result.p, "nav", list(nav));
   put(result.p, "drawdown_series", list(dd));
-  put(result.p, "constant_book_pnl", list(book_pnl));
-  put(result.p, "constant_book_drawdown", list(book_drawdown));
+  if (include_book) put(result.p, "constant_book_pnl", list(book_stats.cumulative));
   return Py_NewRef(result.p);
+}
+PyObject *brain_summary(const std::vector<double>& book,
+                        const std::vector<double>& turnover, int annual_days) {
+  if (book.size() != turnover.size())
+    throw std::invalid_argument("Performance axes/options differ");
+  return brain_statistics(book_performance(book, turnover, false), book.size(), 1, annual_days);
 }
 } // namespace fp
 PyObject *series_stats(PyObject *, PyObject *args) {
@@ -274,6 +302,64 @@ PyObject *performance_stats(PyObject *, PyObject *args) {
   } catch (const std::exception &e) {
     if (!PyErr_Occurred())
       PyErr_SetString(PyExc_ValueError, e.what());
+    return nullptr;
+  }
+}
+
+PyObject *brain_summary(PyObject *, PyObject *args) {
+  try {
+    PyObject *turnover, *book;
+    int annual_days;
+    if (!PyArg_ParseTuple(args, "OOi", &book, &turnover, &annual_days))
+      return nullptr;
+    if (annual_days < 1 || annual_days > 366)
+      throw std::invalid_argument("annual_days must be 1..366");
+    const auto traded = fp::numbers(turnover), book_pnl = fp::numbers(book);
+    return fp::brain_summary(book_pnl, traded, annual_days);
+  } catch (const std::exception &e) {
+    if (!PyErr_Occurred()) PyErr_SetString(PyExc_ValueError, e.what());
+    return nullptr;
+  }
+}
+
+PyObject *series_mean(PyObject *, PyObject *args) {
+  try {
+    PyObject *source;
+    if (!PyArg_ParseTuple(args, "O", &source)) return nullptr;
+    const auto values = fp::numbers(source);
+    long double mean = 0;
+    std::size_t n = 0;
+    for (auto value : values)
+      if (std::isfinite(value)) mean += (value - mean) / ++n;
+    return fp::number(n ? double(mean) : fp::missing);
+  } catch (const std::exception& error) {
+    if (!PyErr_Occurred()) PyErr_SetString(PyExc_ValueError, error.what());
+    return nullptr;
+  }
+}
+
+PyObject *report_rolling_mean(PyObject *, PyObject *args) {
+  try {
+    PyObject *source;
+    int window;
+    if (!PyArg_ParseTuple(args, "Oi", &source, &window)) return nullptr;
+    if (window < 1) throw std::invalid_argument("Rolling window must be positive");
+    const auto values = fp::numbers(source);
+    std::vector<double> means(values.size(), fp::missing);
+    const auto width = static_cast<std::size_t>(window);
+    for (std::size_t end = width; end <= values.size(); ++end) {
+      long double mean = 0;
+      bool complete = true;
+      for (std::size_t slot = 0; slot < width; ++slot) {
+        const auto value = values[end - width + slot];
+        if (!std::isfinite(value)) { complete = false; break; }
+        mean += (value - mean) / (slot + 1);
+      }
+      if (complete) means[end - 1] = double(mean);
+    }
+    return fp::list(means);
+  } catch (const std::exception& error) {
+    if (!PyErr_Occurred()) PyErr_SetString(PyExc_ValueError, error.what());
     return nullptr;
   }
 }

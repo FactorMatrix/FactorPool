@@ -17,7 +17,7 @@ try {
  await setSource(page,source)
  await runResearch(page)
  const task=await page.evaluate(()=>sessionStorage.getItem('factorpool.task'))
- const result=await (await page.request.get(`${base}/api/tasks/${task}/result`)).json()
+ const result=await (await page.request.get(`${base}/api/tasks/${task}/result/export`)).json()
  assert.equal(result.metadata.effective_config.analysis.book_size,20000000)
  assert.equal(result.metadata.effective_config.analysis.pnl_unit,'USD')
  const horizon=result.diagnostics.horizons['1']

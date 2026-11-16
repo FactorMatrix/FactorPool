@@ -305,8 +305,8 @@ def run(directory, *, factory=None):
                 trace_transforms = {i-offset: values for i, values in (details or {}).get("trace", {}).items()}
                 return weights, trace_transforms, (details or {}).get("constraints", [])
     prepared = native.prepare_research(factors, returns, members, alpha_weights, terminal_rows)
-    result = native.analyze(prepared, None, options.get("groups", 3), options.get("min_ic_pairs", 3),
-                            options.get("icir_ddof", 1), None, 1, 1, True)
+    result = native.analyze(prepared, options.get("groups", 3), options.get("min_ic_pairs", 3),
+                            options.get("icir_ddof", 1), 1, 1)
     # All value columns are complete after primary analysis. Publish only the
     # closed immutable artifact; the worker still waits for the full report
     # before making this task successful.
@@ -325,7 +325,7 @@ def run(directory, *, factory=None):
     timings["export"] = time.perf_counter() - export_started
     trace_info = dict(indices=trace_indices, symbols=symbols, transforms=transforms,
                       factor_arrays=dict(reason=reasons, valid=valid, ready=ready)) if trace_indices else None
-    result["diagnostics"] = build_diagnostics(prepared, None, None, dates, [f["date"] for f in tail], options,
+    result["diagnostics"] = build_diagnostics(prepared, dates, [f["date"] for f in tail], options,
                                              primary=result, trace_info=trace_info, rebalance_only=True,
                                              horizon_targets=horizon_targets, target_offset=first_signal)
     conventions = result["diagnostics"]["conventions"]
@@ -361,10 +361,8 @@ def run(directory, *, factory=None):
                 infeasible_dates=[item["date"] for item in constraints if not item["full_gross_feasible"]])
     from .reporting.pnl import add_amounts
     add_amounts(result["diagnostics"], options)
-    for date, day in zip(dates, result["daily"]):
-        day["date"] = date
     timings["analysis"] = time.perf_counter() - checkpoint - timings["export"]
-    result['daily'] = [day for i, day in enumerate(result['daily']) if i in rebalance]
+    result.pop('daily')
     timings["analysis_export"] = time.perf_counter() - checkpoint
     build_info = json.loads(Path(os.environ.get("FACTORPOOL_BUILD_INFO", "/opt/factorpool/build-info.json")).read_text())
     result["metadata"] = dict(build=build_info, execution_mode=adapter.mode, warm_up_period=warmup,

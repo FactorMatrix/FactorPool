@@ -40,16 +40,11 @@ def grouped_moments(dates, values, width, ddof):
     for date, value in zip(dates, values):
         if date is not None:
             grouped[date[:width]].append(value)
-    return [{"period": key, **native.series_stats(grouped[key], ddof, 0)} for key in sorted(grouped)]
+    return [{"period": key, "mean": native.series_mean(grouped[key])} for key in sorted(grouped)]
 
 
 def rolling_mean(values, window=30):
-    # Selection only. The shared report native kernel computes the mean.
-    output = []
-    for i in range(len(values)):
-        subset = values[max(0, i-window+1):i+1]
-        output.append(native.series_stats(subset, 1, 0)["mean"] if len(subset) == window and all(x is not None for x in subset) else None)
-    return output
+    return native.report_rolling_mean(values, window)
 
 
 def cumulative_sum(values):
@@ -62,21 +57,14 @@ def portfolio_calendar(dates, returns, width=7):
     for date, value in zip(dates, returns):
         if date is not None:
             grouped[date[:width]].append(value)
-    output = []
-    for key in sorted(grouped):
-        values = grouped[key]
-        summary = native.series_stats(values, 1, 0)
-        complete = summary["n"] == len(values) and summary["n"] > 0
-        ret = native.compound_return(values) if complete else None
-        output.append(dict(period=key, value=ret, count=summary["n"], missing=summary["missing"]))
-    return output
+    return [dict(period=key, value=native.compound_return(grouped[key]))
+            for key in sorted(grouped)]
 
 
-def build(factors, returns, membership, dates, price_dates, analysis, *, primary=None, trace_info=None,
+def build(prepared, dates, price_dates, analysis, *, primary=None, trace_info=None,
           rebalance_only=False, horizon_targets=None, target_offset=0):
     periods, annual_days, steps = options(analysis)
     ddof, groups, minimum = analysis.get("icir_ddof", 1), analysis.get("groups", 3), analysis.get("min_ic_pairs", 3)
-    prepared = factors if returns is None else native.prepare_research(factors, returns, membership)
     out = {}
     for h in periods:
         stride = h if rebalance_only else 1
@@ -91,7 +79,7 @@ def build(factors, returns, membership, dates, price_dates, analysis, *, primary
         ic = inference(ics, ddof, lag)
         rank_ic = inference(rics, ddof, lag)
         trace_indices = trace_info.get("indices", []) if trace_info else []
-        args = (prepared, None, None, groups, h, annual_days)
+        args = (prepared, groups, h, annual_days)
         current_trace = trace_info
         constraints = []
         if horizon_targets is not None and h != 1:
@@ -115,7 +103,7 @@ def build(factors, returns, membership, dates, price_dates, analysis, *, primary
                         ic_cumulative=cumulative_sum(ics), rank_ic_cumulative=cumulative_sum(rics)),
             monthly=dict(ic=grouped_moments(signal_dates, ics, 7, ddof),rank_ic=grouped_moments(signal_dates, rics, 7, ddof)),
             yearly=dict(ic=grouped_moments(signal_dates, ics, 4, ddof),rank_ic=grouped_moments(signal_dates, rics, 4, ddof)),
-            decay=native.ic_decay(prepared, None, None, h, steps, minimum, stride),
+            decay=native.ic_decay(prepared, h, steps, minimum, stride),
             portfolio_dates=portfolio_dates, portfolio_signal_dates=signals, portfolio_exit_dates=exits, portfolios=portfolios["strategies"])
         if trace_info and trace_indices:
             from .pnl import format_trace

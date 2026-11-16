@@ -448,7 +448,7 @@ class FactorMatrixTests(unittest.TestCase):
         self.assertEqual(len(rows), 9)
         self.assertEqual(result["metadata"]["value_count"], 9)
         self.assertEqual(result["metadata"]["price_contract"]["factor_evaluations"], 3)
-        self.assertEqual([row["date"] for row in result["daily"]], signals)
+        self.assertNotIn("daily", result)
         horizon = result["diagnostics"]["horizons"]["5"]
         self.assertEqual(horizon["portfolio_signal_dates"], signals)
         self.assertEqual(horizon["portfolio_dates"], [f["date"] for f in payload["frames"][1:16]])

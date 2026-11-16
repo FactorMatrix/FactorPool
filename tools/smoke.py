@@ -93,7 +93,7 @@ assert script_factor2['version'] == script_factor['version']+1
 api('/tasks', dict(script_request, factor_params=dict(period=999)), status=400)
 script_id = api('/tasks', script_request)['id']
 script_task = wait(script_id)
-script_result = api('/tasks/'+script_id+'/result')
+script_result = api('/tasks/'+script_id+'/result/export')
 script_values = api('/tasks/'+script_id+'/values')
 assert script_task['snapshot']['source_code'] == script_source
 assert script_task['snapshot']['source_config'] == config
@@ -142,7 +142,7 @@ assert partial['analysis']['trace_dates'] == [] and partial['analysis']['horizon
 partial_id = api('/tasks', dict(name='验收 · 部分config覆盖设置', source_code=partial_source,
                               workspace_config=workspace_config))['id']
 partial_task = wait(partial_id)
-partial_result = api('/tasks/'+partial_id+'/result')
+partial_result = api('/tasks/'+partial_id+'/result/export')
 assert partial_task['snapshot']['source_config'] == partial_config
 assert partial_task['snapshot']['workspace_config'] == workspace_config
 assert partial_result['metadata']['effective_config']['settings']['visualization'] is False
@@ -183,12 +183,15 @@ assert saved2['version'] == saved['version']+1
 assert len(api('/factors/'+saved['id'])['versions']) == 2
 task_id = api('/tasks', request)['id']
 wait(task_id)
-result = api('/tasks/'+task_id+'/result')
+result = api('/tasks/'+task_id+'/result/export')
 rows = api('/tasks/'+task_id+'/values?offset=0&limit=2')
 assert len(rows) == 2 and rows[0]['symbol'] == 'A'
 assert result['metadata']['report_version'] == 3 and result['diagnostics']['version'] == 3
 assert result['summary']['ic_mean'] == 1 and result['summary']['rank_ic_mean'] == 1 and result['summary']['icir'] is None
-assert all(abs(actual-expected) < 1e-12 for actual, expected in zip(result['daily'][0]['group_returns'], [-.1, 0, .1]))
+assert 'daily' not in result
+assert result['metadata']['value_count'] == 3
+for name, expected in zip(('long_G1', 'long_G2', 'long_G3'), (-.1, 0, .1)):
+    assert abs(result['diagnostics']['horizons']['1']['portfolios'][name]['returns'][0] - expected) < 1e-12
 assert api('/tasks/'+task_id)['snapshot']['source_code'] == source
 for horizon in result['diagnostics']['horizons'].values():
     for portfolio in horizon['portfolios'].values():

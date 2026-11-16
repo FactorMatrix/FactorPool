@@ -7,15 +7,14 @@ using namespace fp;
 }
 PyObject *ic_decay(PyObject *, PyObject *args) {
   try {
-    PyObject *factor, *daily_returns, *members;
+    PyObject *prepared;
     int h, steps, minimum, signal_stride = 1;
-    if (!PyArg_ParseTuple(args, "OOOiii|i", &factor, &daily_returns, &members, &h, &steps,
+    if (!PyArg_ParseTuple(args, "Oiii|i", &prepared, &h, &steps,
                           &minimum, &signal_stride))
       return nullptr;
     if (h < 1 || h > 252 || steps < 1 || steps > 10 || minimum < 2 || signal_stride < 1)
       throw std::invalid_argument("Invalid decay options");
-    InputRef holder(factor, daily_returns, members);
-    const auto &input = *holder.value;
+    const auto &input = research_input(prepared);
     const auto &f = input.factors;
     input.prepare_correlations(h, minimum);
     const auto rows = f.size() ? 1 + (f.size() - 1) / signal_stride : 0;

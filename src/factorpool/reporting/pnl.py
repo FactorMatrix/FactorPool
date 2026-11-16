@@ -24,10 +24,6 @@ def format_trace(traces, info, dates, price_dates, analysis):
                 row.update(raw_factor_status=REASONS[int(source['reason'][signal, n])],
                            raw_factor_ready=bool(source['ready'][signal, n]),
                            raw_factor_valid=bool(source['valid'][signal, n]))
-            elif "factor_rows" in info:
-                source = info["factor_rows"][signal*len(info["symbols"])+n]
-                row.update(raw_factor_status=source["reason"], raw_factor_ready=source["ready"],
-                           raw_factor_valid=source["valid"])
             if detail is not None:
                 row["decayed_alpha"] = _number(detail["decayed"][n])
                 row["neutralized"] = _number(detail["neutralized"][n])
@@ -42,9 +38,9 @@ def format_trace(traces, info, dates, price_dates, analysis):
     return output
 
 
-def yearly_statistics(alpha, dates, book, annual_days):
+def yearly_statistics(alpha, dates, annual_days):
     """Compute calendar-year metrics using the existing fixed-book conventions."""
-    keys = ("returns", "turnover_series", "book_pnl_series")
+    keys = ("turnover_series", "book_pnl_series")
     if any(key not in alpha or len(alpha[key]) != len(dates) for key in keys):
         return []
     years = defaultdict(list)
@@ -60,13 +56,10 @@ def yearly_statistics(alpha, dates, book, annual_days):
 
     rows = []
     for year, indices in sorted(years.items()):
-        samples = [[alpha[key][i] for i in indices] for key in keys]
-        performance = native.performance_stats(*samples, annual_days)
-        stats = performance["brain_style"]
-        cumulative = performance["constant_book_pnl"][-1]
-        pnl = _number(cumulative * book) if cumulative is not None else None
+        stats = native.brain_summary([alpha["book_pnl_series"][i] for i in indices],
+                                     [alpha["turnover_series"][i] for i in indices], annual_days)
         rows.append(dict(year=year, start=dates[indices[0]], end=dates[indices[-1]],
-                         days=len(indices), **stats, pnl=pnl,
+                         days=len(indices), **stats,
                          long_count=average_positions("long_positions", indices),
                          short_count=average_positions("short_positions", indices)))
     return rows
@@ -78,17 +71,20 @@ def add_amounts(diagnostics, analysis):
         if "book_pnl_series" not in alpha:
             return
         scale = lambda values: [None if value is None else _number(value*book) for value in values]
-        alpha["pnl"] = dict(book_size=book, unit=unit, daily=scale(alpha["book_pnl_series"]),
-                            cumulative=scale(alpha["constant_book_pnl"]))
+        alpha["pnl"] = dict(book_size=book, unit=unit, cumulative=scale(alpha["constant_book_pnl"]))
         if dates is not None:
-            alpha["yearly_stats"] = yearly_statistics(alpha, dates, book, analysis.get("annual_days", 252))
+            alpha["yearly_stats"] = yearly_statistics(alpha, dates, analysis.get("annual_days", 252))
     for horizon in diagnostics["horizons"].values():
         horizon["pnl_book"] = dict(size=book, unit=unit)
         amounts(horizon["portfolios"]["alpha"], horizon.get("portfolio_dates"))
         for section in horizon.get("partitions", {}).values():
             amounts(section["alpha"], section.get("dates"))
+    for horizon in diagnostics["horizons"].values():
+        for portfolio in [horizon["portfolios"]["alpha"],
+                          *(part["alpha"] for part in horizon.get("partitions", {}).values())]:
+            for key in ("book_pnl_series", "constant_book_pnl", "long_positions", "short_positions"):
+                portfolio.pop(key, None)
     diagnostics["conventions"].update(book_size=book, pnl_unit=unit,
         book_policy="fixed nominal reference book; holding exposures drift with prices; PnL accumulates arithmetically; book_size scales amounts only, without currency conversion or a trading account",
-        pnl_fields="alpha.pnl.daily/cumulative are nominal amounts; book_pnl_series/constant_book_pnl retain unit-gross-book fractions",
-        max_weight_scope="max_weight_series is the rebalance target concentration, repeated within each holding interval; actual weights drift with prices",
+        pnl_fields="alpha.pnl.cumulative is the accumulated nominal amount; optional trace rows show daily contributions",
         yearly_stats="calendar-year fixed-book performance using the same local formulas as aggregate; long/short counts are daily averages of nonzero target positions")

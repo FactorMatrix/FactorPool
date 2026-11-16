@@ -4,15 +4,16 @@ from copy import deepcopy
 import json
 import os
 import threading
+import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import grpc
 import numpy as np
 
 from factorpool.data_client import DataClient
 from factorpool.data_client.contract import (CACHE_VERSION, FIELDS, FORMAT, pack_block, metadata_key,
-                                             tile_key, validate_snapshot)
+                                             pack_metadata, pack_value_page, tile_key, validate_snapshot)
 from factorpool.data_client.generated import data_pb2 as pb, data_pb2_grpc
 from factorpool.market_loader import load
 from services.data_service.api import DataService
@@ -208,6 +209,57 @@ class GrpcBoundaryTests(unittest.TestCase):
         self.assertEqual(actual['snapshot_id'],'original')
         self.assertNotEqual(self.cache.values[key],b'badmetadata')
         self.assertEqual(self.cache.values['unrelated'],b'preserve')
+
+    def test_market_batches_do_not_repack_or_republish_snapshot_metadata(self):
+        client = self.client()
+        with patch('services.data_service.api.pack_metadata', wraps=pack_metadata) as packed:
+            # A MarketBlocks-first caller can read the snapshot without publishing metadata.
+            expected = list(matrix_blocks(client, self.source.metadata, 0, 9, np.array([0])))
+            self.assertNotIn(metadata_key('original'), self.cache.values)
+            packed.assert_not_called()
+            metadata = client.snapshot('original')
+            self.assertEqual(packed.call_count, 1)
+            self.cache.values.pop(tile_key(metadata, metadata['blocks'][0], 'close', 0))
+            actual = list(matrix_blocks(client, metadata, 0, 9, np.array([0])))
+            np.testing.assert_array_equal(actual[0][2], expected[0][2])
+            self.assertEqual(packed.call_count, 1)
+            self.assertEqual(self.source.stats['pg_snapshots'], 1)
+
+    def test_value_cache_skips_discarded_encoding_and_keeps_zero_distinct_from_missing(self):
+        task = '12345678-1234-1234-1234-123456789abc'
+        rows = [dict(trading_date='2024-01-01', symbol='A', value=0.0, valid=True, ready=True,
+                     reason='ok', forward_return=0.0, factor_group=0),
+                dict(trading_date='2024-01-01', symbol='B', value=None, valid=False, ready=False,
+                     reason='warmup', forward_return=None, factor_group=None)]
+        request = pb.ValuesRequest(task_id=task, offset=0, limit=100)
+        client = self.client()
+        for mode in ('enabled', 'disabled', 'open', 'no-client', 'outage'):
+            with self.subTest(mode=mode):
+                self.cache.values.clear()
+                self.cache.online = mode != 'outage'
+                cache = Cache(self.cache)
+                cache.enabled = mode != 'disabled'
+                if mode == 'no-client':
+                    cache.client = None
+                cache.failed_until = time.monotonic()+60 if mode == 'open' else 0
+                self.service.cache = cache
+                self.service.values = Mock()
+                self.service.values.visible_version.return_value = 7
+                self.service.values.page.return_value = rows
+                with patch('services.data_service.api.pb.ValuesPayload', wraps=pb.ValuesPayload) as typed, \
+                        patch('services.data_service.api.pack_value_page', wraps=pack_value_page) as packed:
+                    def read():
+                        return json.loads(client.stub.Values(request, timeout=3, metadata=client.metadata).json)
+                    self.assertEqual(read(), rows)
+                    self.assertEqual(read(), rows)
+                    self.assertEqual(typed.call_count, 1 if mode == 'enabled' else 0)
+                    self.assertEqual(packed.call_count, 1 if mode == 'enabled' else 0)
+                self.assertEqual(self.service.values.visible_version.call_count, 2)
+                self.assertEqual(self.service.values.page.call_count, 1 if mode == 'enabled' else 2)
+                self.service.values.visible_version.side_effect = ValueError('Task has no complete values')
+                with self.assertRaises(grpc.RpcError) as hidden:
+                    client.stub.Values(request, timeout=3, metadata=client.metadata)
+                self.assertEqual(hidden.exception.code(), grpc.StatusCode.FAILED_PRECONDITION)
 
     def test_missing_snapshot_auth_and_oversized_batch_fail_explicitly(self):
         client = self.client()

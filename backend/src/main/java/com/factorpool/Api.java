@@ -73,11 +73,14 @@ public class Api {
   }
   @GetMapping("/tasks/{id}/result")
   ResponseEntity<String> result(@PathVariable UUID id) {
-    if (!store.task(id, false).get("status").equals("SUCCEEDED"))
-      throw new IllegalStateException("Task has no complete result");
-    return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(store.db.queryForObject(
-        "SELECT result::text FROM research_results WHERE task_id=?",
-        String.class, id));
+    return report(id, ReportSection.CORE);
+  }
+  @GetMapping("/tasks/{id}/result/{section}")
+  ResponseEntity<String> resultSection(@PathVariable UUID id, @PathVariable String section) {
+    return report(id, ReportSection.named(section));
+  }
+  private ResponseEntity<String> report(UUID id, ReportSection section) {
+    return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(store.result(id, section));
   }
   @GetMapping("/tasks/{id}/values")
   Object values(@PathVariable UUID id,

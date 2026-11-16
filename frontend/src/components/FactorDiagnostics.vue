@@ -5,7 +5,7 @@ const props = defineProps({
   report: Object,
   initialSection: { type: String, default: "ic" },
 });
-const section = ref(props.initialSection),
+const section = computed(() => props.initialSection),
   metric = ref("rank_ic"),
   view = ref(props.initialSection === "ic" ? "series" : "nav"),
   strategy = ref("high_low");
@@ -13,8 +13,8 @@ const periods = ["1"];
 const selected = computed(() => props.report.horizons["1"]);
 const port = computed(
   () =>
-    selected.value?.portfolios[strategy.value] ||
-    selected.value?.portfolios.high_low,
+    selected.value?.portfolios?.[strategy.value] ||
+    selected.value?.portfolios?.high_low,
 );
 const visualization = computed(() => props.report.conventions.brain_settings.visualization);
 const num = (x) => (x == null ? "--" : Number(x).toFixed(4));
@@ -38,16 +38,6 @@ watch(section, () => {
   <section class="diagnostics" data-testid="diagnostics">
     <div class="diagnostic-heading">
       <strong>完整因子分析</strong>
-    </div>
-    <div class="diagnostic-tabs">
-      <button :class="{ active: section === 'ic' }" @click="section = 'ic'">
-        IC / Rank IC</button
-      ><button
-        :class="{ active: section === 'portfolio' }"
-        @click="section = 'portfolio'"
-      >
-        多空与分组</button
-      >
     </div>
     <p v-if="!visualization" class="report-note" role="status">可视化已由 settings.visualization 关闭，以下展示数值结果。</p>
     <template v-if="section === 'ic'">
@@ -186,19 +176,6 @@ watch(section, () => {
 }
 .diagnostic-heading strong {
   font-size: 13px;
-}
-.diagnostic-tabs {
-  display: flex;
-  gap: 5px;
-  flex-wrap: wrap;
-}
-.diagnostic-tabs button {
-  font-size: 11px;
-  padding: 6px 10px;
-}
-.diagnostic-tabs {
-  padding-bottom: 12px;
-  border-bottom: 1px solid #dce2ea;
 }
 .report-controls {
   display: flex;

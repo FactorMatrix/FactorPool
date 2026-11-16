@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from "vue";
+import { ref, shallowRef, computed, watch, onMounted, onBeforeUnmount, nextTick } from "vue";
 import FactorEditor from "./components/FactorEditor.vue";
 import SplitPane from "./components/SplitPane.vue";
 import UiIcon from "./components/UiIcon.vue";
@@ -47,7 +47,7 @@ const factors = ref([]),
   selected = ref([]),
   factorId = ref(null);
 const task = ref(null),
-  result = ref(null),
+  result = shallowRef(null),
   values = ref([]),
   logs = ref(""),
   offset = ref(0),
@@ -56,7 +56,10 @@ const savedResultFactors = ref({});
 const savedResultFactor = computed(() => savedResultFactors.value[task.value?.id]);
 const submitting = ref(false), reportLoading = ref(false), reportError = ref("");
 const valuesLoading = ref(false), valuesError = ref("");
-let reportAttempts = 0, valuesLoaded = false, logsRequested = false, logsLoading = false;
+const resultSections = shallowRef({}), sectionLoading = ref({}), sectionErrors = ref({});
+let sectionRequests = new Map();
+let reportAttempts = 0, valuesLoaded = false, logsRequested = false, logsLoading = false,
+  terminalLogsLoaded = false;
 // Remembering the current task is optional; storage must never gate execution.
 watch(() => task.value?.id, id => {
   try {
@@ -122,6 +125,11 @@ function clearResult() {
   valuesLoaded = false;
   logsRequested = false;
   logsLoading = false;
+  terminalLogsLoaded = false;
+  resultSections.value = {};
+  sectionLoading.value = {};
+  sectionErrors.value = {};
+  sectionRequests = new Map();
 }
 async function selectWorkspace(id) {
   if (id === workspaceId.value || busy.value) return;
@@ -273,7 +281,6 @@ async function run() {
       await nextTick();
       if (window.matchMedia("(max-width: 900px)").matches)
         document.querySelector(".results-workspace")?.scrollIntoView({ block: "start" });
-      await refreshLists();
     } finally {
       submitting.value = false;
     }
@@ -283,13 +290,6 @@ async function openTask(id) {
   clearResult();
   const token = revision;
   task.value = { id, status: "QUEUED" };
-  result.value = null;
-  values.value = [];
-  logs.value = "";
-  offset.value = 0;
-  const current = await api(`/tasks/${id}`);
-  if (token !== revision || !active) return;
-  task.value = current;
   await refreshTask(token);
 }
 async function refreshTask(token = revision) {
@@ -323,18 +323,64 @@ async function retryReport() {
   reportError.value = "";
   await loadReport();
 }
+function loadSection(section) {
+  const id = task.value?.id, token = revision;
+  if (!id || !result.value || !["ic", "groups", "trace", "source", "export"].includes(section)) return;
+  if (resultSections.value[section]) return Promise.resolve(resultSections.value[section]);
+  if (sectionRequests.has(section)) return sectionRequests.get(section);
+  sectionLoading.value = { ...sectionLoading.value, [section]: true };
+  sectionErrors.value = { ...sectionErrors.value, [section]: "" };
+  const pending = (async () => {
+    try {
+      const data = await api(`/tasks/${id}/result/${section}`);
+      if (token !== revision || !active) return;
+      resultSections.value = { ...resultSections.value, [section]: data };
+      return data;
+    } catch (e) {
+      if (token === revision && active)
+        sectionErrors.value = { ...sectionErrors.value, [section]: e.message };
+    } finally {
+      if (token === revision && active) {
+        sectionLoading.value = { ...sectionLoading.value, [section]: false };
+        sectionRequests.delete(section);
+      }
+    }
+  })();
+  sectionRequests.set(section, pending);
+  return pending;
+}
+async function exportResult() {
+  const run = task.value, token = revision;
+  const complete = await loadSection("export");
+  if (!complete || token !== revision || !active) return;
+  const blob = new Blob([JSON.stringify({ task: run, result: complete }, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob), link = document.createElement("a");
+  link.href = url; link.download = `factorpool-${run.id}.json`; link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+function setLogsVisible(visible) {
+  logsRequested = visible;
+  if (visible) void loadLogs();
+}
 async function loadLogs(token = revision) {
   const id = task.value?.id;
-  if (!id || logsLoading) return;
-  logsRequested = true;
+  if (!id || logsLoading || terminalLogsLoaded) return;
+  const terminal = !running.value;
   logsLoading = true;
   try {
     const log = await api(`/tasks/${id}/logs`);
-    if (token === revision && active) logs.value = log.text;
+    if (token === revision && active) {
+      logs.value = log.text;
+      terminalLogsLoaded = terminal;
+    }
   } catch (e) {
     if (token === revision && active) logs.value = `日志加载失败：${e.message}`;
   } finally {
-    if (token === revision && active) logsLoading = false;
+    if (token === revision && active) {
+      logsLoading = false;
+      // A request started while running can finish after the terminal poll.
+      if (!terminal && !running.value && logsRequested) void loadLogs(token);
+    }
   }
 }
 async function loadValues() {
@@ -371,7 +417,6 @@ async function runBatch() {
     const body = { factors: selected.value, workspace_config: clone(settings.value) };
     const batch = await api("/tasks/batch", body);
     notice.value = `批次 ${batch.id} · ${batch.tasks.length} 个任务已提交`;
-    await refreshLists();
   });
 }
 function restoreSnapshot(r) {
@@ -415,10 +460,8 @@ onMounted(async () => {
     if (polling) return;
     polling = true;
     try {
-      if (running.value || (task.value?.status === "SUCCEEDED" && !result.value && reportAttempts < 3)) {
-        await refreshTask();
-        if (!running.value) await refreshLists();
-      }
+      if (running.value) await refreshTask();
+      else if (task.value?.status === "SUCCEEDED" && !result.value && reportAttempts < 3) await loadReport();
     } catch (e) {
       error.value = e.message;
     } finally {
@@ -618,13 +661,18 @@ onBeforeUnmount(() => {
             :report-error="reportError"
             :values-loading="valuesLoading"
             :values-error="valuesError"
+            :result-sections="resultSections"
+            :section-loading="sectionLoading"
+            :section-errors="sectionErrors"
             :states="states"
             :saved-factor="savedResultFactor"
             @load-snapshot="loadSnapshot"
             @page="page"
             @retry-report="retryReport"
             @load-values="loadValues"
-            @load-logs="loadLogs()"
+            @load-section="loadSection"
+            @logs-visible="setLogsVisible"
+            @export-result="exportResult"
             @save-factor="saveResultFactor"
         /></template>
       </SplitPane>

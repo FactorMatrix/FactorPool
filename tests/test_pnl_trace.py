@@ -12,13 +12,13 @@ def prepared(factors, returns, membership=None, weights=None):
 
 
 def report(value, horizon=1, signals=None):
-    return native.portfolio_report(value, None, None, 4, horizon, 252, signals)
+    return native.portfolio_report(value, 4, horizon, 252, signals)
 
 
 class PnlTraceTests(unittest.TestCase):
     def test_four_stock_weights_contributions_and_scaled_book_match_hand_calculation(self):
         value = prepared([[1., 3, 5, 7]], [[0.]*4, [-.01, .02, .01, .03]])
-        plain = native.portfolio_report(value, None, None, 4, 1, 252)
+        plain = native.portfolio_report(value, 4, 1, 252)
         traced = report(value, signals=[0])
         trace = traced.pop('trace')
         self.assertEqual(traced, plain)
@@ -64,7 +64,7 @@ class PnlTraceTests(unittest.TestCase):
         previous_nav = 1+np.dot(weights, returns[1])
         self.assertNotAlmostEqual(actual['trace'][1]['rows'][0]['effective_weight_before_return'],
                                   weights[0]*growth_before[1, 0]/previous_nav)
-        plain = native.portfolio_report(value, None, None, 4, 3, 252)
+        plain = native.portfolio_report(value, 4, 3, 252)
         actual.pop('trace')
         self.assertEqual(actual, plain)
 
@@ -144,7 +144,7 @@ class PnlTraceTests(unittest.TestCase):
         source = prepared(rows, [[0.]*4]*5)
         skipped = report(source, horizon=2, signals=[1])
         self.assertEqual(skipped.pop('trace'), [])
-        self.assertEqual(skipped, native.portfolio_report(source, None, None, 4, 2, 252))
+        self.assertEqual(skipped, native.portfolio_report(source, 4, 2, 252))
         traced = report(source, horizon=2, signals=[0, 2])['trace']
         self.assertEqual([(day['signal_index'], day['valuation_index']) for day in traced],
                          [(0, 1), (0, 2), (2, 3), (2, 4)])

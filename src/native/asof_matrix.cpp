@@ -55,7 +55,8 @@ struct Publication {
     std::vector<double> current;
     std::vector<std::uint8_t> valid, ready;
     IndicatorPublication final;
-    Publication(std::size_t cells, std::span<const std::string> symbols): current(cells, missing), valid(cells), ready(cells) {
+    Publication(std::size_t cells, std::span<const std::string> symbols, bool capture_final): current(cells, missing), valid(cells), ready(cells) {
+        if (!capture_final) return;
         final.symbols.assign(symbols.begin(), symbols.end());
         final.current.assign(symbols.size(), missing); final.previous.assign(symbols.size(), 0);
         final.publication_current.assign(symbols.size(), 0); final.valid.resize(symbols.size());
@@ -215,7 +216,7 @@ void evaluate_task(const Task& task, const Port& port, const AsOfHistory& histor
             const bool valid = state.valid[slot] && state.end_time[slot] == history.times[basis];
             output.current[cell] = valid ? state.current[slot] : missing;
             output.valid[cell] = valid; output.ready[cell] = state.ready[slot];
-            if (row + 1 == history.requested.size()) {
+            if (!output.final.symbols.empty() && row + 1 == history.requested.size()) {
                 const auto target = cohort.axis[slot];
                 output.final.current[target] = output.current[cell];
                 output.final.valid[target] = valid; output.final.ready[target] = state.ready[slot];
@@ -246,7 +247,20 @@ AsOfResult evaluate(const Spec* pool_spec, const graph::Spec* scalar_spec, const
     for (std::size_t day = 0; day < history.axes.size(); ++day)
         for (auto n : history.axes[day]) active[day * width + n] = 1;
     std::vector<Publication> publications; publications.reserve(ports.size());
-    for (std::size_t i = 0; i < ports.size(); ++i) publications.emplace_back(cells, history.symbols);
+    for (std::size_t i = 0; i < ports.size(); ++i) publications.emplace_back(cells, history.symbols, !pool_spec);
+    // Temporal-only inputs are already owned by their cohort publications.
+    // The output suffix needs raw columns only for its own Input nodes.
+    std::vector<std::size_t> suffix_fields;
+    std::vector<std::size_t> suffix_slots(history.fields.size(), history.fields.size());
+    if (pool_spec) {
+        for (std::size_t field = 0; field < history.fields.size(); ++field)
+            if (std::any_of(pool_spec->nodes.begin(), pool_spec->nodes.end(), [&](const auto& node) {
+                return node.op == "input" && node.field == history.fields[field].name;
+            })) {
+                suffix_slots[field] = suffix_fields.size();
+                suffix_fields.push_back(field);
+            }
+    }
     const auto workers = std::min(width, fp::compute_threads());
     const auto tasks = plan_tasks(ports, history, active);
     std::vector<Counts> counts(tasks.size());
@@ -267,17 +281,21 @@ AsOfResult evaluate(const Spec* pool_spec, const graph::Spec* scalar_spec, const
         const auto basis = history.requested[row], offset = basis * width;
         const auto& axis = history.axes[basis];
         std::vector<std::uint8_t> observed(axis.size()), source_missing(axis.size(), 0);
-        std::vector<std::vector<double>> columns(history.fields.size(), std::vector<double>(axis.size()));
+        std::vector<std::vector<double>> columns(suffix_fields.size(), std::vector<double>(axis.size()));
         std::vector<graph::Column> input;
         for (std::size_t slot = 0; slot < axis.size(); ++slot) {
             observed[slot] = history.present[offset + axis[slot]];
             for (std::size_t field = 0; field < history.fields.size(); ++field) {
                 const auto value = history.fields[field].values[offset + axis[slot]];
-                columns[field][slot] = std::isfinite(value) ? value : missing;
                 source_missing[slot] |= !std::isfinite(value);
+                if (suffix_slots[field] < suffix_fields.size())
+                    columns[suffix_slots[field]][slot] = std::isfinite(value) ? value : missing;
             }
         }
-        for (std::size_t field = 0; field < history.fields.size(); ++field) input.push_back({history.fields[field].name, columns[field]});
+        for (std::size_t field = 0; field < suffix_fields.size(); ++field) {
+            const auto& source = history.fields[suffix_fields[field]];
+            input.push_back({source.name, columns[field]});
+        }
         std::vector<double> values(axis.size()); std::vector<std::uint8_t> valid(axis.size()), ready(axis.size());
         if (pool_spec) {
             if (axis != previous_axis) {

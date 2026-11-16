@@ -5,6 +5,7 @@ from unittest.mock import patch
 import numpy as np
 from scipy.stats import pearsonr, spearmanr
 import _factorpool_native as native
+from native_publication import publication_bits
 from factorpool.reporting.diagnostics import build
 
 
@@ -22,14 +23,13 @@ class PreparedResearchTests(unittest.TestCase):
         for h in (20, 5, 1, 252, 5):
             with self.subTest(horizon=h):
                 sparse = native.ic_series(prepared, h, 3, 7)
-                decay = native.ic_decay(prepared, None, None, h, 10, 3, 7)
-                wanted = native.analyze(factors, returns, 4, 3, 1, members, h)
-                actual = native.analyze(prepared, None, 4, 3, 1, None, h)
-                self.assertEqual(actual, wanted)
+                decay = native.ic_decay(prepared, h, 10, 3, 7)
+                wanted = native.analyze(native.prepare_research(factors, returns, members), 4, 3, 1, h)
+                actual = native.analyze(prepared, 4, 3, 1, h)
+                self.assertEqual(publication_bits(actual), publication_bits(wanted))
                 self.assertEqual(sparse['ic'], [day['ic'] for day in actual['daily'][::7]])
                 self.assertEqual(sparse['rank_ic'], [day['rank_ic'] for day in actual['daily'][::7]])
-                self.assertEqual(decay, native.ic_decay(
-                    native.prepare_research(factors, returns, members), None, None, h, 10, 3, 7))
+                self.assertEqual(decay, native.ic_decay(native.prepare_research(factors, returns, members), h, 10, 3, 7))
                 # Later callers may request a denser calendar, a different
                 # minimum or new output arrays after the partial cache exists.
                 self.assertEqual(native.ic_series(prepared, h, 8), native.ic_series(
@@ -47,9 +47,9 @@ class PreparedResearchTests(unittest.TestCase):
             with self.subTest(horizon=h), patch.dict(os.environ, FACTORPOOL_COMPUTE_THREADS='2'):
                 prepared = native.prepare_research(factors, returns, members)
                 native.ic_series(prepared, h, 3, 3)
-                native.ic_decay(prepared, None, None, h, 4, 3, 3)
-                actual = native.analyze(prepared, None, 5, 3, 1, None, h, 1, True)
-                expected = native.analyze(factors, returns, 5, 3, 1, members, h, 1, True)
+                native.ic_decay(prepared, h, 4, 3, 3)
+                actual = native.analyze(prepared, 5, 3, 1, h, 1)
+                expected = native.analyze(native.prepare_research(factors, returns, members), 5, 3, 1, h, 1)
                 for key in ('forward_returns', 'groups'):
                     np.testing.assert_array_equal(actual.pop(key).view(np.uint64),
                                                   expected.pop(key).view(np.uint64))
@@ -77,7 +77,7 @@ class PreparedResearchTests(unittest.TestCase):
                         self.assertIsNone(series[key][t])
                     else:
                         self.assertAlmostEqual(series[key][t], expected)
-            full = native.analyze(factors, returns, 5, 3, 1, members, h)
+            full = native.analyze(native.prepare_research(factors, returns, members), 5, 3, 1, h)
             self.assertEqual(series['ic'], [r['ic'] for r in full['daily']])
             self.assertEqual(series['rank_ic'], [r['rank_ic'] for r in full['daily']])
 
@@ -88,24 +88,24 @@ class PreparedResearchTests(unittest.TestCase):
         for matrix in (factors, returns, members):
             matrix.flags.writeable = False
         prepared = native.prepare_research(factors, returns, members)
-        expected = copy.deepcopy(native.analyze(prepared, None, 3, 3, 1))
+        expected = copy.deepcopy(native.analyze(prepared, 3, 3, 1))
         for matrix in (factors, returns, members):
             matrix.flags.writeable = True
         factors[0, 0] = 100
         returns[1, 0] = -.3
         members[0, 0] = 0
-        self.assertEqual(native.analyze(prepared, None, 3, 3, 1), expected)
+        self.assertEqual(publication_bits(native.analyze(prepared, 3, 3, 1)), publication_bits(expected))
         other = native.prepare_research(factors, returns, members)
-        self.assertNotEqual(native.analyze(other, None, 3, 3, 1), expected)
-        self.assertEqual(native.analyze(prepared, None, 3, 3, 1), expected)
+        self.assertNotEqual(publication_bits(native.analyze(other, 3, 3, 1)), publication_bits(expected))
+        self.assertEqual(publication_bits(native.analyze(prepared, 3, 3, 1)), publication_bits(expected))
         lists = native.prepare_research(factors.tolist(), returns.tolist(), members.tolist())
-        self.assertEqual(native.analyze(lists, None, 3, 3, 1), native.analyze(other, None, 3, 3, 1))
+        self.assertEqual(publication_bits(native.analyze(lists, 3, 3, 1)), publication_bits(native.analyze(other, 3, 3, 1)))
         for matrices in (([[1, 2]], [[0]], [[1, 1]]), ([[1]], [[0]], []),
                          ([[1], [1, 2]], [[0], [0]], [[1], [1]])):
             with self.assertRaises(ValueError):
                 native.prepare_research(*matrices)
         with self.assertRaises(ValueError):
-            native.analyze(prepared, returns, 3, 3, 1, members)
+            native.analyze([], 3, 3, 1)
         for h, minimum in ((0, 3), (253, 3), (1, 1)):
             with self.assertRaises(ValueError):
                 native.ic_series(prepared, h, minimum)
@@ -114,17 +114,17 @@ class PreparedResearchTests(unittest.TestCase):
         factors = [[0., 1, 2, 3, 4, 5]]
         returns = [[0]*6, [.1, .1, -1, -.1, 1e308, .1],
                    [None, 0, .1, -2, 1e308, 0], [.1, .1, .1, .1, 0, .1]]
-        out = native.analyze(factors, returns, 3, 3, 1, [[1]*6], 3)
+        out = native.analyze(native.prepare_research(factors, returns, [[1]*6]), 3, 3, 1, 3)
         future = out['forward_returns'][0]
-        self.assertIsNone(future[0])
+        self.assertTrue(np.isnan(future[0]))
         self.assertAlmostEqual(future[1], 1.1*1*1.1-1)
         self.assertEqual(future[2], -1)
-        self.assertIsNone(future[3])
-        self.assertIsNone(future[4])
+        self.assertTrue(np.isnan(future[3]))
+        self.assertTrue(np.isnan(future[4]))
         self.assertAlmostEqual(future[5], 1.1*1*1.1-1)
         self.assertEqual(out['daily'][0]['pairs'], 3)
         for h in (1, 2, 3):
-            primary = native.analyze(factors, returns, 3, 3, 1, [[1]*6], h)
+            primary = native.analyze(native.prepare_research(factors, returns, [[1]*6]), 3, 3, 1, h)
             series = native.ic_series(native.prepare_research(factors, returns, [[1]*6]), h, 3)
             self.assertEqual([d['ic'] for d in primary['daily']], series['ic'])
 
@@ -134,7 +134,7 @@ class PreparedResearchTests(unittest.TestCase):
         returns = rng.normal(0, 1e-6, (1100, 3))
         prepared = native.prepare_research(factors, returns, np.ones_like(factors))
         for h in (1, 5, 20, 252):
-            out = native.analyze(prepared, None, 3, 3, 1, None, h)
+            out = native.analyze(prepared, 3, 3, 1, h)
             expected = np.array([np.prod(1 + returns[t+1:t+h+1], axis=0)-1 for t in range(800)])
             np.testing.assert_allclose(out['forward_returns'], expected, rtol=1e-8, atol=3e-14)
 
@@ -146,9 +146,9 @@ class PreparedResearchTests(unittest.TestCase):
         price_dates = dates + ['2024-02-02']
         analysis = dict(groups=5, horizons=[1, 2, 20], decay_steps=3)
         prepared = native.prepare_research(factors, returns, members)
-        primary = native.analyze(prepared, None, 5, 3, 1)
-        expected = build(factors, returns, members, dates, price_dates, analysis)
-        actual = build(prepared, None, None, dates, price_dates, analysis, primary=primary)
+        primary = native.analyze(prepared, 5, 3, 1)
+        expected = build(native.prepare_research(factors, returns, members), dates, price_dates, analysis)
+        actual = build(prepared, dates, price_dates, analysis, primary=primary)
         self.assertEqual(actual, expected)
         self.assertEqual(actual['version'], 3)
         self.assertIsNone(actual['horizons']['1']['series']['ic'][2])

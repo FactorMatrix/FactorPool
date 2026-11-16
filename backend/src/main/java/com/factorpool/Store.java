@@ -33,6 +33,11 @@ public class Store {
       throw new IllegalArgumentException("Invalid JSON", e);
     }
   }
+  String result(UUID id, ReportSection section) {
+    if (!task(id, false).get("status").equals("SUCCEEDED"))
+      throw new IllegalStateException("Task has no complete result");
+    return db.queryForObject(section.sql(), String.class, id);
+  }
   String hash(String source) {
     try {
       return HexFormat.of().formatHex(

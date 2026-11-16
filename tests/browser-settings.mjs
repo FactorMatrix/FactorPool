@@ -30,7 +30,7 @@ async function run() {
   assert.ok(id)
   return {id, task:await (await page.request.get(`${base}/api/tasks/${id}`)).json(),
     values:await (await page.request.get(`${base}/api/tasks/${id}/values`)).json(),
-    result:await (await page.request.get(`${base}/api/tasks/${id}/result`)).json()}
+    result:await (await page.request.get(`${base}/api/tasks/${id}/result/export`)).json()}
 }
 try {
   await page.goto(base,{waitUntil:'networkidle'})

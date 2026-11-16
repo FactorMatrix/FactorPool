@@ -33,9 +33,9 @@ class MarketReadPolicyTests(unittest.TestCase):
         key = tile_key(metadata, block, 'close', 0)
         cache.data[key] = payload
         with DataClient(stub=object(), cache=cache) as client, \
-                patch('factorpool.data_client.client.axis_digest', return_value=axes), \
+                patch('factorpool.data_client.client.axis_digest', side_effect=AssertionError('Repeated axis hash')), \
                 patch('factorpool.data_client.contract.hashlib.sha256', side_effect=AssertionError('Repeated data hash')):
-            result = client._tiles(metadata, [(block, 'close', 0)])[key]
+            result = client._tiles(metadata, [(block, 'close', 0)], axes)[key]
         np.testing.assert_array_equal(result, values[FIELDS.index('close'), :2, :2])
         self.assertFalse(result.flags.writeable)
 

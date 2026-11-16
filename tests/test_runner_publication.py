@@ -53,7 +53,8 @@ class RunnerPublicationTests(unittest.TestCase):
             with patch.object(runner, 'build_diagnostics', side_effect=inspect):
                 runner.run(directory)
             report = json.loads((directory/'result.json').read_text())
-            self.assertEqual(len(report['daily']), 3)
+            self.assertNotIn('daily', report)
+            self.assertEqual(len(report['diagnostics']['horizons']['5']['dates']), 3)
             self.assertEqual(report['metadata']['value_count'], 9)
             self.assertEqual(report['metadata']['value_artifact']['sha256'],
                              self.check_artifact(directory)['sha256'])

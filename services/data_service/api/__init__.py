@@ -64,13 +64,11 @@ class DataService(data_pb2_grpc.DataServiceServicer):
                 found = self._metadata.get(identity)
                 if found is not None:
                     self._metadata.move_to_end(identity)
-                    self.cache.store([(metadata_key(found["snapshot_id"], found["cache"]), pack_metadata(found))])
                     return found
         found = self.source.snapshot(identity or None)
         if found['manifest'].get('storage_format') != FIELD_BLOCK_FORMAT:
             raise ValueError('Only current field-blocks-v1 snapshots are available for research')
         found["_axes_digest"] = axis_digest(found)
-        self.cache.store([(metadata_key(found["snapshot_id"], found["cache"]), pack_metadata(found))])
         with self._metadata_lock:
             self._metadata[found["snapshot_id"]] = found
             while len(self._metadata) > 128:
@@ -79,7 +77,13 @@ class DataService(data_pb2_grpc.DataServiceServicer):
 
     @endpoint
     def Snapshot(self, request, context):
-        return pb.JsonReply(json=json_bytes(self.snapshot(request.snapshot_id)))
+        found = self.snapshot(request.snapshot_id)
+        if self._cache_available():
+            self.cache.store([(metadata_key(found["snapshot_id"], found["cache"]), pack_metadata(found))])
+        return pb.JsonReply(json=json_bytes(found))
+
+    def _cache_available(self):
+        return self.cache.enabled and self.cache.client is not None and time.monotonic() >= self.cache.failed_until
 
     def _cached_tile(self, snapshot, block, field, start):
         key = tile_key(snapshot, block, field, start)
@@ -234,14 +238,14 @@ class DataService(data_pb2_grpc.DataServiceServicer):
             except (ValueError, TypeError, KeyError, DecodeError):
                 self.cache.call("delete", key)
         rows = self.values.page(task, request.offset, request.limit)
-        typed = pb.ValuesPayload(rows=[pb.FactorValue(date=row["trading_date"], symbol=row["symbol"],
-            value=row["value"] if row["value"] is not None else 0, has_value=row["value"] is not None, valid=row["valid"], ready=row["ready"],
-            reason=row["reason"], forward_return=row["forward_return"] if row["forward_return"] is not None else 0,
-            has_forward_return=row["forward_return"] is not None, group=row["factor_group"] or 0,
-            has_group=row["factor_group"] is not None) for row in rows]).SerializeToString(deterministic=True)
-        # Small response pages have typed binary numeric cells. The envelope is
-        # shared with no task state and is cached only after visibility checks.
-        self.cache.store([(key, pack_value_page(task, version, request.offset, request.limit, typed))])
+        if self._cache_available():
+            typed = pb.ValuesPayload(rows=[pb.FactorValue(date=row["trading_date"], symbol=row["symbol"],
+                value=row["value"] if row["value"] is not None else 0, has_value=row["value"] is not None, valid=row["valid"], ready=row["ready"],
+                reason=row["reason"], forward_return=row["forward_return"] if row["forward_return"] is not None else 0,
+                has_forward_return=row["forward_return"] is not None, group=row["factor_group"] or 0,
+                has_group=row["factor_group"] is not None) for row in rows]).SerializeToString(deterministic=True)
+            # Only an available cache needs the typed envelope; HTTP/RPC JSON rows are already complete.
+            self.cache.store([(key, pack_value_page(task, version, request.offset, request.limit, typed))])
         return pb.JsonReply(json=json_bytes(rows))
 
     @endpoint

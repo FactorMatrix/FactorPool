@@ -314,8 +314,8 @@ class Worker:
                         raise ValueError("Research summary exceeds 128 MiB")
                     result = json.loads(result_path.read_text())
                     if (not isinstance(result, dict)
-                            or not all(key in result for key in ("metadata", "summary", "daily"))
-                            or not isinstance(result["metadata"], dict)):
+                            or not all(isinstance(result.get(key), dict)
+                                       for key in ("metadata", "summary", "diagnostics"))):
                         raise ValueError("Incomplete research result")
                     count = result["metadata"].get("value_count")
                     if type(count) is not int or count < 0:

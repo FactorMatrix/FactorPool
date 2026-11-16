@@ -285,16 +285,10 @@ std::vector<double> ResearchInput::paired_return_ranks(
   }
   return ranks;
 }
-InputRef::InputRef(PyObject *factor, PyObject *daily_returns, PyObject *membership) {
-  if (PyCapsule_IsValid(factor, capsule_name)) {
-    if (daily_returns != Py_None || (membership && membership != Py_None))
-      throw std::invalid_argument(
-          "Prepared research input already owns all matrices");
-    value = static_cast<ResearchInput *>(PyCapsule_GetPointer(factor, capsule_name));
-  } else {
-    owned = std::make_unique<ResearchInput>(factor, daily_returns, membership);
-    value = owned.get();
-  }
+const ResearchInput& research_input(PyObject *prepared) {
+  if (!PyCapsule_IsValid(prepared, capsule_name))
+    throw std::invalid_argument("Expected prepared research input");
+  return *static_cast<ResearchInput *>(PyCapsule_GetPointer(prepared, capsule_name));
 }
 std::vector<double> paired_factor_ranks(const ResearchInput &input, std::size_t t,
                                       const std::vector<std::size_t> &symbols) {
@@ -346,8 +340,7 @@ PyObject *ic_series(PyObject *, PyObject *args) {
       return nullptr;
     if (h < 1 || h > 252 || minimum < 2 || signal_stride < 1)
       throw std::invalid_argument("Invalid correlation options");
-    InputRef holder(prepared, Py_None, nullptr);
-    const auto &input = *holder.value;
+    const auto &input = research_input(prepared);
     const auto &f = input.factors;
     input.prepare_correlations(h, minimum);
     const auto rows = f.size() ? 1 + (f.size() - 1) / signal_stride : 0;

@@ -66,11 +66,7 @@ private:
   mutable std::vector<std::size_t> missing_prefix_, zero_prefix_;
   void prepare_prefixes() const;
 };
-struct InputRef {
-  std::unique_ptr<ResearchInput> owned;
-  const ResearchInput *value;
-  InputRef(PyObject *factor, PyObject *daily_returns, PyObject *membership);
-};
+const ResearchInput& research_input(PyObject *prepared);
 std::vector<double> paired_factor_ranks(const ResearchInput &, std::size_t,
                                       const std::vector<std::size_t> &);
 } // namespace fp

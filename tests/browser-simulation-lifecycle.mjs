@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict'
 import {createRequire} from 'node:module'
 import {writeFile} from 'node:fs/promises'
+import {reportSection} from './browser-result-utils.mjs'
 
 const base = process.env.FACTORPOOL_URL
 if (!base?.trim()) throw new Error('FACTORPOOL_URL must name an explicitly selected frontend')
@@ -98,7 +99,7 @@ async function harness(options={}) {
         }
         if (task.reportFailures>0) {
           task.reportFailures--;status=503;body={error:'Lifecycle report unavailable'}
-        } else body=report(task.index)
+        } else body=reportSection(report(task.index))
       } else {
         counts.values++;task.valuesCalls++
         if (task.valueFailures>0) {

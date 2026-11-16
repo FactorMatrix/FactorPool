@@ -22,9 +22,8 @@ struct SignalData {
 struct Strategy {
   std::string name;
   std::vector<Holding> previous;
-  std::vector<double> pnl, book_pnl, turnover, positions, concentration;
+  std::vector<double> pnl, book_pnl, turnover;
   std::vector<double> long_positions, short_positions;
-  std::vector<double> period_returns, period_turnover;
   bool seen = false, previous_valid = false;
   explicit Strategy(std::string value) : name(std::move(value)) {}
 };
@@ -151,17 +150,16 @@ PyObject *trace_day(const ResearchInput &input, std::size_t signal,
 } // namespace
 PyObject *portfolio_report(PyObject *, PyObject *args) {
   try {
-    PyObject *factor, *returns, *members, *requested_trace = Py_None,
+    PyObject *prepared, *requested_trace = Py_None,
              *weights_override = Py_None;
     int groups, h, annual_days;
-    if (!PyArg_ParseTuple(args, "OOOiii|OO", &factor, &returns, &members, &groups,
+    if (!PyArg_ParseTuple(args, "Oiii|OO", &prepared, &groups,
                           &h, &annual_days, &requested_trace, &weights_override))
       return nullptr;
     if (groups < 1 || groups > 100 || h < 1 || h > 252 || annual_days < 1 ||
         annual_days > 366)
       throw std::invalid_argument("Invalid portfolio options");
-    InputRef holder(factor, returns, members);
-    const auto &input = *holder.value;
+    const auto &input = research_input(prepared);
     const auto overridden = weights_override != Py_None;
     Matrix override_matrix;
     if (overridden) {
@@ -212,10 +210,12 @@ PyObject *portfolio_report(PyObject *, PyObject *args) {
         auto n = order[k], g = k * groups / order.size();
         signal.labels[n] = static_cast<unsigned char>(g);
         ++signal.sizes[g];
-        signal.mean += (static_cast<long double>(f[t][n]) - signal.mean) / (k + 1);
+        if (alpha_weights.empty())
+          signal.mean += (static_cast<long double>(f[t][n]) - signal.mean) / (k + 1);
       }
-      for (auto n : order)
-        signal.norm += std::abs(static_cast<long double>(f[t][n]) - signal.mean);
+      if (alpha_weights.empty())
+        for (auto n : order)
+          signal.norm += std::abs(static_cast<long double>(f[t][n]) - signal.mean);
     });
     // All books use the same close-return path between two signal dates.
     // Compound it once per symbol and holding interval, in the original
@@ -239,17 +239,13 @@ PyObject *portfolio_report(PyObject *, PyObject *args) {
     const auto simulate = [&](std::size_t strategy) {
       auto &s = strategies[strategy];
       s.pnl.reserve(daily_indices.size());
-      s.book_pnl.reserve(daily_indices.size());
       s.turnover.reserve(daily_indices.size());
-      s.positions.reserve(daily_indices.size());
-      s.concentration.reserve(daily_indices.size());
       const bool track_counts = s.name == "alpha";
       if (track_counts) {
+        s.book_pnl.reserve(daily_indices.size());
         s.long_positions.reserve(daily_indices.size());
         s.short_positions.reserve(daily_indices.size());
       }
-      s.period_returns.reserve(signals.size());
-      s.period_turnover.reserve(signals.size());
       for (const auto &signal : signals) {
         const auto t = signal.time, end = signal.end;
         const auto &order = signal.order;
@@ -303,12 +299,10 @@ PyObject *portfolio_report(PyObject *, PyObject *args) {
                 weights[n] = (short_side ? -1. : 1.) / sizes[g];
         }
         std::vector<Holding> held;
-        double concentration = 0;
         std::size_t long_count = 0, short_count = 0;
         auto hold = [&](std::size_t n) {
           if (weights[n] != 0) {
             held.push_back({n, weights[n]});
-            concentration = std::max(concentration, std::abs(weights[n]));
             if (track_counts) {
               if (weights[n] > 0) ++long_count;
               else ++short_count;
@@ -335,7 +329,6 @@ PyObject *portfolio_report(PyObject *, PyObject *args) {
           for (auto w : weights)
             traded += std::abs(static_cast<long double>(w));
         const double turnover = trade_valid ? double(traded) : missing;
-        s.period_turnover.push_back(turnover);
         double previous_wealth = 1, wealth = missing;
         bool valid = usable;
         for (auto d = t + 1; d < end; ++d) {
@@ -373,8 +366,9 @@ PyObject *portfolio_report(PyObject *, PyObject *args) {
             valid = false;
           s.pnl.push_back(valid && previous_wealth > 0 && wealth >= 0
                               ? wealth / previous_wealth - 1 : missing);
-          s.book_pnl.push_back(valid && std::isfinite(previous_wealth)
-                                  ? wealth - previous_wealth : missing);
+          if (track_counts)
+            s.book_pnl.push_back(valid && std::isfinite(previous_wealth)
+                                    ? wealth - previous_wealth : missing);
           if (tracing) {
             Owned traced{trace_day(input, t, d, mean, usable, *tracing,
                                   s.book_pnl.back(), alpha_weights, h)};
@@ -382,15 +376,12 @@ PyObject *portfolio_report(PyObject *, PyObject *args) {
               throw std::runtime_error("Trace allocation failure");
           }
           s.turnover.push_back(d == t + 1 ? turnover : 0);
-          s.positions.push_back(usable ? double(held.size()) : missing);
           if (track_counts) {
             s.long_positions.push_back(usable ? double(long_count) : missing);
             s.short_positions.push_back(usable ? double(short_count) : missing);
           }
-          s.concentration.push_back(usable ? concentration : missing);
           previous_wealth = wealth;
         }
-        s.period_returns.push_back(valid && t + h < r.size() ? wealth - 1 : missing);
         s.previous = std::move(held);
         s.previous_valid = valid && t + h < r.size();
         s.seen = true;
@@ -417,18 +408,16 @@ PyObject *portfolio_report(PyObject *, PyObject *args) {
     }
     Owned result{PyDict_New()}, out{PyDict_New()};
     for (auto &s : strategies) {
-      Owned v{performance(s.pnl, s.turnover, 1, annual_days, &s.book_pnl)};
+      const bool alpha = s.name == "alpha";
+      Owned v{performance(s.pnl, s.turnover, 1, annual_days,
+                          alpha ? &s.book_pnl : nullptr, alpha)};
       put(v.p, "returns", list(s.pnl));
-      put(v.p, "book_pnl_series", list(s.book_pnl));
       put(v.p, "turnover_series", list(s.turnover));
-      put(v.p, "positions", list(s.positions));
-      if (s.name == "alpha") {
+      if (alpha) {
+        put(v.p, "book_pnl_series", list(s.book_pnl));
         put(v.p, "long_positions", list(s.long_positions));
         put(v.p, "short_positions", list(s.short_positions));
       }
-      put(v.p, "max_weight_series", list(s.concentration));
-      put(v.p, "period_returns", list(s.period_returns));
-      put(v.p, "period_turnover_series", list(s.period_turnover));
       put(out.p, s.name.c_str(), Py_NewRef(v.p));
     }
     put(result.p, "signal_indices", list(indices));

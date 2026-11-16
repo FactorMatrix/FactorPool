@@ -48,7 +48,7 @@ class TasksTest {
   }
   @Test void completeChecksPublishedValuesBeforeAnyStateOrSummaryWrite() {
     var body=body();
-    var result=body.putObject("result");result.putObject("metadata").put("value_count",4);result.putObject("summary");result.putArray("daily");
+    var result=body.putObject("result");result.putObject("metadata").put("value_count",4);result.putObject("summary");result.putObject("diagnostics");
     doThrow(new IllegalStateException("Incomplete factor values")).when(data).verifyPublication(body,4);
     assertThrows(IllegalStateException.class,()->tasks.complete(body));
     verifyNoInteractions(db);
@@ -56,7 +56,7 @@ class TasksTest {
   @Test void successfulResponseLossRetryReturnsSameResultWithoutRepublishing() {
     active("SUCCEEDED",false);
     var body=body();
-    var result=body.putObject("result");result.putObject("metadata").put("value_count",4);result.putObject("summary");result.putArray("daily");
+    var result=body.putObject("result");result.putObject("metadata").put("value_count",4);result.putObject("summary");result.putObject("diagnostics");
     when(db.queryForObject("SELECT result::text FROM research_results WHERE task_id=?",String.class,id))
       .thenReturn(result.toString());
     assertEquals("SUCCEEDED",tasks.complete(body).get("status"));
@@ -64,6 +64,35 @@ class TasksTest {
     verify(db,never()).update(anyString(),any(Object[].class));
     result.put("unexpected_late_mutation",true);
     assertThrows(IllegalStateException.class,()->tasks.complete(body));
+  }
+  @Test void currentReportPublishesWithoutRetiredDailyRows() {
+    active("RUNNING",true);
+    var body=body();
+    var result=body.putObject("result");
+    result.putObject("metadata").put("value_count",0);
+    result.putObject("summary");result.putObject("diagnostics");
+    tasks.complete(body);
+    verify(data).verifyPublication(body,0);
+    verify(db).update(startsWith("INSERT INTO research_results"),eq(id),eq(result.toString()));
+    verify(db).update(contains("SET status='SUCCEEDED'"),eq(id));
+    assertFalse(result.has("daily"));
+  }
+  @Test void missingOrMalformedCurrentReportObjectsNeverReachPublication() {
+    for (String field : List.of("metadata","summary","diagnostics")) {
+      for (String kind : List.of("missing","null","array")) {
+        var body=body();
+        var result=body.putObject("result");
+        result.putObject("metadata").put("value_count",4);
+        result.putObject("summary");result.putObject("diagnostics");
+        // Retired daily rows cannot stand in for the current diagnostics object.
+        result.putArray("daily");
+        if (kind.equals("missing")) result.remove(field);
+        else if (kind.equals("null")) result.putNull(field);
+        else result.putArray(field);
+        assertThrows(IllegalArgumentException.class,()->tasks.complete(body));
+      }
+    }
+    verifyNoInteractions(data,db);
   }
   @Test void globalCapacityIsCheckedWhileHoldingDatabaseQueueLock() {
     when(db.queryForObject(startsWith("SELECT count(*)"),eq(Integer.class))).thenReturn(1);

@@ -8,7 +8,7 @@ from factorpool.reporting.diagnostics import build, inference, options
 
 class DiagnosticsTests(unittest.TestCase):
     def test_default_report_has_only_daily_and_explicit_periods_are_retained(self):
-        args = ([[1, 2, 3]], [[0, 0, 0], [.1, 0, -.1]], [[1, 1, 1]],
+        args = (native.prepare_research([[1, 2, 3]], [[0, 0, 0], [.1, 0, -.1]], [[1, 1, 1]]),
                 ['2024-01-02'], ['2024-01-02', '2024-01-03'])
         default = build(*args, dict(groups=3, decay_steps=1))
         explicit = build(*args, dict(groups=3, decay_steps=1, horizons=[1, 5, 20]))
@@ -40,21 +40,21 @@ class DiagnosticsTests(unittest.TestCase):
         factors = [[1, 2, 3]]*6
         returns = [[0, 0, 0]] + [[.01, 0, -.01]]*9
         members = [[1]*3]*6
-        raw = native.analyze(factors, returns, 3, 3, 1, members, 5)
+        raw = native.analyze(native.prepare_research(factors, returns, members), 3, 3, 1, 5)
         np.testing.assert_allclose(raw['forward_returns'][0], [1.01**5-1, 0, .99**5-1])
-        self.assertTrue(all(x is None for x in raw['daily'][0]['cumulative']))
-        report = native.portfolio_report(factors, returns, members, 3, 5, 252)
+        np.testing.assert_array_equal(raw['groups'][0], [1, 2, 3])
+        report = native.portfolio_report(native.prepare_research(factors, returns, members), 3, 5, 252)
         self.assertEqual(report['signal_indices'], [0, 5])
         self.assertEqual(report['daily_indices'], list(range(1, 10)))
         spread = report['strategies']['high_low']
-        self.assertAlmostEqual(spread['period_returns'][0], .5*(.99**5-1.01**5))
-        self.assertIsNone(spread['period_returns'][1])
+        self.assertAlmostEqual(np.prod(1 + np.array(spread['returns'][:5])) - 1, .5*(.99**5-1.01**5))
+        self.assertTrue(all(value is not None for value in spread['returns'][5:]))
         self.assertEqual(len(spread['returns']), 9)  # An incomplete final period still has four observed days.
 
     def test_long_short_brain_and_return_drift_turnover(self):
         factors = [[1, .5, 0]]*3
         returns = [[0, 0, 0], [.1, 0, -.1], [-.2, 0, .1], [.1, 0, 0]]
-        report = native.portfolio_report(factors, returns, [[1]*3]*3, 3, 1, 252)['strategies']
+        report = native.portfolio_report(native.prepare_research(factors, returns, [[1]*3]*3), 3, 1, 252)['strategies']
         np.testing.assert_allclose(report['long_G3']['returns'], [.1, -.2, .1], atol=1e-14)
         np.testing.assert_allclose(report['short_G3']['returns'], [-.1, .2, -.1], atol=1e-14)
         spread = report['high_low']
@@ -62,7 +62,7 @@ class DiagnosticsTests(unittest.TestCase):
         np.testing.assert_allclose(spread['turnover_series'], [1, .1, .15], atol=1e-14)
         np.testing.assert_allclose(spread['nav'], np.cumprod(1+np.array([.1, -.15, .05])))
         self.assertAlmostEqual(spread['max_drawdown'], -.15)
-        brain = spread['brain_style']
+        brain = native.brain_summary([.1, -.15, .05], spread['turnover_series'], 252)
         mu, sigma = np.mean([.1, -.15, .05]), np.std([.1, -.15, .05], ddof=1)
         self.assertAlmostEqual(brain['returns'], mu*252*2)
         self.assertAlmostEqual(brain['turnover'], 1.25/3)
@@ -75,7 +75,7 @@ class DiagnosticsTests(unittest.TestCase):
     def test_alpha_daily_long_short_counts_follow_rebalanced_holdings(self):
         factors = [[1, 2, 3, 4], [1, 2, 3, 4], [4, 4, 4, 4]]
         returns = [[0]*4, [.01, 0, 0, -.01], [0]*4, [0]*4, [0]*4]
-        report = native.portfolio_report(factors, returns, [[1]*4]*3, 2, 2, 252)['strategies']
+        report = native.portfolio_report(native.prepare_research(factors, returns, [[1]*4]*3), 2, 2, 252)['strategies']
         self.assertEqual(report['alpha']['long_positions'], [2, 2, 0, 0])
         self.assertEqual(report['alpha']['short_positions'], [2, 2, 0, 0])
         self.assertNotIn('long_positions', report['long_G1'])
@@ -84,63 +84,64 @@ class DiagnosticsTests(unittest.TestCase):
         # Buy equal amounts: [1,1] -> [2,1] -> [1,2].  NAV stays 1.5 on day two.
         factors = [[1, 2]]
         returns = [[0, 0], [1, 0], [-.5, 1]]
-        report = native.portfolio_report(factors, returns, [[1, 1]], 1, 2, 252)
+        report = native.portfolio_report(native.prepare_research(factors, returns, [[1, 1]]), 1, 2, 252)
         long = report['strategies']['long_G1']
         np.testing.assert_allclose(long['returns'], [.5, 0], atol=1e-14)
         np.testing.assert_allclose(long['nav'], [1.5, 1.5], atol=1e-14)
-        np.testing.assert_allclose(long['period_returns'], [.5], atol=1e-14)
+        self.assertAlmostEqual(long['nav'][-1] - 1, .5)
         self.assertNotAlmostEqual(long['nav'][-1], np.prod(1+np.mean(returns[1:], axis=1)))
-        spread = native.portfolio_report(factors, returns, [[1, 1]], 2, 2, 252)['strategies']['high_low']
+        spread = native.portfolio_report(native.prepare_research(factors, returns, [[1, 1]]), 2, 2, 252)['strategies']['high_low']
         # High factor is B: V=[.5,1.5], daily returns differ from fixed-book daily PnL.
         np.testing.assert_allclose(spread['returns'], [-.5, 2], atol=1e-14)
-        np.testing.assert_allclose(spread['constant_book_pnl'], [-.5, .5], atol=1e-14)
-        self.assertAlmostEqual(spread['brain_style']['returns'], .25*252*2)
-        self.assertAlmostEqual(spread['brain_style']['margin'], .5)
+        brain = native.brain_summary([-.5, 1], spread['turnover_series'], 252)
+        self.assertAlmostEqual(brain['returns'], .25*252*2)
+        self.assertAlmostEqual(brain['margin'], .5)
 
     def test_daily_drawdown_detects_loss_recovered_before_rebalance(self):
-        report = native.portfolio_report([[1]], [[0], [0], [-.5], [1]], [[1]], 1, 3, 252)
+        report = native.portfolio_report(native.prepare_research([[1]], [[0], [0], [-.5], [1]], [[1]]), 1, 3, 252)
         long = report['strategies']['long_G1']
         self.assertEqual(report['signal_indices'], [0])
         self.assertEqual(report['daily_indices'], [1, 2, 3])
-        np.testing.assert_allclose(long['period_returns'], [0], atol=1e-14)
+        self.assertAlmostEqual(long['nav'][-1] - 1, 0)
         np.testing.assert_allclose(long['nav'], [1, .5, 1], atol=1e-14)
         np.testing.assert_allclose(long['drawdown_series'], [0, -.5, 0], atol=1e-14)
         self.assertAlmostEqual(long['max_drawdown'], -.5)
 
     def test_total_loss_reaches_zero_nav_without_recovery_by_division(self):
-        last = native.portfolio_report([[1]], [[0], [-1]], [[1]], 1, 1, 252)['strategies']['long_G1']
+        last = native.portfolio_report(native.prepare_research([[1]], [[0], [-1]], [[1]]), 1, 1, 252)['strategies']['long_G1']
         self.assertEqual(last['returns'], [-1])
         self.assertEqual(last['nav'], [0])
         self.assertEqual(last['cagr'], -1)
         self.assertEqual(last['max_drawdown'], -1)
-        continued = native.portfolio_report([[1]], [[0], [-1], [.5]], [[1]], 1, 2, 252)['strategies']['long_G1']
+        continued = native.portfolio_report(native.prepare_research([[1]], [[0], [-1], [.5]], [[1]]), 1, 2, 252)['strategies']['long_G1']
         self.assertEqual(continued['returns'], [-1, None])
         self.assertEqual(continued['nav'], [0, None])
         self.assertIsNone(continued['cagr'])
 
     def test_fixed_book_metrics_survive_an_insolvent_compounded_portfolio(self):
-        short = native.portfolio_report([[1]], [[0], [2]], [[1]], 1, 1, 252)['strategies']['short_G1']
+        short = native.portfolio_report(native.prepare_research([[1]], [[0], [2]], [[1]]), 1, 1, 252)['strategies']['short_G1']
         self.assertIsNone(short['returns'][0])
         self.assertIsNone(short['nav'][0])
         self.assertIsNone(short['cagr'])
-        self.assertEqual(short['book_pnl_series'], [-2])
-        self.assertEqual(short['constant_book_pnl'], [-2])
-        self.assertEqual(short['brain_style']['returns'], -1008)
-        self.assertEqual(short['brain_style']['drawdown'], 4)
-        self.assertEqual(short['brain_style']['margin'], -2)
+        self.assertEqual(short['turnover_series'], [1])
+        brain = native.brain_summary([-2], short['turnover_series'], 252)
+        self.assertEqual(brain['returns'], -1008)
+        self.assertEqual(brain['drawdown'], 4)
+        self.assertEqual(brain['margin'], -2)
 
     def test_no_hindsight_reweighting_and_degenerate_alpha(self):
         factors = [[1, 2, 3]]
         returns = [[0, 0, 0], [.1, 0, None], [0, .2, .3]]
-        strategies = native.portfolio_report(factors, returns, [[1]*3], 1, 2, 252)['strategies']
+        strategies = native.portfolio_report(native.prepare_research(factors, returns, [[1]*3]), 1, 2, 252)['strategies']
         self.assertEqual(strategies['long_G1']['returns'], [None, None])
-        self.assertIsNone(strategies['long_G1']['period_returns'][0])
+        self.assertEqual(strategies['long_G1']['nav'], [None, None])
         self.assertIsNone(strategies['alpha']['brain_style']['margin'])
         self.assertEqual(strategies['alpha']['brain_style']['turnover'], .5)
         self.assertNotIn('inner_high_low', strategies)
-        flat = native.portfolio_report([[0, 0, 0]], [[0]*3]*2, [[1]*3], 3, 1, 252)['strategies']['alpha']
+        flat = native.portfolio_report(native.prepare_research([[0, 0, 0]], [[0]*3]*2, [[1]*3]), 3, 1, 252)['strategies']['alpha']
         self.assertEqual(flat['returns'][0], 0)
-        self.assertEqual(flat['positions'], [0])
+        self.assertEqual(flat['long_positions'], [0])
+        self.assertEqual(flat['short_positions'], [0])
         self.assertEqual(flat['nav'], [1])
         self.assertEqual(flat['brain_style']['turnover'], 0)
         self.assertEqual(flat['brain_style']['drawdown'], 0)
@@ -149,21 +150,20 @@ class DiagnosticsTests(unittest.TestCase):
     def test_decay_entry_lag_and_internal_missing_future(self):
         factors, members = [[1, 2, 3]], [[1]*3]
         returns = [[0, 0, 0], [.1, 0, -.1], [-.1, 0, .1]]
-        decay = native.ic_decay(factors, returns, members, 1, 3, 3)
+        decay = native.ic_decay(native.prepare_research(factors, returns, members), 1, 3, 3)
         self.assertAlmostEqual(decay[0]['rank_ic']['mean'], -1)
         self.assertAlmostEqual(decay[1]['rank_ic']['mean'], 1)
         self.assertEqual(decay[2]['rank_ic']['n'], 0)
         self.assertEqual([row['entry_lag'] for row in decay], [0, 1, 2])
         missing = [[0]*3, [.1, 0, -.1], [None, .2, -.1], [.2, -.2, .1], [0, .1, -.1]]
-        decay = native.ic_decay(factors, missing, members, 2, 2, 3)
+        decay = native.ic_decay(native.prepare_research(factors, missing, members), 2, 2, 3)
         self.assertEqual(decay[0]['ic']['n'], 0)
         self.assertEqual(decay[1]['ic']['n'], 1)
 
     def test_report_daily_months_and_invalid_options(self):
         dates = ['2024-01-30']
         return_dates = dates + ['2024-01-31', '2024-02-01', '2024-02-02']
-        result = build([[1]], [[0], [.1], [.2], [-.1]], [[1]], dates, return_dates,
-                       dict(groups=1, horizons=[1, 3, 20], decay_steps=2))
+        result = build(native.prepare_research([[1]], [[0], [.1], [.2], [-.1]], [[1]]), dates, return_dates, dict(groups=1, horizons=[1, 3, 20], decay_steps=2))
         self.assertEqual(result['version'], 3)
         self.assertEqual(set(result['horizons']), {'1', '3', '20'})
         self.assertEqual(result['horizons']['20']['ic']['n'], 0)

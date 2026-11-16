@@ -477,11 +477,15 @@ PyObject* evaluate_matrix(PyObject*, PyObject* args) {
                 else graph = std::make_unique<pool::graph::Graph>(scalar_spec, std::vector<std::string>{});
                 const auto first = worker * steps / workers, last = (worker + 1) * steps / workers;
                 std::size_t emitted = 0;
+                std::vector<std::size_t> previous_axis;
                 for (auto step = first; step < last; ++step) {
                     const auto source = chronological ? step : requested[step]; const auto& axis = axes[step];
-                    std::vector<std::string> selected; selected.reserve(axis.size());
-                    for (auto column : axis) selected.push_back(symbols[column]);
-                    if (program) program->set_symbols(std::move(selected)); else graph->set_symbols(std::move(selected));
+                    if (axis != previous_axis) {
+                        std::vector<std::string> selected; selected.reserve(axis.size());
+                        for (auto column : axis) selected.push_back(symbols[column]);
+                        if (program) program->set_symbols(std::move(selected)); else graph->set_symbols(std::move(selected));
+                        previous_axis = axis;
+                    }
                     std::vector<std::uint8_t> observed(axis.size()), source_missing(axis.size(), 0);
                     std::vector<std::vector<double>> columns(fields.size(), std::vector<double>(axis.size()));
                     for (std::size_t slot = 0; slot < axis.size(); ++slot) {

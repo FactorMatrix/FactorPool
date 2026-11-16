@@ -93,7 +93,8 @@ public class Tasks {
   Map<String,Object> complete(JsonNode body) {
     UUID id = UUID.fromString(body.path("task_id").asText());
     var result = body.path("result");
-    if (!result.isObject() || !result.has("metadata") || !result.has("summary") || !result.has("daily")
+    if (!result.isObject() || !result.path("metadata").isObject() || !result.path("summary").isObject()
+        || !result.path("diagnostics").isObject()
         || !result.path("metadata").path("value_count").isIntegralNumber()
         || !result.path("metadata").path("value_count").canConvertToLong()
         || result.path("metadata").path("value_count").asLong(-1)<0)

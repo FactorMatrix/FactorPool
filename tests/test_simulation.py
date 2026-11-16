@@ -7,6 +7,7 @@ from script_fixtures import result_values
 import tempfile
 import unittest
 from unittest.mock import patch
+from native_publication import publication_bits
 
 import numpy as np
 import _factorpool_native as native
@@ -141,9 +142,10 @@ class AlphaTargetTests(unittest.TestCase):
         self.assertIsNone(weights)
         before = native.prepare_research(factors, returns, members)
         after = native.prepare_research(factors, returns, members, weights)
-        self.assertEqual(native.analyze(before, None, 3, 3, 1), native.analyze(after, None, 3, 3, 1))
-        self.assertEqual(native.portfolio_report(before, None, None, 3, 1, 252),
-                         native.portfolio_report(after, None, None, 3, 1, 252))
+        self.assertEqual(publication_bits(native.analyze(before, 3, 3, 1)),
+                         publication_bits(native.analyze(after, 3, 3, 1)))
+        self.assertEqual(publication_bits(native.portfolio_report(before, 3, 1, 252)),
+                         publication_bits(native.portfolio_report(after, 3, 1, 252)))
 
     def test_none_market_and_truncation_change_actual_weights_without_relevering(self):
         factors = np.array([[1., 2, 3], [-3, 1, 2], [5, 5, 5], [0, 0, 0], [np.nan]*3])
@@ -215,7 +217,8 @@ if __name__ == "__main__":
         for supplied in ({}, dict(neutralization='NONE', truncation=.2),
                          dict(neutralization='NONE', truncation=.2, visualization=False)):
             config = dict(base=dict(start_date='2024-01-02', end_date='2024-01-04'),
-                          data=deepcopy(DATA), analysis=dict(groups=3, horizons=[1], decay_steps=1),
+                          data=deepcopy(DATA), analysis=dict(groups=3, horizons=[1], decay_steps=1,
+                              trace_dates=['2024-01-02', '2024-01-03']),
                           settings=supplied)
             source = template.replace('CONFIG', repr(config))
             with tempfile.TemporaryDirectory() as temporary, \
@@ -233,11 +236,21 @@ if __name__ == "__main__":
         self.assertFalse(reports[2]['metadata']['brain_settings']['visualization'])
         self.assertEqual(reports[1]['diagnostics']['horizons'], reports[2]['diagnostics']['horizons'])
         self.assertEqual(reports[0]['summary'], reports[1]['summary'])
-        self.assertEqual(reports[0]['daily'], reports[1]['daily'])
+        for report in reports:
+            self.assertNotIn('daily', report)
         original = reports[0]['diagnostics']['horizons']['1']['portfolios']
         changed = reports[1]['diagnostics']['horizons']['1']['portfolios']
         self.assertNotEqual(original['alpha']['returns'], changed['alpha']['returns'])
-        self.assertLessEqual(max(changed['alpha']['max_weight_series']), .2)
+        for trace in reports[1]['diagnostics']['horizons']['1']['alpha_trace']:
+            self.assertTrue(all(abs(row['target_weight']) <= .2 for row in trace['rows']))
+        for field in ('ic', 'rank_ic', 'series', 'decay'):
+            self.assertEqual(reports[0]['diagnostics']['horizons']['1'][field],
+                             reports[1]['diagnostics']['horizons']['1'][field])
+        for strategy in changed.values():
+            for field in ('positions', 'max_weight_series', 'period_returns',
+                          'period_turnover_series', 'constant_book_drawdown',
+                          'book_pnl_series', 'constant_book_pnl', 'long_positions', 'short_positions'):
+                self.assertNotIn(field, strategy)
         for name in original:
             if name != 'alpha':
                 self.assertEqual(original[name], changed[name])
@@ -251,20 +264,24 @@ class NativeTargetTests(unittest.TestCase):
         weights = np.array([[.2, 0, -.1], [.1, .1, 0]])
         before = native.prepare_research(factors, returns, members)
         after = native.prepare_research(factors, returns, members, weights)
-        self.assertEqual(native.analyze(before, None, 3, 3, 1), native.analyze(after, None, 3, 3, 1))
-        old = native.portfolio_report(before, None, None, 3, 1, 252)['strategies']
-        new = native.portfolio_report(after, None, None, 3, 1, 252)['strategies']
+        self.assertEqual(publication_bits(native.analyze(before, 3, 3, 1)),
+                         publication_bits(native.analyze(after, 3, 3, 1)))
+        old = native.portfolio_report(before, 3, 1, 252)['strategies']
+        new = native.portfolio_report(after, 3, 1, 252)['strategies']
         for name in old:
             if name != 'alpha':
                 self.assertEqual(old[name], new[name])
         alpha = new['alpha']
         np.testing.assert_allclose(alpha['returns'], [.04, .03], atol=1e-14)
         np.testing.assert_allclose(alpha['turnover_series'], [.3, .3], atol=1e-14)
-        np.testing.assert_allclose(alpha['max_weight_series'], [.2, .1], atol=1e-14)
-        self.assertEqual(alpha['positions'], [2, 2])
+        np.testing.assert_allclose(alpha['long_positions'], [1, 2])
+        np.testing.assert_allclose(alpha['short_positions'], [1, 0])
+        self.assertNotIn('max_weight_series', alpha)
+        self.assertNotIn('positions', alpha)
         self.assertNotEqual(alpha['returns'], old['alpha']['returns'])
         weights[:] = 100
-        self.assertEqual(native.portfolio_report(after, None, None, 3, 1, 252)['strategies'], new)
+        self.assertEqual(publication_bits(native.portfolio_report(after, 3, 1, 252)['strategies']),
+                         publication_bits(new))
         stats = native.performance_stats(alpha['returns'], alpha['turnover_series'], alpha['book_pnl_series'], 252)
         for key, value in stats.items():
             self.assertEqual(value, alpha[key])
@@ -278,7 +295,7 @@ class NativeTargetTests(unittest.TestCase):
                     native.prepare_research(factors, returns, members, weights)
         for weights, expected in (([[np.nan]*3], None), ([[0.]*3], 0)):
             prepared = native.prepare_research(factors, returns, members, weights)
-            alpha = native.portfolio_report(prepared, None, None, 3, 1, 252)['strategies']['alpha']
+            alpha = native.portfolio_report(prepared, 3, 1, 252)['strategies']['alpha']
             self.assertEqual(alpha['returns'][0], expected)
         with self.assertRaises(ValueError):
             native.performance_stats([.1], [1, 0], [.1], 252)
@@ -341,18 +358,21 @@ def partition_reference(returns, turnover, book):
     volatility = np.std(values, ddof=1)*np.sqrt(252)
     arithmetic = np.cumsum(book)
     book_peak = np.maximum.accumulate(np.r_[0., arithmetic])[1:]
+    book_sharpe = np.mean(book)/np.std(book, ddof=1)*np.sqrt(252)
+    book_return = float(np.mean(book)*504)
     return dict(n=len(values), missing=0, annual_return=float(np.mean(values)*252),
                 annual_volatility=float(volatility),
                 sharpe=float(np.mean(values)/np.std(values, ddof=1)*np.sqrt(252)),
                 cagr=float(np.prod(1+values)**(252/len(values))-1),
                 max_drawdown=float(np.min(nav/peaks-1)),
-                brain_style=dict(returns=float(np.mean(book)*504),
+                brain_style=dict(sharpe=float(book_sharpe),
+                                 fitness=float(book_sharpe*np.sqrt(abs(book_return)/max(np.mean(turnover), .125))),
+                                 returns=book_return,
                                  turnover=float(np.mean(turnover)),
                                  margin=float(np.sum(book)/np.sum(turnover)),
                                  drawdown=float(np.max(book_peak-arithmetic)*2)),
                 nav=nav.tolist(), drawdown_series=(nav/peaks-1).tolist(),
-                constant_book_pnl=arithmetic.tolist(),
-                constant_book_drawdown=((arithmetic-book_peak)*2).tolist())
+                constant_book_pnl=arithmetic.tolist())
 
 
 def partition_fixture():
@@ -360,7 +380,7 @@ def partition_fixture():
     returns, turnover = [.1, -.1, .2, -.2, .05], [1., .1, .2, .2, .1]
     alpha = partition_reference(returns, turnover, returns)
     alpha.update(returns=returns, turnover_series=turnover, book_pnl_series=returns.copy(),
-                 positions=[2]*5, max_weight_series=[.5]*5)
+                 long_positions=[2]*5, short_positions=[2]*5)
     opposite = [-value for value in returns]
     other = partition_reference(opposite, turnover, opposite)
     other.update(returns=opposite, turnover_series=turnover.copy(), book_pnl_series=opposite.copy())
@@ -386,22 +406,24 @@ class TestPeriodTests(unittest.TestCase):
         from factorpool.reporting.partition import add_test_period
         diagnostics = partition_fixture()
         before = deepcopy(diagnostics)
-        with patch.object(native, 'performance_stats', side_effect=AssertionError('Default period must reuse existing statistics')):
+        with patch.object(native, 'performance_stats', side_effect=AssertionError('Default period must reuse existing statistics')), \
+                patch.object(native, 'brain_summary', side_effect=AssertionError('No default-period recomputation')):
             add_test_period(diagnostics, 'P0Y0M', '2024-03-01', 252)
         horizon = diagnostics['horizons']['1']
         self.assertIsNone(diagnostics['test_period']['start'])
-        self.assertEqual(set(horizon['partitions']), {'all'})
-        self.assertEqual(horizon['partitions']['all']['count'], 5)
+        self.assertEqual(horizon['partitions'], {})
         self.assertEqual(horizon['portfolios'], before['horizons']['1']['portfolios'])
         self.assertEqual(horizon['series'], before['horizons']['1']['series'])
-        self.assertEqual(horizon['partitions']['all']['alpha']['brain_style'], horizon['portfolios']['alpha']['brain_style'])
-        self.assertNotIn('nav', horizon['partitions']['all']['alpha'])
 
     def test_train_test_statistics_match_independent_daily_math_without_changing_full_report(self):
         from factorpool.reporting.partition import add_test_period
         diagnostics = partition_fixture()
         before = deepcopy(diagnostics)
-        add_test_period(diagnostics, 'P2D', '2024-03-01', 252)
+        with patch.object(native, 'performance_stats', wraps=native.performance_stats) as performance, \
+                patch.object(native, 'brain_summary', wraps=native.brain_summary) as summary:
+            add_test_period(diagnostics, 'P2D', '2024-03-01', 252)
+        self.assertEqual(performance.call_count, 1, 'Only TRAIN needs full alpha curves')
+        self.assertEqual(summary.call_count, 1, 'TEST needs the six-metric reduction only')
         self.assertEqual(diagnostics['test_period']['start'], '2024-02-29')
         horizon = diagnostics['horizons']['1']
         for key, value in before['horizons']['1'].items():
@@ -418,23 +440,24 @@ class TestPeriodTests(unittest.TestCase):
         for name, index in (('train', slice(0, 2)), ('test', slice(2, 4))):
             expected = partition_reference(alpha['returns'][index], alpha['turnover_series'][index], alpha['book_pnl_series'][index])
             actual = sections[name]['alpha']
+            self.assertNotIn('portfolios', sections[name])
+            for key in ('sharpe', 'fitness', 'returns', 'turnover', 'margin', 'drawdown'):
+                self.assertAlmostEqual(actual['brain_style'][key], expected['brain_style'][key], places=10)
+            self.assertEqual(sections[name]['dates'], horizon['portfolio_dates'][index])
+            if name == 'test':
+                self.assertEqual(set(actual), {'brain_style'})
+                continue
             for key in ('annual_return', 'annual_volatility', 'sharpe', 'cagr', 'max_drawdown'):
                 self.assertAlmostEqual(actual[key], expected[key], places=10)
-            for key in ('returns', 'turnover', 'margin', 'drawdown'):
-                self.assertAlmostEqual(actual['brain_style'][key], expected['brain_style'][key], places=10)
             self.assertEqual(actual['n'], expected['n'])
-            self.assertEqual(sections[name]['dates'], horizon['portfolio_dates'][index])
-            for key in ('nav', 'drawdown_series', 'constant_book_pnl', 'constant_book_drawdown'):
+            for key in ('nav', 'drawdown_series', 'constant_book_pnl'):
                 np.testing.assert_allclose(actual[key], expected[key], atol=2e-14)
-            for key in ('returns', 'turnover_series', 'book_pnl_series', 'positions', 'max_weight_series'):
+            for key in ('returns', 'turnover_series', 'book_pnl_series', 'long_positions', 'short_positions'):
                 self.assertEqual(actual[key], alpha[key][index])
-            other = sections[name]['portfolios']['long_G1']
-            self.assertEqual(other['returns'], horizon['portfolios']['long_G1']['returns'][index])
-            self.assertEqual(len(other['nav']), sections[name]['count'])
+            for key in ('positions', 'max_weight_series', 'period_returns', 'constant_book_drawdown'):
+                self.assertNotIn(key, actual)
         np.testing.assert_allclose([row['value'] for row in sections['train']['alpha']['monthly']], [-.01], atol=1e-14)
-        np.testing.assert_allclose([row['value'] for row in sections['test']['alpha']['monthly']], [.2, -.2], atol=1e-14)
-        self.assertEqual([row['period'] for row in sections['test']['alpha']['monthly']], ['2024-02', '2024-03'])
-        self.assertAlmostEqual(sections['test']['alpha']['yearly'][0]['value'], -.04)
+        self.assertAlmostEqual(sections['train']['alpha']['yearly'][0]['value'], -.01)
         empty = partition_fixture()
         add_test_period(empty, 'P10Y', '2024-03-01', 252)
         train = empty['horizons']['1']['partitions']['train']
@@ -461,10 +484,11 @@ class TestPeriodTests(unittest.TestCase):
         self.assertEqual(test['dates'], ['2024-03-01'])
         self.assertEqual((train['count'], test['count']), (2, 1))
         self.assertEqual((train['outside_window_count'], test['outside_window_count']), (2, 2))
-        self.assertEqual(test['alpha']['returns'], [-.2])
-        np.testing.assert_allclose(test['alpha']['nav'], [.8], atol=1e-14)
+        self.assertEqual(set(test['alpha']), {'brain_style'})
+        self.assertAlmostEqual(test['alpha']['brain_style']['returns'], -.2*504)
+        self.assertAlmostEqual(test['alpha']['brain_style']['drawdown'], .4)
         np.testing.assert_allclose(train['alpha']['nav'], np.cumprod([.9, 1.2]), atol=1e-14)
-        self.assertEqual(test['portfolios']['long_G1']['returns'], [.2])
-        self.assertEqual(train['portfolios']['long_G1']['returns'], [.1, -.2])
+        self.assertNotIn('portfolios', test)
+        self.assertNotIn('portfolios', train)
         self.assertEqual(len(horizon['portfolios']['alpha']['nav']), 5)
         self.assertEqual(horizon['portfolio_dates'][-1], '2024-03-04')

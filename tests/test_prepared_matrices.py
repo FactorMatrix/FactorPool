@@ -145,6 +145,36 @@ class PreparedMatricesTests(unittest.TestCase):
             tile[0, 0] = 999
         self.assert_block(self.snapshot['blocks'][0])
 
+    def test_fast_narrow_read_owns_only_the_requested_tile_bytes(self):
+        self.prepare()
+        fast = PreparedMatrices(self.root, verify_reads=False)
+        first = self.snapshot['blocks'][0]
+        requests = [('return', 0), ('return', 4), (PRESENT_FIELD, 2)]
+        with patch('services.data_service.prepared_matrices.np.array', wraps=np.array) as copies:
+            found = fast.tiles(self.snapshot, first, requests)
+        self.assertEqual(set(found), set(requests))
+        copied_bytes = sum(call.args[0].nbytes for call in copies.call_args_list)
+        self.assertEqual(copied_bytes, sum(tile.nbytes for tile in found.values()))
+        self.assertEqual(copies.call_count, len(requests))
+        for (field, column), tile in found.items():
+            self.assertTrue(tile.flags.owndata)
+            self.assertTrue(tile.flags.c_contiguous)
+            self.assertFalse(tile.flags.writeable)
+            expected = expected_field(self.source.matrix, field)[:first['row_count'], column:column+2]
+            np.testing.assert_array_equal(tile, expected)
+
+    def test_fast_runtime_mode_still_rejects_corruption_at_startup(self):
+        self.prepare()
+        fast = PreparedMatrices(self.root, verify_reads=False)
+        path = self.root/self.snapshot['snapshot_id']/'return.npy'
+        values = np.load(path, mmap_mode='r+')
+        values[0, 0] += 123
+        values.flush()
+        del values
+        fast.validate(self.snapshot)
+        self.assertEqual(fast.tiles(self.snapshot, self.snapshot['blocks'][0], [('return', 0)]), {})
+        self.assertIn(self.snapshot['snapshot_id'], fast._unavailable)
+
     def test_partial_date_window_and_extension_preserve_exact_old_coverage(self):
         self.prepare(start=self.snapshot['dates'][1], end=self.snapshot['dates'][4])
         self.assertEqual(self.source.reads, [0, 3])

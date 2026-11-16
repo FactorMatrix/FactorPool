@@ -5,6 +5,7 @@ import unittest
 import numpy as np
 from scipy.stats import rankdata
 import _factorpool_native as native
+from native_publication import publication_bits
 from factorpool.reporting.diagnostics import build
 
 
@@ -48,7 +49,7 @@ class SignalSamplingTests(unittest.TestCase):
         for h in (1, 2, 5):
             with self.subTest(horizon=h):
                 expected = expected_ic(factors, returns, members, h, h)
-                result = native.analyze(prepared, None, 3, 3, 1, None, h, h)
+                result = native.analyze(prepared, 3, 3, 1, h, h)
                 series = native.ic_series(prepared, h, 3, h)
                 self.assert_series([day['ic'] for day in result['daily']], expected[0])
                 self.assert_series(series['ic'], expected[0])
@@ -56,7 +57,7 @@ class SignalSamplingTests(unittest.TestCase):
                 self.assertEqual(len(result['groups']), len(range(0, len(factors), h)))
                 for row, t in zip(result['forward_returns'], range(0, len(factors), h)):
                     self.assert_series(row, np.prod(1 + returns[t + 1:t + h + 1], axis=0) - 1)
-                decay = native.ic_decay(prepared, None, None, h, 4, 3, h)
+                decay = native.ic_decay(prepared, h, 4, 3, h)
                 for k, item in enumerate(decay):
                     expected = expected_ic(factors, returns, members, h, h, k * h)
                     self.assertEqual(item['entry_lag'], k * h)
@@ -77,10 +78,9 @@ class SignalSamplingTests(unittest.TestCase):
         factors, returns, members, dates, price_dates = fixture()
         prepared = native.prepare_research(factors, returns, members)
         analysis = dict(groups=3, horizons=[1, 2, 5], decay_steps=3)
-        primary = native.analyze(prepared, None, 3, 3, 1)
-        daily = build(prepared, None, None, dates, price_dates, analysis, primary=primary)
-        sampled = build(prepared, None, None, dates, price_dates, analysis,
-                        primary=primary, rebalance_only=True)
+        primary = native.analyze(prepared, 3, 3, 1)
+        daily = build(prepared, dates, price_dates, analysis, primary=primary)
+        sampled = build(prepared, dates, price_dates, analysis, primary=primary, rebalance_only=True)
         for h in (1, 2, 5):
             before, after = daily['horizons'][str(h)], sampled['horizons'][str(h)]
             self.assertEqual(after['dates'], dates[::h])
@@ -93,7 +93,8 @@ class SignalSamplingTests(unittest.TestCase):
             values = np.asarray(after['series']['ic'], dtype=float)
             hac = np.mean(values) / np.sqrt(np.var(values) / len(values))
             self.assert_series([after['ic']['t_hac']], [hac])
-            self.assertEqual(sum(item['n'] + item['missing'] for item in after['monthly']['ic']), len(dates[::h]))
+            self.assertTrue(all(set(item) == {'period', 'mean'} for item in after['monthly']['ic']))
+            self.assertEqual([item['period'] for item in after['monthly']['ic']], sorted({day[:7] for day in dates[::h]}))
 
     def test_only_rebalance_union_needs_factor_values(self):
         factors, returns, members, dates, price_dates = fixture()
@@ -101,24 +102,22 @@ class SignalSamplingTests(unittest.TestCase):
         selected = sorted(set(range(0, len(factors), 2)) | set(range(0, len(factors), 5)))
         sparse = np.full_like(factors, np.nan)
         sparse[selected] = factors[selected]
-        dense_report = build(factors, returns, members, dates, price_dates, analysis,
-                             rebalance_only=True)
-        sparse_report = build(sparse, returns, members, dates, price_dates, analysis,
-                              rebalance_only=True)
+        dense_report = build(native.prepare_research(factors, returns, members), dates, price_dates, analysis, rebalance_only=True)
+        sparse_report = build(native.prepare_research(sparse, returns, members), dates, price_dates, analysis, rebalance_only=True)
         self.assertEqual(sparse_report, dense_report)
 
-    def test_default_stride_is_compatible_and_invalid_stride_is_rejected(self):
+    def test_default_stride_matches_explicit_daily_and_invalid_stride_is_rejected(self):
         factors, returns, members, _, _ = fixture()
         prepared = native.prepare_research(factors, returns, members)
-        self.assertEqual(native.analyze(prepared, None, 3, 3, 1),
-                         native.analyze(prepared, None, 3, 3, 1, None, 1, 1))
+        self.assertEqual(publication_bits(native.analyze(prepared, 3, 3, 1)),
+                         publication_bits(native.analyze(prepared, 3, 3, 1, 1, 1)))
         self.assertEqual(native.ic_series(prepared, 2, 3), native.ic_series(prepared, 2, 3, 1))
-        self.assertEqual(native.ic_decay(prepared, None, None, 2, 3, 3),
-                         native.ic_decay(prepared, None, None, 2, 3, 3, 1))
+        self.assertEqual(native.ic_decay(prepared, 2, 3, 3),
+                         native.ic_decay(prepared, 2, 3, 3, 1))
         for stride in (0, -1):
-            for call in (lambda: native.analyze(prepared, None, 3, 3, 1, None, 1, stride),
+            for call in (lambda: native.analyze(prepared, 3, 3, 1, 1, stride),
                          lambda: native.ic_series(prepared, 2, 3, stride),
-                         lambda: native.ic_decay(prepared, None, None, 2, 3, 3, stride)):
+                         lambda: native.ic_decay(prepared, 2, 3, 3, stride)):
                 with self.assertRaises(ValueError):
                     call()
 

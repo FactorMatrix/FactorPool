@@ -5,6 +5,7 @@ import {createRequire} from 'node:module'
 import {writeFile,readFile} from 'node:fs/promises'
 import {createHash} from 'node:crypto'
 import {fixtureScript,setSource} from './browser-script-utils.mjs'
+import {reportSection} from './browser-result-utils.mjs'
 const base=process.env.FACTORPOOL_URL
 if(!base?.trim())throw new Error('FACTORPOOL_URL must name an isolated frontend')
 const output=process.env.FACTORPOOL_BROWSER_OUTPUT||'/tmp'
@@ -46,7 +47,8 @@ await page.route('**/api/**',async route=>{
  assert.equal(r.method(),'GET',`Unexpected mutation in layout suite: ${r.method()} ${path}`)
  let body=[]
  if(path==='/api/tasks/layout-mock')body=task
- else if(path==='/api/tasks/layout-mock/result')body=result
+ else if(path==='/api/tasks/layout-mock/result')body=reportSection(result)
+ else if(path.startsWith('/api/tasks/layout-mock/result/'))body=reportSection(result,path.split('/').at(-1))
  else if(path==='/api/tasks/layout-mock/logs')body={text:'mock log'}
  await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(body)})
 })
@@ -211,7 +213,8 @@ try{
   else if(path==='/api/data-sources')body=[{id:'market_matrix',name:'测试行情源',available:true,snapshot:{id:latestSnapshot,symbol_count:5413}}]
   else if(path==='/api/simulation-settings')body=catalog
   else if(path==='/api/tasks/market-save-mock')body=pinnedTask
-  else if(path==='/api/tasks/market-save-mock/result')body=pinnedReport
+  else if(path==='/api/tasks/market-save-mock/result')body=reportSection(pinnedReport)
+  else if(path.startsWith('/api/tasks/market-save-mock/result/'))body=reportSection(pinnedReport,path.split('/').at(-1))
   else if(path==='/api/factors'&&request.method()==='GET')body=savedRecord?[savedRecord]:[]
   else if(path==='/api/factors'&&request.method()==='POST'){
    savedBody=request.postDataJSON();savedRecord={id:'11111111-1111-4111-8111-111111111111',version_id:'22222222-2222-4222-8222-222222222222',version:1,version_at:'2026-11-16T00:00:09Z',name:savedBody.name,source_hash:savedHash}

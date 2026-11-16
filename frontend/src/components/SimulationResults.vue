@@ -12,8 +12,9 @@ const props = defineProps({
   busy: Boolean, running: Boolean, submitting: Boolean, reportLoading: Boolean,
   reportError: String, valuesLoading: Boolean, valuesError: String, states: Object,
   savedFactor: Object,
+  resultSections: Object, sectionLoading: Object, sectionErrors: Object,
 });
-const emit = defineEmits(["load-snapshot", "page", "retry-report", "load-values", "load-logs", "save-factor"]);
+const emit = defineEmits(["load-snapshot", "page", "retry-report", "load-values", "load-section", "logs-visible", "export-result", "save-factor"]);
 const core = [
   ["chart", "chart", "Chart"], ["summary", "bars", "Summary"],
   ["correlation", "scatter", "Correlation"], ["testing", "check", "Testing Status"],
@@ -49,13 +50,14 @@ const annualRows = computed(() => hasTest.value && !showTest.value
   ? selected.value?.partitions?.train?.alpha?.yearly_stats : fullAlpha.value?.yearly_stats);
 const summaryTitle = computed(() => partition.value === "train" ? "Train Summary" : partition.value === "test" ? "Test Summary" : "IS Summary");
 const summaryDates = computed(() => partition.value === "all" ? selected.value?.portfolio_dates : selected.value?.partitions?.[partition.value]?.dates);
-const researchReport = computed(() => props.result?.diagnostics
-  ? { ...props.result.diagnostics, horizons: { "1": selected.value } } : null);
+const sectionReport = key => props.resultSections?.[key];
+const researchReport = key => sectionReport(key)?.diagnostics;
+const traceData = computed(() => researchReport("trace")?.horizons?.["1"]);
 const visualization = computed(() => props.result?.metadata?.brain_settings?.visualization);
 const hasSharpe = computed(() => Array.isArray(chartAlpha.value?.sharpe_series)
   && chartAlpha.value.sharpe_series.length === chartData.value?.portfolio_dates?.length
   && chartAlpha.value.sharpe_series.some(Number.isFinite));
-const summary = computed(() => props.result?.summary || {});
+const summary = computed(() => sectionReport("ic")?.summary || {});
 const num = x => x == null || !Number.isFinite(Number(x)) ? "—" : Number(x).toFixed(4);
 const pct = x => x == null || !Number.isFinite(Number(x)) ? "—" : (Number(x) * 100).toFixed(2) + "%";
 const bookLabel = computed(() => chartAlpha.value?.pnl
@@ -115,10 +117,17 @@ function toggleExtension(key, event) {
     if (isOpen) next.add(key); else next.delete(key);
     opened.value = next;
   }
-  if (isOpen && key === "values" && props.result) emit("load-values");
-  if (isOpen && key === "logs") emit("load-logs");
   scheduleActive();
 }
+function loadExtension(key) {
+  if (!props.result) return;
+  if (key === "values") emit("load-values");
+  else if (["ic", "groups", "trace", "source"].includes(key)) emit("load-section", key);
+}
+watch(opened, (next, previous) => {
+  for (const key of next) if (!previous.has(key)) loadExtension(key);
+  if (next.has("logs") !== previous.has("logs")) emit("logs-visible", next.has("logs"));
+});
 const pendingOrder = ref([]), preferenceMessage = ref("");
 let dragged;
 function openMenu() { pendingOrder.value = [...order.value]; preferenceMessage.value = ""; menu.value.showModal(); }
@@ -150,16 +159,10 @@ watch(() => props.task?.id, async () => {
 });
 watch(() => props.result, () => {
   showTest.value = false; partition.value = hasTest.value ? "train" : "all";
-  if (props.result && opened.value.has("values")) emit("load-values");
+  if (props.result) for (const key of opened.value) loadExtension(key);
   nextTick(scheduleActive);
 }, { immediate: true });
 watch(hasSharpe, available => { if (!available && chartMode.value === "sharpe") chartMode.value = "pnl"; });
-function exportResult() {
-  const blob = new Blob([JSON.stringify({ task: props.task, result: props.result }, null, 2)], { type: "application/json" });
-  const url = URL.createObjectURL(blob), link = document.createElement("a");
-  link.href = url; link.download = `factorpool-${props.task.id}.json`; link.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
 </script>
 <template>
   <div class="results-workspace">
@@ -224,12 +227,14 @@ function exportResult() {
         name="factorpool-research" :data-result-section="key" :open="opened.has(key)" tabindex="-1" @toggle="toggleExtension(key, $event)">
         <summary><UiIcon :name="icon" :size="16" />{{ label }}</summary>
         <template v-if="opened.has(key)">
-          <template v-if="['ic','groups'].includes(key) && supportedReport && selected">
+          <p v-if="sectionLoading?.[key]" class="report-note" role="status">正在加载 {{ label }}…</p>
+          <div v-else-if="sectionErrors?.[key]" class="report-load-error"><p role="alert">{{ sectionErrors[key] }}</p><button :aria-label="`重试 ${label}`" @click="emit('load-section', key)">重试 {{ label }}</button></div>
+          <template v-else-if="['ic','groups'].includes(key) && supportedReport && researchReport(key)?.horizons?.['1']">
             <p class="report-note">完整研究区间 · 仅 1D；不随 Summary 汇总选区变化。</p>
             <div v-if="key === 'ic'" class="metrics factor-metrics" aria-label="一期因子统计"><div v-for="[title,value] in [['1D IC',num(summary.ic_mean)],['1D Rank IC',num(summary.rank_ic_mean)],['1D ICIR',num(summary.icir)],['Coverage',pct(summary.coverage)]]" :key="title"><span>{{ title }}</span><strong>{{ value }}</strong></div></div>
-            <FactorDiagnostics :report="researchReport" :initial-section="key === 'groups' ? 'portfolio' : 'ic'" />
+            <FactorDiagnostics :report="researchReport(key)" :initial-section="key === 'groups' ? 'portfolio' : 'ic'" />
           </template>
-          <AlphaTrace v-else-if="key === 'trace' && supportedReport && selected" :data="selected" :constraints="result.diagnostics?.alpha_constraints" />
+          <AlphaTrace v-else-if="key === 'trace' && supportedReport && traceData" :data="traceData" :constraints="researchReport('trace')?.alpha_constraints" />
           <section v-else-if="key === 'values' && result" class="factor-values">
             <div class="section-title"><span>Factor Values</span><small>{{ result.metadata.value_count }} rows</small></div>
             <p v-if="valuesLoading" class="report-note" role="status">正在加载因子值…</p>
@@ -238,12 +243,12 @@ function exportResult() {
             <div class="pagination"><button :disabled="offset === 0 || busy || valuesLoading" @click="emit('page', -100)">上一页</button><span>{{ values.length ? offset + 1 : 0 }}–{{ offset + values.length }}</span><button :disabled="offset + values.length >= result.metadata.value_count || busy || valuesLoading" @click="emit('page', 100)">下一页</button></div>
           </section>
           <section v-else-if="key === 'logs'" class="simulation-logs"><div class="section-title">Task Logs</div><pre>{{ logs || '暂无日志' }}</pre></section>
-          <section v-else-if="key === 'source'" class="source-inspector"><div class="section-title"><span>Source snapshot</span><button :disabled="busy || !task?.snapshot?.source_code" @click="emit('load-snapshot')"><UiIcon name="clone" />载入为新模拟</button></div><pre>{{ task?.snapshot?.source_code || '运行后可查看提交时的源码快照' }}</pre><details v-if="result"><summary>参数与复现信息</summary><pre>{{ JSON.stringify({ parameters: task.snapshot, metadata: result.metadata }, null, 2) }}</pre></details></section>
+          <section v-else-if="key === 'source'" class="source-inspector"><div class="section-title"><span>Source snapshot</span><button :disabled="busy || !task?.snapshot?.source_code" @click="emit('load-snapshot')"><UiIcon name="clone" />载入为新模拟</button></div><pre>{{ task?.snapshot?.source_code || '运行后可查看提交时的源码快照' }}</pre><details v-if="sectionReport('source')"><summary>参数与复现信息</summary><pre>{{ JSON.stringify({ parameters: task.snapshot, metadata: sectionReport('source').metadata }, null, 2) }}</pre></details></section>
           <p v-else class="report-note">报告完成后可查看此研究区块。</p>
         </template>
       </details>
     </section>
-    <div class="results-actions"><span class="badge" :class="statusClass">{{ statusText }}</span><button :disabled="!result" @click="exportResult"><UiIcon name="download" />Export Results</button></div>
+    <div class="results-actions"><span class="badge" :class="statusClass">{{ statusText }}</span><p v-if="sectionErrors?.export" class="export-error" role="alert">{{ sectionErrors.export }}</p><span v-if="sectionLoading?.export" role="status">正在准备完整导出…</span><button :disabled="!result || sectionLoading?.export" @click="emit('export-result')"><UiIcon name="download" />{{ sectionErrors?.export ? 'Retry Export Results' : 'Export Results' }}</button></div>
     <dialog ref="menu" class="results-menu" aria-labelledby="results-menu-title">
       <h2 id="results-menu-title">Customize Results Menu</h2><p>拖动或使用上下按钮排序；Apply 后保存到当前浏览器。</p>
       <ol><li v-for="(key,index) in pendingOrder" :key="key" draggable="true" @dragstart="dragged = key; $event.dataTransfer.setData('text/plain', key)" @dragover.prevent @drop.prevent="drop(key)"><span>{{ core.find(section => section[0] === key)[2] }}</span><button :disabled="index === 0" :aria-label="`上移 ${core.find(section => section[0] === key)[2]}`" @click="move(key,index-1)">↑</button><button :disabled="index === pendingOrder.length-1" :aria-label="`下移 ${core.find(section => section[0] === key)[2]}`" @click="move(key,index+1)">↓</button></li></ol>

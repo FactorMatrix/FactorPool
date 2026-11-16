@@ -25,7 +25,7 @@ def main():
         started = time.perf_counter()
         prepared = native.prepare_research(data[0], data[1], data[2])
         checkpoint = time.perf_counter()
-        result = {h: native.portfolio_report(prepared, None, None, 5, h, 252)
+        result = {h: native.portfolio_report(prepared, 5, h, 252)
                   for h in (1, 5, 20)}
         finished = time.perf_counter()
         samples.append(dict(prepare_seconds=checkpoint-started,

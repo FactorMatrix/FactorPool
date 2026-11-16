@@ -45,7 +45,7 @@ def run(config, body, label):
     code = source(config, body)
     task = api('/tasks', dict(name=label, source_code=code))['id']
     row = wait(task)
-    report = api('/tasks/'+task+'/result')
+    report = api('/tasks/'+task+'/result/export')
     values = api('/tasks/'+task+'/values?limit=1000')
     assert row['snapshot']['source_code'] == code and row['snapshot']['source_config'] == config
     assert report['metadata']['source_sha256'] == hashlib.sha256(code.encode()).hexdigest()

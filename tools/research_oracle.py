@@ -20,8 +20,8 @@ for kind in ('dense', 'sparse'):
             analysis = dict(groups=groups, horizons=[1, 2, 5, 20, 252], decay_steps=3,
                             icir_ddof=ddof, min_ic_pairs=3)
             prepared = native.prepare_research(factors, returns, members)
-            primary = native.analyze(prepared, None, groups, 3, ddof)
-            report = build(prepared, None, None, dates, return_dates, analysis, primary=primary)
+            primary = native.analyze(prepared, groups, 3, ddof)
+            report = build(prepared, dates, return_dates, analysis, primary=primary)
             assert report['version'] == 3, 'Use a returns-matrix-v3 image'
             out[f'{kind}-G{groups}-ddof{ddof}'] = result_hash(dict(primary=primary, diagnostics=report))
 for name, factors, returns, members in [
@@ -30,9 +30,10 @@ for name, factors, returns, members in [
     ('overflow', [[1., 2., 3.]], [[0.]*3, [1e308]*3, [1e308]*3], [[1.]*3]),
     ('underflow', [[0., 0., 0.]], [[0.]*3, [-1.+1e-15]*3, [-1.+1e-15]*3], [[1.]*3]),
 ]:
-    result = dict(primary=native.analyze(factors, returns, 3, 3, 1, members, 2),
-                  portfolios=native.portfolio_report(factors, returns, members, 3, 2, 252),
-                  decay=native.ic_decay(factors, returns, members, 2, 3, 3))
+    prepared = native.prepare_research(factors, returns, members)
+    result = dict(primary=native.analyze(prepared, 3, 3, 1, 2),
+                  portfolios=native.portfolio_report(prepared, 3, 2, 252),
+                  decay=native.ic_decay(prepared, 2, 3, 3))
     out[name] = result_hash(result)
 import sys
 Path('/bench/output/'+sys.argv[1]+'.json').write_text(json.dumps(out, indent=2)+'\n')

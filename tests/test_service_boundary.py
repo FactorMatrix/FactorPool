@@ -101,7 +101,7 @@ class RunnerProcess(ProcessManager):
                 "(d/'values-ready.tmp.json').write_text(json.dumps(marker)); "
                 "(d/'values-ready.tmp.json').replace(d/'values-ready.json'); "
                 "(d/'result.json').write_text(json.dumps({'metadata':{'value_count':info['count'],"
-                "'value_artifact':info},'summary':{},'daily':[]}))")
+                "'value_artifact':info},'summary':{},'diagnostics':{}}))")
         return super().run(directory, timeout, **controls, command=[sys.executable, "-u", "-c", code])
 
 

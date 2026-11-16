@@ -91,9 +91,8 @@ class DataClient:
             raise ValueError('Market reads require a current field-blocks-v1 snapshot')
         return found
 
-    def _tiles(self, metadata, requests):
+    def _tiles(self, metadata, requests, axes):
         """One bounded batch; invalid cache entries become authoritative misses."""
-        axes = axis_digest(metadata)
         keys = [tile_key(metadata, block, field, start) for block, field, start in requests]
         cached = self._redis("mget", keys) if keys else []
         if cached is None:
@@ -141,6 +140,7 @@ class DataClient:
         if (type(initial) is not int or type(stop) is not int
                 or not 0 <= initial <= stop <= len(metadata["dates"])):
             raise ValueError("Invalid requested market date bounds")
+        axes = axis_digest(metadata)
         for block in metadata["blocks"]:
             if not block["start_index"] < stop or block["start_index"] + block["row_count"] <= initial:
                 continue
@@ -159,7 +159,7 @@ class DataClient:
                       for field in fields}
             batch, size = [], 0
             def consume(batch):
-                arrays = self._tiles(metadata, batch)
+                arrays = self._tiles(metadata, batch, axes)
                 for descriptor, field, start in batch:
                     target, origin = locations[start]
                     result[field][:, target] = arrays[tile_key(metadata, descriptor, field, start)][:, origin]

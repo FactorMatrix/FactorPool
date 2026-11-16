@@ -132,7 +132,9 @@ class PreparedMatrices:
                 mapped = mmap.mmap(source.fileno(), 0, access=mmap.ACCESS_READ)
                 values = np.ndarray(shape, dtype=dtype, buffer=mapped, offset=source.tell())
                 start, count = block["start_index"], block["row_count"]
-                section = np.array(values[start:start+count], copy=True, order="C")
+                section = values[start:start+count]
+                if verify or starts is None:
+                    section = np.array(section, copy=True, order="C")
                 if verify and hashlib.sha256(memoryview(section)).hexdigest() != record["sha256"]:
                     raise ValueError("Prepared field block checksum mismatch")
                 if verify and dtype == np.dtype('|u1') and np.any(section > 1):

@@ -10,6 +10,35 @@ import urllib.error
 import urllib.request
 
 
+REPORT_SECTIONS = ('', '/ic', '/groups', '/trace', '/source', '/export')
+
+
+def report_fixture(count):
+    """Current immutable publication shape; no retired top-level daily payload."""
+    day = '2024-01-02'
+    brain = dict(sharpe=None,turnover=0.,fitness=None,returns=0.,drawdown=0.,margin=None)
+    alpha = dict(brain_style=brain,pnl=dict(book_size=1,unit='BOOK',cumulative=[0.]),
+                 nav=[1.],drawdown_series=[0.],returns=[0.],turnover_series=[0.],
+                 monthly=[dict(period='2024-01',value=0.)],yearly=[dict(period='2024',value=0.)],
+                 yearly_stats=[dict(year='2024',start=day,end=day,days=1,**brain,long_count=0,short_count=0)],
+                 n=1,annual_return=0.,cagr=0.,annual_volatility=None,sharpe=None,max_drawdown=0.,win_rate=0.,payoff_ratio=None)
+    ic = dict(mean=0.,std=None,ir=None,positive_ratio=0.,skewness=None,excess_kurtosis=None,
+              t_iid=None,p_iid=None,t_hac=None,p_hac=None,n=1)
+    horizon = dict(horizon=1,dates=[day],portfolio_dates=[day],portfolios=dict(alpha=alpha,high_low=alpha),
+                   partitions={},ic=ic,rank_ic=ic,series=dict(ic=[0.],rank_ic=[0.],ic_rolling30=[0.],
+                   rank_ic_rolling30=[0.],ic_cumulative=[0.],rank_ic_cumulative=[0.]),
+                   monthly=dict(ic=[dict(period='2024-01',mean=0.)],rank_ic=[dict(period='2024-01',mean=0.)]),
+                   yearly=dict(ic=[dict(period='2024',mean=0.)],rank_ic=[dict(period='2024',mean=0.)]),decay=[],
+                   alpha_trace=[],trace_status=dict(not_rebalance_dates=[],no_future_dates=[]),pnl_book=dict(size=1,unit='BOOK'))
+    return dict(metadata=dict(report_version=3,value_count=count,source_sha256='0'*64,
+                              brain_settings=dict(visualization=True),synthetic=True,reproduction_marker='full-source-metadata'),
+                summary=dict(ic_mean=0.,rank_ic_mean=0.,icir=None,coverage=1.),
+                diagnostics=dict(version=3,test_period=dict(start=None),horizons={'1':horizon},
+                    conventions=dict(annual_days=252,brain_settings=dict(visualization=True),missing_datasets={}),
+                    alpha_constraints=dict(truncation=0.,daily=[dict(date=day,full_gross_feasible=False,
+                        target_gross=0.,unallocated_gross=1.,valid_count=0,capacity=0.)])))
+
+
 def write_values(path, count=0):
     import numpy as np
     from factorpool.result_matrix import write_result_matrix
@@ -63,6 +92,58 @@ class ServiceIntegrationTests(unittest.TestCase):
             self.leases.append(value)
         return value
 
+    def assert_reports_status(self, task_id, expected):
+        for section in REPORT_SECTIONS:
+            with self.subTest(report_section=section or 'core'):
+                self.assertEqual(self.http(f'/api/tasks/{task_id}/result{section}')[0], expected)
+
+    def assert_published_report_contract(self, task_id, expected=None):
+        code, core = self.http(f'/api/tasks/{task_id}/result')
+        self.assertEqual(code, 200, core)
+        code, complete = self.http(f'/api/tasks/{task_id}/result/export')
+        self.assertEqual(code, 200, complete)
+        if expected is not None:
+            self.assertEqual(complete, expected, 'Export must be the exact immutable publication')
+        self.assertEqual(set(core), {'metadata','diagnostics'})
+        self.assertNotIn('daily', complete)
+        self.assertEqual(set(core['diagnostics']['horizons']), {'1'})
+        self.assertLessEqual(len(json.dumps(core).encode()), 300000)
+        self.assertLess(len(json.dumps(core)), len(json.dumps(complete)))
+        self.assertEqual(core['metadata'], {key:complete['metadata'][key] for key in
+            ('report_version','brain_settings','source_sha256','snapshot_id','synthetic','value_count')
+            if key in complete['metadata']})
+        h1 = core['diagnostics']['horizons']['1']
+        original = complete['diagnostics']['horizons']['1']
+        self.assertEqual(set(h1['portfolios']), {'alpha'})
+        self.assertEqual(h1['portfolios']['alpha']['brain_style'], original['portfolios']['alpha']['brain_style'])
+        self.assertEqual(h1['portfolios']['alpha']['pnl'], original['portfolios']['alpha']['pnl'])
+        self.assertNotIn('ic',h1)
+        self.assertNotIn('alpha_trace',h1)
+        for section in REPORT_SECTIONS[1:-1]:
+            code, research = self.http(f'/api/tasks/{task_id}/result{section}')
+            self.assertEqual(code, 200, research)
+            self.assertEqual(research['metadata']['report_version'], complete['metadata']['report_version'])
+            if section == '/source':
+                self.assertEqual(research, dict(metadata=complete['metadata']))
+                continue
+            current = research['diagnostics']['horizons']['1']
+            if section == '/ic':
+                self.assertEqual(research['summary'], {key:complete['summary'][key] for key in
+                    ('ic_mean','rank_ic_mean','icir','coverage')})
+                self.assertEqual(current['ic']['mean'], original['ic']['mean'])
+                self.assertNotIn('portfolios', current)
+            elif section == '/groups':
+                self.assertEqual(set(current['portfolios']), set(original['portfolios']))
+                for name,portfolio in current['portfolios'].items():
+                    self.assertEqual(portfolio['returns'],original['portfolios'][name]['returns'])
+                    self.assertNotIn('brain_style',portfolio)
+                self.assertNotIn('ic',current)
+            else:
+                self.assertEqual(current,{key:original[key] for key in
+                    ('horizon','pnl_book','alpha_trace','trace_status','alpha_constraints') if key in original})
+                self.assertNotIn('portfolios',current)
+        self.assertEqual(self.http(f'/api/tasks/{task_id}/result/unknown')[0],400)
+
     def tearDown(self):
         for task_id in self.created:
             self.http(f'/api/tasks/{task_id}/cancel', {})
@@ -95,12 +176,13 @@ class ServiceIntegrationTests(unittest.TestCase):
             write_values(path)
             with self.assertRaises(Exception):
                 data.upload_values(task_id, old['attempt'], old['lease_token'], path, 0)
-        self.assertEqual(self.http(f'/api/tasks/{task_id}/result')[0], 409)
+        self.assert_reports_status(task_id, 409)
 
     def test_waiting_database_lock_does_not_extend_expired_lease(self):
         import psycopg
         from factorpool.data_client import DataClient
         task_id = self.enqueue()
+        self.assert_reports_status(task_id, 409)  # QUEUED cannot leak any report section.
         lease = self.claim()
         with tempfile.TemporaryDirectory() as tmp, psycopg.connect(
                 'host=db dbname=factorpool user=factorpool') as connection, ThreadPoolExecutor(max_workers=2) as executor:
@@ -132,11 +214,13 @@ class ServiceIntegrationTests(unittest.TestCase):
             replay = data.upload_values(task_id, lease['attempt'], lease['lease_token'], path, 1)
             self.assertEqual(receipt, replay)
         self.assertEqual(self.http(f'/api/tasks/{task_id}/values')[0], 409)
-        result = dict(metadata=dict(value_count=1), summary={}, daily=[])
+        self.assert_reports_status(task_id, 409)
+        result = report_fixture(1)
         body = dict(lease, result=result, **receipt)
         code, value = self.http('/internal/worker/complete', body, auth=True)
         self.assertEqual(code, 200, value)
         self.assertEqual(self.http('/internal/worker/complete', body, auth=True)[0], 200)
+        self.assert_published_report_contract(task_id,result)
         code, rows = self.http(f'/api/tasks/{task_id}/values')
         self.assertEqual(code, 200, rows)
         self.assertEqual(len(rows), 1, rows)
@@ -150,7 +234,7 @@ class ServiceIntegrationTests(unittest.TestCase):
             write_values(path)
             with self.assertRaises(Exception):
                 data.upload_values(cancelled_id, cancelled['attempt'], cancelled['lease_token'], path, 0)
-        self.assertEqual(self.http(f'/api/tasks/{cancelled_id}/result')[0], 409)
+        self.assert_reports_status(cancelled_id, 409)
 
     def test_matrix_receipt_publishes_through_http_and_pages_across_dates(self):
         import numpy as np
@@ -168,8 +252,10 @@ class ServiceIntegrationTests(unittest.TestCase):
                                        np.array([[1., np.nan, 2.], [1., 2., 3.]]))
             receipt = data.upload_values(task_id, lease['attempt'], lease['lease_token'], path, info['count'])
         self.assertEqual(self.http(f'/api/tasks/{task_id}/values')[0], 409)
-        result = dict(metadata=dict(value_count=6), summary={}, daily=[])
+        self.assert_reports_status(task_id, 409)
+        result = report_fixture(6)
         self.assertEqual(self.http('/internal/worker/complete', dict(lease, result=result, **receipt), auth=True)[0], 200)
+        self.assert_published_report_contract(task_id,result)
         code, first = self.http(f'/api/tasks/{task_id}/values?offset=0&limit=2')
         self.assertEqual(code, 200, first)
         self.assertTrue(np.signbit(first[0]['value']))
@@ -220,7 +306,7 @@ runner.run(directory)
                 class ObservedData(DataClient):
                     def upload_values(self, *args, **kwargs):
                         receipt = super().upload_values(*args, **kwargs)
-                        test.assertEqual(test.http(f'/api/tasks/{task_id}/result')[0], 409)
+                        test.assert_reports_status(task_id, 409)
                         test.assertEqual(test.http(f'/api/tasks/{task_id}/values')[0], 409)
                         with psycopg.connect('host=db dbname=factorpool user=factorpool') as connection:
                             row = connection.execute('SELECT row_count FROM factor_value_publications WHERE task_id=%s',
@@ -243,8 +329,10 @@ runner.run(directory)
                 self.assertEqual(code, 200, task)
                 self.assertEqual(task['status'], 'FAILED' if fail_after_upload else 'SUCCEEDED')
                 expected = 409 if fail_after_upload else 200
-                self.assertEqual(self.http(f'/api/tasks/{task_id}/result')[0], expected)
+                self.assert_reports_status(task_id, expected)
                 self.assertEqual(self.http(f'/api/tasks/{task_id}/values')[0], expected)
+                if not fail_after_upload:
+                    self.assert_published_report_contract(task_id)
 
 
 if __name__ == '__main__':
