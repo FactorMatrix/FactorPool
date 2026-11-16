@@ -501,6 +501,7 @@ pre {
   grid-template-rows: minmax(0, 1fr) 46px;
   flex: 1;
   min-height: 0;
+  min-width: 0;
   background: #f8f9fb;
 }
 .results-rail {
@@ -535,22 +536,22 @@ pre {
   grid-row: 1;
   overflow: auto;
   min-width: 0;
+  min-height: 0;
   padding: 0 22px 20px;
   background: #fafbfc;
 }
 .results-toolbar {
-  height: 38px;
+  height: 62px;
   margin: 0 -22px 0;
   padding: 0 17px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-bottom: 1px solid #dbe0e8;
   color: #657186;
-  font-size: 12px;
+  font-size: 18px;
   position: sticky;
   top: 0;
-  background: #f3f5f8;
+  background: #fafbfc;
   z-index: 2;
 }
 .results-toolbar > span:first-child {
@@ -561,6 +562,8 @@ pre {
 .results-toolbar strong {
   font-weight: 400;
 }
+.results-toolbar > span:first-child svg { color: #69b756; }
+.results-toolbar > select { width: 48%; max-width: 260px; font-size: 12px; border-color: #b4d2eb; }
 .badge {
   display: inline-flex;
   align-items: center;
@@ -600,48 +603,6 @@ pre {
 .badge.INTERRUPTED:before {
   background: #c06160;
 }
-.result-context {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: 20px;
-  gap: 12px;
-}
-.dataset-chip {
-  font-size: 9px;
-  color: #8c98a7;
-  letter-spacing: 0.5px;
-}
-.dataset-chip > span {
-  font-size: 9px;
-  letter-spacing: 0;
-}
-.result-periods {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 9px;
-  color: #929dac;
-}
-.result-periods > span {
-  margin-right: 5px;
-}
-.result-periods button {
-  background: transparent;
-  border: 0;
-  padding: 4px 6px;
-  font-size: 10px;
-  color: #7c8898;
-}
-.result-periods button.active {
-  background: #e3edf3;
-  color: #1d93b1;
-}
-.result-factor-name {
-  font-size: 20px;
-  color: #505c6e;
-  margin: 14px 0 20px;
-}
 .brain-summary {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
@@ -653,7 +614,7 @@ pre {
   display: flex;
   flex-direction: column;
   gap: 9px;
-  font-size: 10px;
+  font-size: 12px;
   color: #7a8697;
 }
 .summary-measure strong {
@@ -708,7 +669,7 @@ pre {
   color: #8b97a5;
 }
 .simulation-chart-panel .report-chart {
-  height: 330px;
+  height: clamp(320px, calc(100dvh - 300px), 680px);
 }
 .chart-footnote {
   display: flex;
@@ -998,11 +959,11 @@ footer {
     overflow: visible;
   }
   .simulation-main {
-    min-height: 1450px;
+    min-height: 950px;
     flex: auto;
   }
   .simulation-main > .split-pane {
-    height: 1450px;
+    height: 950px;
     flex: none;
   }
   .simulation-main > .split-pane.code-only,
@@ -1102,8 +1063,8 @@ footer {
   }
   .simulation-main,
   .simulation-main > .split-pane {
-    min-height: 1500px;
-    height: 1500px;
+    min-height: 950px;
+    height: 950px;
   }
   .simulation-main > .split-pane.code-only,
   .simulation-main > .split-pane.results-only {
@@ -1172,37 +1133,13 @@ footer {
     margin: 0 -12px;
     padding: 0 10px;
   }
-  .result-context {
-    gap: 4px;
-  }
-  .dataset-chip {
-    font-size: 8px;
-    letter-spacing: 0;
-  }
-  .dataset-chip > span {
-    display: none;
-  }
-  .result-periods {
-    gap: 1px;
-  }
-  .result-periods button {
-    padding: 4px;
-    font-size: 9px;
-  }
-  .result-periods > span {
-    display: none;
-  }
-  .result-factor-name {
-    font-size: 17px;
-    margin: 13px 0 18px;
-  }
   .brain-summary {
     grid-template-columns: repeat(3, 1fr);
     gap: 18px 10px;
     padding-bottom: 16px;
   }
   .summary-measure {
-    font-size: 9px;
+    font-size: 12px;
     gap: 6px;
   }
   .summary-measure strong {
@@ -1226,7 +1163,7 @@ footer {
     max-width: 65%;
   }
   .simulation-chart-panel .report-chart {
-    height: 270px;
+    height: 350px;
   }
   .chart-footnote {
     flex-wrap: wrap;
@@ -1274,7 +1211,7 @@ footer {
 
 .aggregate-label {
   grid-column: 1/-1;
-  font-size: 10px;
+  font-size: 12px;
   color: #9ba6b4;
   margin-bottom: 6px;
 }

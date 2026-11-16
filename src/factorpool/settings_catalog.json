@@ -1067,7 +1067,7 @@
         "min_ic_pairs": 3,
         "icir_ddof": 1,
         "annualize_icir": false,
-        "horizons": [1,5,20],
+        "horizons": [1],
         "annual_days": 252,
         "decay_steps": 10,
         "book_size": 1,

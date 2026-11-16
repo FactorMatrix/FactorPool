@@ -7,6 +7,15 @@ from factorpool.reporting.diagnostics import build, inference, options
 
 
 class DiagnosticsTests(unittest.TestCase):
+    def test_default_report_has_only_daily_and_explicit_periods_are_retained(self):
+        args = ([[1, 2, 3]], [[0, 0, 0], [.1, 0, -.1]], [[1, 1, 1]],
+                ['2024-01-02'], ['2024-01-02', '2024-01-03'])
+        default = build(*args, dict(groups=3, decay_steps=1))
+        explicit = build(*args, dict(groups=3, decay_steps=1, horizons=[1, 5, 20]))
+        self.assertEqual(set(default['horizons']), {'1'})
+        self.assertEqual(set(explicit['horizons']), {'1', '5', '20'})
+        self.assertEqual(default['horizons']['1'], explicit['horizons']['1'])
+
     def test_moments_and_inference_match_independent_scipy(self):
         values=[-.2,0.,.1,.5,.25,-.1,.4,.3]
         result=inference(values,1,2)

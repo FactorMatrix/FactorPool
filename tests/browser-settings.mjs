@@ -53,7 +53,7 @@ try {
   await settings.getByLabel('开始日期',{exact:true}).fill('2024-01-04')
   await settings.getByLabel('结束日期',{exact:true}).fill('2024-01-08')
   await settings.getByLabel('构造参数 JSON',{exact:true}).fill('{"period":3}')
-  await settings.getByLabel('分析周期',{exact:true}).fill('1,5')
+  assert.equal(await settings.getByLabel('分析周期',{exact:true}).count(),0)
   await settings.getByLabel('分组数',{exact:true}).fill('3')
   await settings.getByLabel('衰减阶数',{exact:true}).fill('2')
   await settings.getByLabel('权重衰减',{exact:true}).fill('5')
@@ -70,6 +70,7 @@ try {
   assert.equal(empty.brain_settings.decay,5)
   assert.equal(empty.brain_settings.visualization,true)
   assert.deepEqual(empty.analysis.trace_dates,['2024-01-04'])
+  assert.deepEqual(empty.analysis.horizons,[1])
   await page.screenshot({path:`${output}/settings-desktop.png`,fullPage:true})
   await settings.getByRole('button',{name:'应用设置',exact:true}).click()
   assert.equal(await settings.count(),0)
@@ -77,11 +78,13 @@ try {
   assert.deepEqual(Object.keys(submissions[0]).sort(),['name','source_code','workspace_config'])
   assert.equal(submissions[0].workspace_config.factor.period,3)
   assert.equal(first.task.snapshot.factor_params.period,3)
+  assert.deepEqual(first.task.snapshot.effective_config.analysis.horizons,[1])
+  assert.deepEqual(Object.keys(first.result.diagnostics.horizons),['1'])
   assert.deepEqual(first.task.snapshot.source_config,{})
   assert.ok(Math.abs(first.values[0].value-(10+11+12.1)/3)<1e-12)
 
   const partialConfig = {base:{start_date:'2024-01-05'},factor:{period:1},
-    analysis:{trace_dates:[]},settings:{decay:0,truncation:0,visualization:false}}
+    analysis:{trace_dates:[],horizons:[1,5,20]},settings:{decay:0,truncation:0,visualization:false}}
   const partialSource = template.replace(`config = ${literal}`,`config = ${pythonLiteral(partialConfig)}`)
   await setSource(page,partialSource)
   await settingButton.click()
@@ -96,7 +99,7 @@ try {
   assert.equal(partial.brain_settings.visualization,false)
   assert.equal(partial.brain_settings.neutralization,'NONE')
   assert.deepEqual(partial.analysis.trace_dates,[])
-  assert.deepEqual(partial.analysis.horizons,[1,5])
+  assert.deepEqual(partial.analysis.horizons,[1,5,20])
   await settings.getByRole('button',{name:'关闭设置',exact:true}).click()
   const second = await run()
   assert.equal(second.task.snapshot.workspace_config.factor.period,3)
@@ -104,6 +107,8 @@ try {
   assert.deepEqual(second.task.snapshot.source_config,partialConfig)
   assert.equal(second.result.metadata.effective_config.settings.visualization,false)
   assert.equal(second.result.metadata.effective_config.settings.truncation,0)
+  assert.deepEqual(Object.keys(second.result.diagnostics.horizons),['1','5','20'])
+  assert.equal(await page.locator('.result-periods').count(),0)
   assert.ok(Math.abs(second.values[0].value-13.31)<1e-12)
   await page.getByRole('button',{name:'Chart',exact:true}).click()
   assert.equal(await page.locator('.simulation-chart-panel .report-chart').count(),0)
@@ -116,6 +121,8 @@ try {
   assert.deepEqual(third.task.snapshot.source_config,{})
   assert.equal(third.task.snapshot.factor_params.period,3)
   assert.equal(third.result.metadata.effective_config.settings.visualization,true)
+  assert.deepEqual(third.result.metadata.effective_config.analysis.horizons,[1])
+  assert.deepEqual(Object.keys(third.result.diagnostics.horizons),['1'])
   assert.ok(Math.abs(third.values[0].value-first.values[0].value)<1e-12)
   const classOnly = template.split('if __name__')[0].replace(`config = ${literal}\n`,'')
   const rejected = await page.request.post(`${base}/api/tasks`,{data:{name:'浏览器验收 · 删除旧入口',source_code:classOnly,

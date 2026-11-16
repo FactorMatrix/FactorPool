@@ -17,15 +17,11 @@ const props = defineProps({
   states: Object,
 });
 const emit = defineEmits(["load-snapshot", "page"]);
-const view = ref("summary"),
-  period = ref("1"),
+const view = ref("chart"),
   chartMode = ref("pnl"),
   partition = ref("all");
-const periods = computed(() =>
-  Object.keys(props.result?.diagnostics?.horizons || {}),
-);
 const selected = computed(
-  () => props.result?.diagnostics?.horizons[period.value],
+  () => props.result?.diagnostics?.horizons?.["1"],
 );
 const hasTest = computed(() => Boolean(props.result?.diagnostics?.test_period?.start));
 function displayHorizon(horizon) {
@@ -37,8 +33,7 @@ function displayHorizon(horizon) {
 const displayed = computed(() => displayHorizon(selected.value));
 const displayedReport = computed(() => {
   if (!props.result?.diagnostics) return null;
-  return { ...props.result.diagnostics, horizons: Object.fromEntries(
-    Object.entries(props.result.diagnostics.horizons).map(([key, horizon]) => [key, displayHorizon(horizon)])) };
+  return { ...props.result.diagnostics, horizons: { "1": displayed.value } };
 });
 const supportedReport = computed(() => props.result?.metadata?.report_version === 3
   && props.result?.diagnostics?.version === 3 && props.result.metadata.brain_settings
@@ -50,22 +45,18 @@ const bookLabel = computed(() => `${Number(pnlBook.value.size).toLocaleString("e
 const visualization = computed(() => props.result?.metadata?.brain_settings?.visualization);
 const portfolioDates = computed(() => displayed.value?.portfolio_dates || []);
 const summary = computed(() => props.result?.summary || {});
+const summaryTitle = computed(() => !hasTest.value || partition.value === "all"
+  ? "IS Summary" : partition.value === "train" ? "Train Summary" : "Test Summary");
 const num = (x) => (x == null ? "--" : Number(x).toFixed(4));
 const pct = (x) => (x == null ? "--" : (Number(x) * 100).toFixed(2) + "%");
-watch(
-  periods,
-  (all) => {
-    if (!all.includes(period.value)) period.value = all[0] || "1";
-  },
-  { immediate: true },
-);
 watch(() => props.result, () => {
   partition.value = hasTest.value ? "train" : "all";
 }, { immediate: true });
 watch(
   () => props.task?.id,
   () => {
-    view.value = "summary";
+    view.value = "chart";
+    chartMode.value = "pnl";
   },
 );
 function exportResult() {
@@ -81,8 +72,8 @@ function exportResult() {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 const sections = [
-  ["summary", "bars", "Stats"],
   ["chart", "chart", "Chart"],
+  ["summary", "bars", "Stats"],
   ["ic", "scatter", "IC Analysis"],
   ["groups", "table", "Groups"],
   ["trace", "table", "Weights / PnL"],
@@ -113,41 +104,27 @@ const sections = [
           /><strong>{{
             sections.find((s) => s[0] === view)?.[2]
           }}</strong></span
-        ><span class="badge" :class="task?.status">{{
-          task ? states[task.status] || task.status : "Ready"
-        }}</span>
+        ><select v-if="view === 'chart' && result && visualization" v-model="chartMode" aria-label="结果曲线">
+          <option value="pnl">PnL</option>
+          <option value="nav">Net value · 复利净值</option>
+          <option value="returns">Daily returns · 日收益</option>
+          <option value="monthly">Monthly returns · 月度收益</option>
+          <option value="yearly">Yearly returns · 年度收益</option>
+        </select>
       </div>
-      <template v-if="result && supportedReport">
-        <div class="result-context">
-          <span class="dataset-chip"
-            >{{ result.metadata.synthetic ? "SYNTHETIC DATA" : "CHN EQUITY"
-            }}<span> · {{ result.metadata.execution_mode }}</span></span
-          >
-          <div class="result-periods">
-            <span>Period</span
-            ><button
-              v-for="h in periods"
-              :key="h"
-              :class="{ active: period === h }"
-              @click="period = h"
-            >
-              {{ h }}D
-            </button>
-          </div>
-        </div>
+      <template v-if="result && supportedReport && selected">
         <label v-if="hasTest && view !== 'trace'" class="validation-period">
-          验证区间
+          Period
           <select v-model="partition" aria-label="验证区间">
             <option value="train">Train · 训练期</option>
             <option value="test">Test · 测试期</option>
             <option value="all">All · 完整期间</option>
           </select>
-          <span>Train/Test 仅统计配置日期内的组合收益；All 保留未来持有收益尾部。原始因子 IC 保留完整研究期间。</span>
         </label>
-        <h1 class="result-factor-name">{{ task.name }}</h1>
+        <h2 v-if="view === 'summary'" class="summary-title">{{ summaryTitle }}</h2>
         <BrainSummary v-if="alpha && view === 'summary'" :summary="alpha.brain_style" />
-        <BrainAnnualStats v-if="view === 'summary'" :rows="alpha?.yearly_stats" :unit="alpha?.pnl?.unit" />
-        <div v-if="['summary', 'ic'].includes(view)" class="metrics factor-metrics" aria-label="一期因子统计">
+        <BrainAnnualStats v-if="view === 'summary'" :rows="alpha?.yearly_stats" />
+        <div v-if="view === 'ic'" class="metrics factor-metrics" aria-label="一期因子统计">
           <div
             v-for="[label, value] in [
               ['1D IC', num(summary.ic_mean)],
@@ -162,16 +139,6 @@ const sections = [
           </div>
         </div>
         <div v-if="view === 'chart'" class="simulation-chart-panel">
-          <div class="section-title">
-            <span><UiIcon name="chart" />Chart</span
-            ><select v-if="visualization" v-model="chartMode" aria-label="结果曲线">
-              <option value="nav">Net value · 复利净值</option>
-              <option value="pnl">PnL · 固定 book</option>
-              <option value="returns">Daily returns · 日收益</option>
-              <option value="monthly">Monthly returns · 月度收益</option>
-              <option value="yearly">Yearly returns · 年度收益</option>
-            </select>
-          </div>
           <ReportChart
             v-if="selected && visualization"
             :data="displayed"
@@ -186,7 +153,7 @@ const sections = [
             }}<span>快照日收益 · 逐日盯市 · 无费用 · 缺失值 --</span>
           </div>
           <p v-if="chartMode === 'nav'" class="pnl-book-note">初始净值 1，按比例权重计算收益并逐日复利；持有期内权重随价格自然漂移。</p>
-          <p v-else-if="chartMode === 'pnl'" class="pnl-book-note">固定名义 book：{{ bookLabel }}。PnL 逐日累加，净值另按收益复利；仅名义缩放，无汇兑或实际成交。</p>
+          <p v-else-if="chartMode === 'pnl'" class="pnl-book-note">固定 book：{{ bookLabel }} · PnL 逐日累加 · 1D 收盘计算</p>
         </div>
         <AlphaTrace v-else-if="view === 'trace'" :data="selected" :constraints="result.diagnostics?.alpha_constraints" />
         <FactorDiagnostics
@@ -195,8 +162,6 @@ const sections = [
           "
           :key="view"
           :report="displayedReport"
-          :initial-period="period"
-          @period-change="period = $event"
           :initial-section="
             view === 'groups' ? 'portfolio' : 'ic'
           "
@@ -267,6 +232,7 @@ const sections = [
           </details>
         </section>
       </template>
+      <p v-else-if="result && supportedReport" class="report-note" role="alert">此任务没有 1D 报告；请使用 analysis.horizons = [1] 运行。其他周期仍可通过接口读取。</p>
       <p v-else-if="result" class="report-note" role="alert">此结果格式已不再支持，请使用当前脚本重新运行。</p>
       <div v-else-if="view !== 'logs' && view !== 'source'" class="empty">
         <UiIcon :name="running ? 'refresh' : 'chart'" :size="42" />
@@ -296,7 +262,7 @@ const sections = [
         v-if="result && supportedReport && ['chart', 'summary'].includes(view)"
         class="results-method-note"
       >
-        研究口径 · BRAIN 官方数值一致性尚未核验。<button
+        <button
           @click="view = 'source'"
         >
           查看来源与参数
@@ -304,8 +270,8 @@ const sections = [
       </p>
     </section>
     <div class="results-actions">
-      <span>{{
-        task?.id ? task.id.slice(0, 8) : "No simulation selected"
+      <span class="badge" :class="task?.status">{{
+        task ? states[task.status] || task.status : "Ready"
       }}</span
       ><button :disabled="!result" @click="exportResult">
         <UiIcon name="download" />Export Results
@@ -314,7 +280,7 @@ const sections = [
   </div>
 </template>
 <style scoped>
-.validation-period { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 0 20px 12px; font-size: 12px; }
-.validation-period span { color: #687789; }
+.validation-period { display: flex; align-items: center; gap: 12px; padding: 16px 0 4px; font-size: 12px; color: #687789; }
+.summary-title { margin: 24px 0 20px; color: #4a586c; font-size: 18px; font-weight: 400; }
 .pnl-book-note { color: #718095; font-size: 11px; line-height: 1.8; margin: 12px 0; overflow-wrap: anywhere; }
 </style>

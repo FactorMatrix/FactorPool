@@ -8,5 +8,5 @@
   "public_operator_api": "pool-single-entry-v1",
   "shared_primitive_contract": "ft-pool-1",
   "research_kernel": "return-matrix-v3",
-  "factorpool_source_sha256": "dff76353176f1ddf8f193902f7699c22b331334bb1d19c69927ea33549d36308"
+  "factorpool_source_sha256": "0db1a928f4b2a60661515f922b3f8a29712f29fecf8edcb08b2b47abde3d53c7"
 }

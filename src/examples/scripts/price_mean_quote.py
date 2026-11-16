@@ -11,7 +11,7 @@ config = {
     },
     'factor': {'period': 2},
     'settings': {'delay': 1, 'decay': 0, 'neutralization': 'MARKET', 'truncation': 0},
-    'analysis': {'groups': 3, 'horizons': [1, 5, 20]},
+    'analysis': {'groups': 3, 'horizons': [1]},
 }
 
 

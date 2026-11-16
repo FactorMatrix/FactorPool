@@ -35,7 +35,7 @@ config = {
     },
     'analysis': {
         'groups': 3,
-        'horizons': [1, 5, 20],
+        'horizons': [1],
         'min_ic_pairs': 3,
         'icir_ddof': 1,
         'annualize_icir': False,

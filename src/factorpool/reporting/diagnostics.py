@@ -6,7 +6,7 @@ from scipy.special import stdtr, ndtr
 
 
 def options(analysis):
-    periods = analysis.get("horizons", [1, 5, 20])
+    periods = analysis.get("horizons", [1])
     if (not isinstance(periods, list) or not periods or len(periods) > 6
             or any(type(h) is not int or not 1 <= h <= 252 for h in periods)
             or len(set(periods)) != len(periods)):

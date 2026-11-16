@@ -1,4 +1,4 @@
-export function fixtureConfig({period=20, start='2024-01-29', end=start, horizons=[1,5,20], settings, analysis={}}={}) {
+export function fixtureConfig({period=20, start='2024-01-29', end=start, horizons=[1], settings, analysis={}}={}) {
   const config = {
     base: {start_date:start, end_date:end, frequency:'1d'},
     data: {provider:'fixture', universe:'fixture'},

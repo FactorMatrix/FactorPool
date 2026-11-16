@@ -7,27 +7,34 @@ const props = defineProps({
   storageKey: { type: String, required: true },
   label: { type: String, required: true },
   breakpoint: { type: Number, default: 0 },
-  firstExtra: { type: Number, default: 0 },
+  minFirst: { type: Number, default: 0 },
+  minSecond: { type: Number, default: 0 },
 });
 const host = ref(null);
 const ratio = ref(props.initial);
 const narrow = ref(false);
 const dragging = ref(false);
 const vertical = computed(() => props.direction === "vertical" || narrow.value);
-const extra = computed(() =>
-  Number.isFinite(props.firstExtra) ? Math.max(0, props.firstExtra) : 0,
-);
+const size = ref(0);
+const bounds = computed(() => {
+  if (!size.value || size.value < props.minFirst + props.minSecond + 8)
+    return [10, 90];
+  return [Math.max(10, (props.minFirst + 4) / size.value * 100),
+    Math.min(90, (size.value - props.minSecond - 4) / size.value * 100)];
+});
 defineExpose({ ratio, vertical });
 let media;
 let handle;
+let observer;
+const storageKey = () => `factorpool.layout.${props.storageKey}${vertical.value ? '.vertical' : ''}`;
 
 function setRatio(value, persist = true) {
   if (!Number.isFinite(value)) return;
-  ratio.value = Math.max(10, Math.min(90, value));
+  ratio.value = Math.max(bounds.value[0], Math.min(bounds.value[1], value));
   if (persist) {
     try {
       localStorage.setItem(
-        `factorpool.layout.${props.storageKey}`,
+        storageKey(),
         String(ratio.value),
       );
     } catch {
@@ -39,13 +46,11 @@ function move(event) {
   if (!dragging.value || !host.value) return;
   const box = host.value.getBoundingClientRect();
   const size = vertical.value ? box.height : box.width;
-  const available = size - extra.value;
-  // firstExtra 全部分给第一栏，其余尺寸继续使用原有持久化比例。
-  if (available > 0) {
+  if (size > 0) {
     const position = vertical.value
       ? event.clientY - box.top
       : event.clientX - box.left;
-    setRatio(((position - extra.value) / available) * 100, false);
+    setRatio((position / size) * 100, false);
   }
 }
 function stop(event) {
@@ -70,33 +75,47 @@ function keyboard(event) {
   event.preventDefault();
   setRatio(
     event.key === "Home"
-      ? 10
+      ? bounds.value[0]
       : event.key === "End"
-        ? 90
+        ? bounds.value[1]
         : ratio.value +
           (event.key === previous ? -1 : 1) * (event.shiftKey ? 10 : 2),
   );
 }
 function resizeMode() {
+  const wasVertical = vertical.value;
   narrow.value = Boolean(media?.matches);
+  measure();
+  if (wasVertical !== vertical.value) restoreRatio();
+}
+function measure() {
+  size.value = vertical.value ? host.value?.clientHeight : host.value?.clientWidth;
+  setRatio(ratio.value, false);
+}
+function restoreRatio() {
+  let saved;
+  try {
+    saved = localStorage.getItem(storageKey());
+  } catch {
+    /* 布局存储可选。 */
+  }
+  setRatio(saved == null ? (vertical.value ? 35 : props.initial) : Number(saved), false);
 }
 onMounted(() => {
-  try {
-    // 仅兼容读取旧布局偏好；之后写入新前缀，不迁移或读取账号私有数据。
-    const saved = localStorage.getItem(`factorpool.layout.${props.storageKey}`);
-    if (saved !== null) setRatio(Number(saved), false);
-  } catch {
-    /* 隐私模式不影响拖动。 */
-  }
   if (props.breakpoint) {
     media = window.matchMedia(`(max-width: ${props.breakpoint}px)`);
     media.addEventListener("change", resizeMode);
     resizeMode();
   }
+  measure();
+  restoreRatio();
+  observer = new ResizeObserver(measure);
+  observer.observe(host.value);
 });
 onBeforeUnmount(() => {
   stop();
   media?.removeEventListener("change", resizeMode);
+  observer?.disconnect();
 });
 </script>
 
@@ -107,7 +126,6 @@ onBeforeUnmount(() => {
     :class="{ vertical, dragging }"
     :style="{
       '--split-ratio': ratio + '%',
-      '--split-first-bonus': extra * (1 - ratio / 100) + 'px',
     }"
   >
     <div class="split-first"><slot name="first" /></div>
@@ -118,8 +136,8 @@ onBeforeUnmount(() => {
       :aria-label="label"
       :aria-orientation="vertical ? 'horizontal' : 'vertical'"
       :aria-valuenow="Math.round(ratio)"
-      aria-valuemin="10"
-      aria-valuemax="90"
+      :aria-valuemin="Math.round(bounds[0])"
+      :aria-valuemax="Math.round(bounds[1])"
       :title="label + '：拖动调整，双击复原；方向键微调'"
       @pointerdown="start"
       @pointermove="move"
@@ -152,7 +170,7 @@ onBeforeUnmount(() => {
   flex: 0 0
     clamp(
       0px,
-      calc(var(--split-ratio) + var(--split-first-bonus) - 4px),
+      calc(var(--split-ratio) - 4px),
       calc(100% - 8px)
     );
 }

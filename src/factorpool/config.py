@@ -136,7 +136,7 @@ def normalize_config(config):
     params = deepcopy(_object(config.get("factor", {}), "config.factor"))
     analysis = dict(entry="signal_close", exit="next_close", groups=3,
                     group_weight="equal", min_ic_pairs=3, icir_ddof=1,
-                    annualize_icir=False, horizons=[1, 5, 20], annual_days=252,
+                    annualize_icir=False, horizons=[1], annual_days=252,
                     decay_steps=10, book_size=1, pnl_unit="BOOK", trace_dates=[])
     supplied = _object(config.get("analysis", {}), "config.analysis")
     _keys(supplied, analysis, "analysis")

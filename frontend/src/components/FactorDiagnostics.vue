@@ -4,34 +4,13 @@ import ReportChart from "./ReportChart.vue";
 const props = defineProps({
   report: Object,
   initialSection: { type: String, default: "ic" },
-  initialPeriod: { type: String, default: "1" },
 });
-const emit = defineEmits(["period-change"]);
-watch(
-  () => props.initialPeriod,
-  (value) => {
-    period.value = value;
-  },
-);
-const period = ref(props.initialPeriod),
-  section = ref(props.initialSection),
+const section = ref(props.initialSection),
   metric = ref("rank_ic"),
   view = ref(props.initialSection === "ic" ? "series" : "nav"),
   strategy = ref("high_low");
-watch(period, (value) => emit("period-change", value));
-const periods = computed(() => Object.keys(props.report.horizons));
-watch(
-  periods,
-  (values) => {
-    if (!values.includes(period.value)) period.value = values[0];
-  },
-  { immediate: true },
-);
-const selected = computed(
-  () =>
-    props.report.horizons[period.value] ||
-    props.report.horizons[periods.value[0]],
-);
+const periods = ["1"];
+const selected = computed(() => props.report.horizons["1"]);
 const port = computed(
   () =>
     selected.value?.portfolios[strategy.value] ||
@@ -76,16 +55,6 @@ const brainCards = computed(() => {
   <section class="diagnostics" data-testid="diagnostics">
     <div class="diagnostic-heading">
       <strong>完整因子分析</strong>
-      <div class="period-tabs">
-        <button
-          v-for="h in periods"
-          :key="h"
-          :class="{ active: period === h }"
-          @click="period = h"
-        >
-          {{ h }} 期
-        </button>
-      </div>
     </div>
     <div class="diagnostic-tabs">
       <button :class="{ active: section === 'ic' }" @click="section = 'ic'">
@@ -283,13 +252,11 @@ const brainCards = computed(() => {
 .diagnostic-heading strong {
   font-size: 13px;
 }
-.period-tabs,
 .diagnostic-tabs {
   display: flex;
   gap: 5px;
   flex-wrap: wrap;
 }
-.period-tabs button,
 .diagnostic-tabs button {
   font-size: 11px;
   padding: 6px 10px;

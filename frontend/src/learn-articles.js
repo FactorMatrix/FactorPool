@@ -55,7 +55,7 @@ export const learnArticles = {
       ], code: quickStartCode, codeLabel: "入门完整脚本" },
       { id: "inspect-first-result", title: "先看因子值，再看收益", paragraphs: [
         "任务完成后，打开 Factor Values，确认输出日期、股票、因子值和 ready 状态符合你的表达式。窗口尚未完成时不会发布可用因子值。",
-        "接着在 IC Analysis 和 Groups 查看因子与未来收益的关系，在 Chart 与 Summary 查看 Alpha 组合的表现。结合覆盖率、样本数和整个研究区间判断结果。",
+        "结果默认打开 Chart 的 PnL 曲线，Stats 展示六项汇总与年度统计。基础报告默认只计算 1D；IC Analysis 和 Groups 是独立的研究入口。",
       ] },
       { id: "change-one-parameter", title: "只改一个参数做比较", paragraphs: [
         "把 config.factor.period 从 3 改成 1，再运行一次。构造参数会传入 TutorialFactor 的 __init__，因此这次比较只改变成交量窗口。",
@@ -240,7 +240,7 @@ value = self.ts.delay(input.close, 1, clock="trading_days")`, codeLabel: "在 up
         "factor_price": "quote_adjusted",
     },
     "factor": {"period": 20},
-    "analysis": {"groups": 3, "horizons": [1, 5, 20]},
+    "analysis": {"groups": 3, "horizons": [1]},
     "settings": {
         "decay": 0,
         "neutralization": "MARKET",
@@ -250,7 +250,7 @@ value = self.ts.delay(input.close, 1, clock="trading_days")`, codeLabel: "在 up
 }`, codeLabel: "搭配接收 period 的因子类使用" },
       { id: "report-parameters", title: "常用报告参数", table: { columns: ["参数", "含义", "当前范围 / 默认"], rows: [
         ["analysis.groups", "按原始因子排序后的分组数", "1..100；默认 3"],
-        ["analysis.horizons", "研究的持有期列表", "1..6 个不重复的整数；每项 1..252；默认 [1,5,20]"],
+        ["analysis.horizons", "接口支持的持有期列表", "默认 [1]；页面只展示 1D。接口仍接受 5D、20D 等显式配置"],
         ["analysis.decay_steps", "预测力衰减诊断的阶数", "1..10；默认 10"],
         ["analysis.annual_days", "组合指标的年化交易日数", "1..366；默认 252"],
         ["analysis.trace_dates", "需要逐股权重 / PnL 追踪的信号日", "最多 5 个日期；默认空"],

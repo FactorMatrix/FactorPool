@@ -118,34 +118,18 @@ function draw() {
       const unit = p.pnl.unit;
       option.tooltip = { trigger: "axis", formatter: rows => {
         const values = Array.isArray(rows) ? rows : [rows];
-        return [escapeHtml(values[0]?.axisValueLabel || ""), ...values.map(row => `${row.marker}${escapeHtml(row.seriesName)}: ${row.value == null ? '--' : row.seriesIndex === 0 ? `${Number(row.value).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})} ${escapeHtml(unit)}` : `${(Number(row.value) * 100).toFixed(2)}%`}`)].join("<br/>");
+        return [escapeHtml(values[0]?.axisValueLabel || ""), ...values.map(row => `${row.marker}${escapeHtml(row.seriesName)}: ${row.value == null ? '--' : `${Number(row.value).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})} ${escapeHtml(unit)}`}`)].join("<br/>");
       }};
-      option.yAxis = [
-        { ...base.yAxis, name: unit, axisLabel: { ...base.yAxis.axisLabel, formatter: compactAmount } },
-        {
-          type: "value",
-          axisLabel: {
-            color: "#b47f88",
-            formatter: (v) => (v * 100).toFixed(0) + "%",
-          },
-          splitLine: { show: false },
-        },
-      ];
+      option.legend = { show: false };
+      option.grid = { left: 55, right: 20, top: 30, bottom: 40 };
+      option.yAxis = { ...base.yAxis, name: unit, axisLabel: { ...base.yAxis.axisLabel, formatter: compactAmount } };
       option.series = [
         {
-          name: `累计固定 book PnL (${unit})`,
+          name: "PnL",
           type: "line",
           showSymbol: portfolioDates?.length < 20,
           connectNulls: false,
           data: p.pnl.cumulative,
-        },
-        {
-          name: "半 book 回撤",
-          type: "line",
-          yAxisIndex: 1,
-          showSymbol: portfolioDates?.length < 20,
-          data: p.constant_book_drawdown,
-          areaStyle: { opacity: 0.2 },
         },
       ];
     } else if (props.mode === "turnover")

@@ -149,6 +149,14 @@ class ScriptParserTests(unittest.TestCase):
         self.assertEqual(defaults['data']['universe'], 'all_a_dynamic')
         self.assertEqual(defaults['data']['factor_start'], '2016-01-01')
         self.assertEqual(defaults['data']['factor_end'], '2026-01-01')
+        self.assertEqual(defaults['analysis']['horizons'], [1])
+
+    def test_public_examples_default_to_daily_research(self):
+        scripts = Path(__file__).resolve().parents[1]/'src/examples/scripts'
+        for path in sorted(scripts.glob('*.py')):
+            with self.subTest(example=path.name):
+                parsed = parse_source(path.read_text())
+                self.assertEqual(parsed['analysis']['horizons'], [1])
 
     def test_invalid_explicit_values_are_not_replaced_by_defaults(self):
         workspace = source_config()
@@ -211,6 +219,19 @@ class ScriptExecutionTests(unittest.TestCase):
         self.assertEqual((directory/'factor.py').read_text(), source)
         self.assertEqual(result['metadata']['source_sha256'], hashlib.sha256(source.encode()).hexdigest())
         return result, values
+
+    def test_default_research_runs_only_daily_and_explicit_periods_still_run(self):
+        config = source_config(period=1)
+        del config['analysis']['horizons']
+        daily, daily_values = self.execute(full_script(config))
+        self.assertEqual(daily['metadata']['report_horizons'], [1])
+        self.assertEqual(set(daily['diagnostics']['horizons']), {'1'})
+        config['analysis']['horizons'] = [1, 5, 20]
+        explicit, explicit_values = self.execute(full_script(config))
+        self.assertEqual(explicit['metadata']['report_horizons'], [1, 5, 20])
+        self.assertEqual(set(explicit['diagnostics']['horizons']), {'1', '5', '20'})
+        self.assertEqual(daily['diagnostics']['horizons']['1'], explicit['diagnostics']['horizons']['1'])
+        self.assertEqual(daily_values, explicit_values)
 
     def test_workspace_settings_drive_execution_and_source_overrides_are_immutable(self):
         workspace = source_config(period=1)

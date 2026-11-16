@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, onMounted, onBeforeUnmount } from "vue";
+import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from "vue";
 import FactorEditor from "./components/FactorEditor.vue";
 import SplitPane from "./components/SplitPane.vue";
 import UiIcon from "./components/UiIcon.vue";
@@ -13,7 +13,7 @@ const defaults = () => ({
   base: { start_date: "2016-01-01", end_date: "2026-01-01", frequency: "1d" },
   data: { provider: "market_matrix", universe: "all_a_dynamic", adjustment: "raw", factor_price: "quote_adjusted" },
   factor: {},
-  analysis: { groups: 3, horizons: [1, 5, 20], decay_steps: 10, annual_days: 252,
+  analysis: { groups: 3, horizons: [1], decay_steps: 10, annual_days: 252,
     min_ic_pairs: 3, icir_ddof: 1, book_size: 1, pnl_unit: "BOOK", trace_dates: [] },
   settings: { decay: 0, truncation: 0, neutralization: "MARKET", pasteurization: "ON",
     testPeriod: "P0Y0M", visualization: true },
@@ -220,8 +220,12 @@ function clearDraft() {
 async function run() {
   await action(async () => {
     const submitted = await api("/tasks", request());
+    showResults.value = true;
     await openTask(submitted.id);
     tab.value = "research";
+    await nextTick();
+    if (window.matchMedia("(max-width: 900px)").matches)
+      document.querySelector(".results-workspace")?.scrollIntoView({ block: "start" });
     await refreshLists();
   });
 }
@@ -423,6 +427,8 @@ onBeforeUnmount(() => {
         storage-key="brain-simulation-v1"
         label="调整代码与研究结果比例"
         :initial="50"
+        :min-first="320"
+        :min-second="420"
         :breakpoint="900"
         :class="{ 'code-only': !showResults, 'results-only': !showCode }"
       >

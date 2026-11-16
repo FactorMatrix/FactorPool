@@ -8,12 +8,11 @@ const emit = defineEmits(["apply", "close", "resolve"]);
 const clone = value => JSON.parse(JSON.stringify(value));
 const draft = reactive(clone(props.values)), error = ref("");
 const factorParams = ref(JSON.stringify(draft.factor || {}, null, 2));
-const periods = ref(draft.analysis.horizons.join(","));
 const traceDates = ref((draft.analysis.trace_dates || []).join(","));
 const dynamic = ref(draft.data.universe === "all_a_dynamic");
 const universe = ref(Array.isArray(draft.data.universe) ? draft.data.universe.join(",") : "");
 const previewKey = computed(() => JSON.stringify({ draft, factorParams: factorParams.value,
-  periods: periods.value, traceDates: traceDates.value, dynamic: dynamic.value, universe: universe.value }));
+  traceDates: traceDates.value, dynamic: dynamic.value, universe: universe.value }));
 const previewRequested = ref(null);
 const previewCurrent = computed(() => previewRequested.value === previewKey.value);
 const selectedSource = computed(() => props.sources?.find(source => source.id === draft.data.provider));
@@ -24,7 +23,6 @@ function config() {
   if (!value.factor || Array.isArray(value.factor) || typeof value.factor !== "object")
     throw new Error("构造参数应为 JSON 对象");
   value.data.universe = value.data.provider === "fixture" ? "fixture" : dynamic.value ? "all_a_dynamic" : universe.value.split(",").map(s => s.trim()).filter(Boolean);
-  value.analysis.horizons = periods.value.split(",").map(s => Number(s.trim()));
   value.analysis.trace_dates = traceDates.value.split(",").map(s => s.trim()).filter(Boolean);
   if (value.base.start_date > value.base.end_date) throw new Error("结束日期不能早于开始日期");
   if (!value.analysis.horizons.length || value.analysis.horizons.length > 6 ||
@@ -58,7 +56,6 @@ function resolve() {
         <label>START DATE <span>开始日期</span><input v-model="draft.base.start_date" type="date" aria-label="开始日期" required /></label>
         <label>END DATE <span>结束日期</span><input v-model="draft.base.end_date" type="date" aria-label="结束日期" required /></label>
         <label class="wide">PARAMETERS <span>构造参数 JSON</span><textarea v-model="factorParams" aria-label="构造参数 JSON" rows="3" required /></label>
-        <label>PERIODS <span>分析周期</span><input v-model="periods" aria-label="分析周期" placeholder="1,5,20" /></label>
         <label>GROUPS <span>分组数</span><input v-model.number="draft.analysis.groups" type="number" min="1" max="100" aria-label="分组数" required /></label>
         <label>PREDICTION DECAY <span>预测力衰减阶数</span><input v-model.number="draft.analysis.decay_steps" type="number" min="1" max="10" aria-label="衰减阶数" required /></label>
         <label>DECAY <span>权重衰减</span><input v-model.number="draft.settings.decay" type="number" min="0" max="512" aria-label="权重衰减" required /></label>
