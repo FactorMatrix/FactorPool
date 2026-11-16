@@ -52,6 +52,16 @@ const task = ref(null),
   logs = ref(""),
   offset = ref(0),
   notice = ref("");
+const submitting = ref(false), reportLoading = ref(false), reportError = ref("");
+const valuesLoading = ref(false), valuesError = ref("");
+let reportAttempts = 0, valuesLoaded = false, logsRequested = false, logsLoading = false;
+// Remembering the current task is optional; storage must never gate execution.
+watch(() => task.value?.id, id => {
+  try {
+    if (id) sessionStorage.setItem("factorpool.task", id);
+    else sessionStorage.removeItem("factorpool.task");
+  } catch { /* Browser storage can be unavailable. */ }
+});
 let timer,
   active = true,
   polling = false,
@@ -102,7 +112,14 @@ function clearResult() {
   values.value = [];
   logs.value = "";
   offset.value = 0;
-  sessionStorage.removeItem("factorpool.task");
+  reportLoading.value = false;
+  reportError.value = "";
+  reportAttempts = 0;
+  valuesLoading.value = false;
+  valuesError.value = "";
+  valuesLoaded = false;
+  logsRequested = false;
+  logsLoading = false;
 }
 async function selectWorkspace(id) {
   if (id === workspaceId.value || busy.value) return;
@@ -218,19 +235,27 @@ function clearDraft() {
     );
 }
 async function run() {
+  if (busy.value || running.value) return;
+  showResults.value = true;
   await action(async () => {
-    const submitted = await api("/tasks", request());
-    showResults.value = true;
-    await openTask(submitted.id);
-    tab.value = "research";
-    await nextTick();
-    if (window.matchMedia("(max-width: 900px)").matches)
-      document.querySelector(".results-workspace")?.scrollIntoView({ block: "start" });
-    await refreshLists();
+    submitting.value = true;
+    try {
+      const submitted = await api("/tasks", request());
+      submitting.value = false;
+      await openTask(submitted.id);
+      tab.value = "research";
+      await nextTick();
+      if (window.matchMedia("(max-width: 900px)").matches)
+        document.querySelector(".results-workspace")?.scrollIntoView({ block: "start" });
+      await refreshLists();
+    } finally {
+      submitting.value = false;
+    }
   });
 }
 async function openTask(id) {
-  const token = ++revision;
+  clearResult();
+  const token = revision;
   task.value = { id, status: "QUEUED" };
   result.value = null;
   values.value = [];
@@ -244,34 +269,70 @@ async function openTask(id) {
 async function refreshTask(token = revision) {
   const id = task.value?.id;
   if (!id) return;
-  const [current, log] = await Promise.all([
-    api(`/tasks/${id}`),
-    api(`/tasks/${id}/logs`),
-  ]);
+  const current = await api(`/tasks/${id}`);
   if (token !== revision || !active) return;
   task.value = current;
-  logs.value = log.text;
-  if (current.status === "SUCCEEDED" && !result.value) {
-    const [research, rows] = await Promise.all([
-      api(`/tasks/${id}/result`),
-      api(`/tasks/${id}/values?offset=0&limit=100`),
-    ]);
+  if (logsRequested) void loadLogs(token);
+  if (current.status === "SUCCEEDED") await loadReport(token);
+}
+async function loadReport(token = revision) {
+  const id = task.value?.id;
+  if (!id || result.value || reportLoading.value || reportAttempts >= 3) return;
+  reportLoading.value = true;
+  ++reportAttempts;
+  try {
+    const research = await api(`/tasks/${id}/result`);
     if (token !== revision || !active) return;
     result.value = research;
-    values.value = rows;
+    reportError.value = "";
+  } catch (e) {
+    if (token === revision && active && reportAttempts >= 3) reportError.value = e.message;
+  } finally {
+    if (token === revision && active) reportLoading.value = false;
   }
 }
+async function retryReport() {
+  if (reportLoading.value) return;
+  reportAttempts = 0;
+  reportError.value = "";
+  await loadReport();
+}
+async function loadLogs(token = revision) {
+  const id = task.value?.id;
+  if (!id || logsLoading) return;
+  logsRequested = true;
+  logsLoading = true;
+  try {
+    const log = await api(`/tasks/${id}/logs`);
+    if (token === revision && active) logs.value = log.text;
+  } catch (e) {
+    if (token === revision && active) logs.value = `日志加载失败：${e.message}`;
+  } finally {
+    if (token === revision && active) logsLoading = false;
+  }
+}
+async function loadValues() {
+  if (!valuesLoaded) await page(0);
+}
 async function page(delta) {
-  await action(async () => {
-    const next = Math.max(0, offset.value + delta),
-      id = task.value?.id,
-      token = revision;
+  const next = Math.max(0, offset.value + delta),
+    id = task.value?.id,
+    token = revision;
+  if (!id || valuesLoading.value) return;
+  valuesLoading.value = true;
+  valuesError.value = "";
+  try {
     const rows = await api(`/tasks/${id}/values?offset=${next}&limit=100`);
-    if (token === revision) {
+    if (token === revision && active) {
       values.value = rows;
       offset.value = next;
+      valuesLoaded = true;
     }
-  });
+  } catch (e) {
+    if (token === revision && active) valuesError.value = e.message;
+  } finally {
+    if (token === revision && active) valuesLoading.value = false;
+  }
 }
 async function cancel() {
   await action(async () => {
@@ -315,7 +376,9 @@ onMounted(async () => {
           examples.value[0],
       );
     await refreshLists();
-    const previous = sessionStorage.getItem("factorpool.task");
+    let previous;
+    try { previous = sessionStorage.getItem("factorpool.task"); }
+    catch { /* A fresh simulation works without browser storage. */ }
     if (previous) {
       await openTask(previous);
       if (task.value?.snapshot) restoreSnapshot(task.value.snapshot);
@@ -326,9 +389,7 @@ onMounted(async () => {
     if (polling) return;
     polling = true;
     try {
-      if (task.value?.id)
-        sessionStorage.setItem("factorpool.task", task.value.id);
-      if (running.value) {
+      if (running.value || (task.value?.status === "SUCCEEDED" && !result.value && reportAttempts < 3)) {
         await refreshTask();
         if (!running.value) await refreshLists();
       }
@@ -526,9 +587,17 @@ onBeforeUnmount(() => {
             :offset="offset"
             :busy="busy"
             :running="running"
+            :submitting="submitting"
+            :report-loading="reportLoading"
+            :report-error="reportError"
+            :values-loading="valuesLoading"
+            :values-error="valuesError"
             :states="states"
             @load-snapshot="loadSnapshot"
             @page="page"
+            @retry-report="retryReport"
+            @load-values="loadValues"
+            @load-logs="loadLogs()"
         /></template>
       </SplitPane>
     </main>

@@ -14,9 +14,14 @@ const props = defineProps({
   offset: Number,
   busy: Boolean,
   running: Boolean,
+  submitting: Boolean,
+  reportLoading: Boolean,
+  reportError: String,
+  valuesLoading: Boolean,
+  valuesError: String,
   states: Object,
 });
-const emit = defineEmits(["load-snapshot", "page"]);
+const emit = defineEmits(["load-snapshot", "page", "retry-report", "load-values", "load-logs"]);
 const view = ref("chart"),
   chartMode = ref("pnl"),
   partition = ref("all");
@@ -45,13 +50,27 @@ const bookLabel = computed(() => `${Number(pnlBook.value.size).toLocaleString("e
 const visualization = computed(() => props.result?.metadata?.brain_settings?.visualization);
 const portfolioDates = computed(() => displayed.value?.portfolio_dates || []);
 const summary = computed(() => props.result?.summary || {});
+const statusText = computed(() => {
+  if (props.submitting) return "正在提交";
+  if (props.task?.status === "SUCCEEDED" && !props.result)
+    return props.reportError ? "报告加载失败" : "正在加载报告";
+  return props.task ? props.states[props.task.status] || props.task.status : "Ready";
+});
+const statusClass = computed(() => props.submitting ? "QUEUED"
+  : props.task?.status === "SUCCEEDED" && !props.result
+    ? props.reportError ? "FAILED" : "RUNNING" : props.task?.status);
 const summaryTitle = computed(() => !hasTest.value || partition.value === "all"
   ? "IS Summary" : partition.value === "train" ? "Train Summary" : "Test Summary");
 const num = (x) => (x == null ? "--" : Number(x).toFixed(4));
 const pct = (x) => (x == null ? "--" : (Number(x) * 100).toFixed(2) + "%");
 watch(() => props.result, () => {
   partition.value = hasTest.value ? "train" : "all";
+  if (props.result && view.value === "values") emit("load-values");
 }, { immediate: true });
+watch(view, value => {
+  if (value === "values" && props.result) emit("load-values");
+  if (value === "logs") emit("load-logs");
+});
 watch(
   () => props.task?.id,
   () => {
@@ -112,7 +131,12 @@ const sections = [
           <option value="yearly">Yearly returns · 年度收益</option>
         </select>
       </div>
-      <template v-if="result && supportedReport && selected">
+      <div v-if="submitting" class="empty" role="status">
+        <UiIcon name="refresh" :size="42" />
+        <h2>正在提交任务</h2>
+        <p>提交成功后会自动计算并加载报告。</p>
+      </div>
+      <template v-else-if="result && supportedReport && selected">
         <label v-if="hasTest && view !== 'trace'" class="validation-period">
           Period
           <select v-model="partition" aria-label="验证区间">
@@ -171,6 +195,11 @@ const sections = [
             <span>Factor Values</span
             ><small>{{ result.metadata.value_count }} rows</small>
           </div>
+          <p v-if="valuesLoading" class="report-note" role="status">正在加载因子值…</p>
+          <div v-if="valuesError" class="report-load-error">
+            <p role="alert">{{ valuesError }}</p>
+            <button aria-label="重试因子值" :disabled="valuesLoading" @click="emit('load-values')">重试因子值</button>
+          </div>
           <div class="table-scroll">
             <table>
               <thead>
@@ -197,14 +226,14 @@ const sections = [
           </div>
           <div class="pagination">
             <button
-              :disabled="offset === 0 || busy"
+              :disabled="offset === 0 || busy || valuesLoading"
               @click="emit('page', -100)"
             >
               上一页</button
             ><span>{{ offset + 1 }}–{{ offset + values.length }}</span
             ><button
               :disabled="
-                offset + values.length >= result.metadata.value_count || busy
+                offset + values.length >= result.metadata.value_count || busy || valuesLoading
               "
               @click="emit('page', 100)"
             >
@@ -234,6 +263,18 @@ const sections = [
       </template>
       <p v-else-if="result && supportedReport" class="report-note" role="alert">此任务没有 1D 报告；请使用 analysis.horizons = [1] 运行。其他周期仍可通过接口读取。</p>
       <p v-else-if="result" class="report-note" role="alert">此结果格式已不再支持，请使用当前脚本重新运行。</p>
+      <div v-else-if="task?.status === 'SUCCEEDED' && !['logs', 'source'].includes(view)" class="empty" role="status">
+        <UiIcon :name="reportError ? 'logs' : 'refresh'" :size="42" />
+        <h2>{{ reportError ? '报告加载失败' : '计算已完成，正在加载报告' }}</h2>
+        <p v-if="reportError" role="alert">{{ reportError }}</p>
+        <p v-else>正在读取本次结果，完成后会自动显示。</p>
+        <button v-if="reportError" aria-label="重试报告" :disabled="reportLoading" @click="emit('retry-report')">重试报告</button>
+      </div>
+      <div v-else-if="['FAILED', 'INTERRUPTED', 'CANCELLED'].includes(task?.status) && !['logs', 'source'].includes(view)" class="empty" role="status">
+        <UiIcon name="logs" :size="42" />
+        <h2>{{ states[task.status] || task.status }}</h2>
+        <button @click="view = 'logs'">查看任务日志</button>
+      </div>
       <div v-else-if="view !== 'logs' && view !== 'source'" class="empty">
         <UiIcon :name="running ? 'refresh' : 'chart'" :size="42" />
         <h2>
@@ -270,9 +311,7 @@ const sections = [
       </p>
     </section>
     <div class="results-actions">
-      <span class="badge" :class="task?.status">{{
-        task ? states[task.status] || task.status : "Ready"
-      }}</span
+      <span class="badge" :class="statusClass">{{ statusText }}</span
       ><button :disabled="!result" @click="exportResult">
         <UiIcon name="download" />Export Results
       </button>
