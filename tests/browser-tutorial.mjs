@@ -202,9 +202,17 @@ try {
   // research/draft persistence with the short deterministic fixture instead.
   const fixtureSource = fixtureScript({ period: 3, start: '2024-01-04', end: '2024-01-08' })
   await setSource(page, fixtureSource)
-  await runResearch(page)
+  const task = await runResearch(page)
+  const valuesResponse = page.waitForResponse(response => response.request().method() === 'GET'
+    && new URL(response.url()).pathname === `/api/tasks/${task}/values`)
   await page.getByRole('button', { name: 'Factor Values', exact: true }).click()
-  const task = await page.evaluate(() => sessionStorage.getItem('factorpool.task'))
+  const publishedValues = await valuesResponse
+  assert.equal(publishedValues.status(), 200)
+  const publishedRows = await publishedValues.json()
+  assert.ok(publishedRows.length > 0)
+  await page.waitForFunction(({id, count}) => sessionStorage.getItem('factorpool.task') === id
+    && document.querySelectorAll('.factor-values tbody tr').length === count,
+    {id:task, count:publishedRows.length})
   const report = await (await page.request.get(`${base}/api/tasks/${task}/result`)).json()
   assert.equal(report.metadata.synthetic, true); assert.ok(report.metadata.value_count > 0)
   const values = await page.locator('.factor-values').innerText()
