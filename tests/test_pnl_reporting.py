@@ -4,7 +4,7 @@ import unittest
 import numpy as np
 import _factorpool_native as native
 from factorpool.config import normalize_config
-from factorpool.reporting.pnl import add_amounts, format_trace
+from factorpool.reporting.pnl import add_amounts, format_trace, yearly_statistics
 from factorpool.reporting.partition import add_test_period
 from factorpool.simulation import alpha_targets
 from factorpool.settings import normalize_settings
@@ -66,6 +66,56 @@ class PnlReportingTests(unittest.TestCase):
         add_amounts(d,dict(book_size=10,pnl_unit='BOOK'))
         self.assertEqual(p['pnl']['daily'], [1,None,2])
         self.assertEqual(p['pnl']['cumulative'], [1,None,None])
+
+    def test_yearly_statistics_use_calendar_days_fixed_book_and_actual_position_counts(self):
+        dates = ['2023-12-28', '2023-12-29', '2024-01-02', '2024-01-03']
+        returns = [.01, -.02, .03, .01]
+        traded = [1., .1, .2, .1]
+        alpha = native.performance_stats(returns, traded, returns, 252)
+        alpha.update(returns=returns, turnover_series=traded, book_pnl_series=returns,
+                     long_positions=[2, 4, 6, 4], short_positions=[3, 3, 2, 4])
+        rows = yearly_statistics(alpha, dates, 1_000_000, 252)
+        self.assertEqual([row['year'] for row in rows], ['2023', '2024'])
+        self.assertEqual((rows[0]['long_count'], rows[0]['short_count']), (3, 3))
+        self.assertEqual((rows[1]['long_count'], rows[1]['short_count']), (5, 3))
+        self.assertAlmostEqual(rows[0]['pnl'], -10_000)
+        self.assertAlmostEqual(rows[1]['pnl'], 40_000)
+        self.assertAlmostEqual(rows[0]['sharpe'], np.mean(returns[:2]) / np.std(returns[:2], ddof=1) * np.sqrt(252))
+        self.assertAlmostEqual(rows[0]['turnover'], .55)
+        self.assertAlmostEqual(rows[0]['returns'], -2.52)
+        self.assertAlmostEqual(rows[0]['drawdown'], .04)
+        self.assertAlmostEqual(rows[0]['margin'], -.01 / 1.1)
+        for row, sl in zip(rows, (slice(0, 2), slice(2, 4))):
+            expected = native.performance_stats(returns[sl], traded[sl], returns[sl], 252)['brain_style']
+            for key, value in expected.items():
+                self.assertEqual(row[key], value)
+        missing = dict(alpha, book_pnl_series=[.01, None, .03, .01])
+        self.assertIsNone(yearly_statistics(missing, dates, 1_000_000, 252)[0]['pnl'])
+        self.assertIsNone(yearly_statistics(dict(alpha, long_positions=[]), dates, 1, 252)[0]['long_count'])
+
+    def test_train_test_yearly_rows_follow_the_selected_partition(self):
+        dates = ['2023-12-28', '2023-12-29', '2024-01-02', '2024-01-03']
+        returns, traded = [.01, -.02, .03, .01], [1., .1, .2, .1]
+        alpha = native.performance_stats(returns, traded, returns, 252)
+        alpha.update(returns=returns, turnover_series=traded, book_pnl_series=returns,
+                     long_positions=[2, 4, 6, 4], short_positions=[3, 3, 2, 4])
+        report = dict(horizons={'1':dict(portfolio_dates=dates, portfolios={'alpha':alpha})}, conventions={})
+        add_test_period(report, 'P2D', '2024-01-03', 252, '2023-12-28')
+        add_amounts(report, dict(book_size=100, pnl_unit='BOOK'))
+        parts = report['horizons']['1']['partitions']
+        self.assertEqual([row['year'] for row in parts['train']['alpha']['yearly_stats']], ['2023'])
+        self.assertEqual([row['year'] for row in parts['test']['alpha']['yearly_stats']], ['2024'])
+        self.assertAlmostEqual(parts['test']['alpha']['yearly_stats'][0]['pnl'], 4)
+
+    def test_yearly_pnl_uses_native_accumulation_for_overflow_and_cancellation(self):
+        for pnl in ([1e308, 1e308], [1e16, 1., -1e16]):
+            with self.subTest(pnl=pnl):
+                dates = [f'2024-01-{i+2:02}' for i in range(len(pnl))]
+                alpha = dict(returns=[.1]*len(pnl), turnover_series=[1.]*len(pnl),
+                             book_pnl_series=pnl)
+                expected = native.performance_stats(alpha['returns'], alpha['turnover_series'],
+                                                    pnl, 252)['constant_book_pnl'][-1]
+                self.assertEqual(yearly_statistics(alpha, dates, 1, 252)[0]['pnl'], expected)
 
     def test_truncation_reports_infeasible_capacity_actual_gross_and_unallocated_fraction(self):
         F=np.array([[1.,3.,5.,7.],[2.,2.,2.,2.],[0.,0.,0.,0.]])

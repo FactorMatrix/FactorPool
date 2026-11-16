@@ -154,9 +154,8 @@ const brainCards = computed(() => {
         </table>
       </div>
       <p class="report-note">
-        逐日 h 期前瞻 IC 含重叠样本；IID 显著性未修正自相关。HAC 使用
-        {{ selected.horizon - 1 }} 阶 Bartlett
-        权重，数据不完整时留空。衰减固定当期因子，逐阶后移未来入场时点。
+        各持有期按对应的调仓日取样；当前 HAC 使用 0 阶，数据不完整时留空。
+        IID 显著性未修正自相关。衰减固定当期因子，逐阶后移未来入场时点。
       </p>
     </template>
     <template v-else-if="section === 'portfolio'">

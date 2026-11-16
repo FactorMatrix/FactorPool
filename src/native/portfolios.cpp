@@ -23,6 +23,7 @@ struct Strategy {
   std::string name;
   std::vector<Holding> previous;
   std::vector<double> pnl, book_pnl, turnover, positions, concentration;
+  std::vector<double> long_positions, short_positions;
   std::vector<double> period_returns, period_turnover;
   bool seen = false, previous_valid = false;
   explicit Strategy(std::string value) : name(std::move(value)) {}
@@ -242,6 +243,11 @@ PyObject *portfolio_report(PyObject *, PyObject *args) {
       s.turnover.reserve(daily_indices.size());
       s.positions.reserve(daily_indices.size());
       s.concentration.reserve(daily_indices.size());
+      const bool track_counts = s.name == "alpha";
+      if (track_counts) {
+        s.long_positions.reserve(daily_indices.size());
+        s.short_positions.reserve(daily_indices.size());
+      }
       s.period_returns.reserve(signals.size());
       s.period_turnover.reserve(signals.size());
       for (const auto &signal : signals) {
@@ -298,10 +304,15 @@ PyObject *portfolio_report(PyObject *, PyObject *args) {
         }
         std::vector<Holding> held;
         double concentration = 0;
+        std::size_t long_count = 0, short_count = 0;
         auto hold = [&](std::size_t n) {
           if (weights[n] != 0) {
             held.push_back({n, weights[n]});
             concentration = std::max(concentration, std::abs(weights[n]));
+            if (track_counts) {
+              if (weights[n] > 0) ++long_count;
+              else ++short_count;
+            }
           }
         };
         if (s.name == "alpha" && !alpha_weights.empty()) {
@@ -372,6 +383,10 @@ PyObject *portfolio_report(PyObject *, PyObject *args) {
           }
           s.turnover.push_back(d == t + 1 ? turnover : 0);
           s.positions.push_back(usable ? double(held.size()) : missing);
+          if (track_counts) {
+            s.long_positions.push_back(usable ? double(long_count) : missing);
+            s.short_positions.push_back(usable ? double(short_count) : missing);
+          }
           s.concentration.push_back(usable ? concentration : missing);
           previous_wealth = wealth;
         }
@@ -407,6 +422,10 @@ PyObject *portfolio_report(PyObject *, PyObject *args) {
       put(v.p, "book_pnl_series", list(s.book_pnl));
       put(v.p, "turnover_series", list(s.turnover));
       put(v.p, "positions", list(s.positions));
+      if (s.name == "alpha") {
+        put(v.p, "long_positions", list(s.long_positions));
+        put(v.p, "short_positions", list(s.short_positions));
+      }
       put(v.p, "max_weight_series", list(s.concentration));
       put(v.p, "period_returns", list(s.period_returns));
       put(v.p, "period_turnover_series", list(s.period_turnover));

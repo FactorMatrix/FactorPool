@@ -63,6 +63,14 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertAlmostEqual(spread['win_rate'], 2/3)
         self.assertAlmostEqual(spread['payoff_ratio'], .075/.15)
 
+    def test_alpha_daily_long_short_counts_follow_rebalanced_holdings(self):
+        factors = [[1, 2, 3, 4], [1, 2, 3, 4], [4, 4, 4, 4]]
+        returns = [[0]*4, [.01, 0, 0, -.01], [0]*4, [0]*4, [0]*4]
+        report = native.portfolio_report(factors, returns, [[1]*4]*3, 2, 2, 252)['strategies']
+        self.assertEqual(report['alpha']['long_positions'], [2, 2, 0, 0])
+        self.assertEqual(report['alpha']['short_positions'], [2, 2, 0, 0])
+        self.assertNotIn('long_positions', report['long_G1'])
+
     def test_period_holdings_drift_instead_of_daily_equal_weight(self):
         # Buy equal amounts: [1,1] -> [2,1] -> [1,2].  NAV stays 1.5 on day two.
         factors = [[1, 2]]

@@ -2,6 +2,7 @@
 import { computed, ref, watch } from "vue";
 import UiIcon from "./UiIcon.vue";
 import BrainSummary from "./BrainSummary.vue";
+import BrainAnnualStats from "./BrainAnnualStats.vue";
 import FactorDiagnostics from "./FactorDiagnostics.vue";
 import ReportChart from "./ReportChart.vue";
 import AlphaTrace from "./AlphaTrace.vue";
@@ -16,9 +17,9 @@ const props = defineProps({
   states: Object,
 });
 const emit = defineEmits(["load-snapshot", "page"]);
-const view = ref("chart"),
+const view = ref("summary"),
   period = ref("1"),
-  chartMode = ref("nav"),
+  chartMode = ref("pnl"),
   partition = ref("all");
 const periods = computed(() =>
   Object.keys(props.result?.diagnostics?.horizons || {}),
@@ -64,7 +65,7 @@ watch(() => props.result, () => {
 watch(
   () => props.task?.id,
   () => {
-    view.value = "chart";
+    view.value = "summary";
   },
 );
 function exportResult() {
@@ -80,8 +81,8 @@ function exportResult() {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 const sections = [
+  ["summary", "bars", "Stats"],
   ["chart", "chart", "Chart"],
-  ["summary", "bars", "Summary"],
   ["ic", "scatter", "IC Analysis"],
   ["groups", "table", "Groups"],
   ["trace", "table", "Weights / PnL"],
@@ -144,8 +145,9 @@ const sections = [
           <span>Train/Test 仅统计配置日期内的组合收益；All 保留未来持有收益尾部。原始因子 IC 保留完整研究期间。</span>
         </label>
         <h1 class="result-factor-name">{{ task.name }}</h1>
-        <BrainSummary v-if="alpha && view !== 'trace'" :summary="alpha.brain_style" />
-        <div class="metrics factor-metrics" aria-label="一期因子统计">
+        <BrainSummary v-if="alpha && view === 'summary'" :summary="alpha.brain_style" />
+        <BrainAnnualStats v-if="view === 'summary'" :rows="alpha?.yearly_stats" :unit="alpha?.pnl?.unit" />
+        <div v-if="['summary', 'ic'].includes(view)" class="metrics factor-metrics" aria-label="一期因子统计">
           <div
             v-for="[label, value] in [
               ['1D IC', num(summary.ic_mean)],
@@ -176,7 +178,7 @@ const sections = [
             :portfolio="alpha"
             :mode="chartMode"
           />
-          <p v-else class="report-note" role="status">可视化已由 settings.visualization 关闭。可在 Summary、IC Analysis 和 Groups 查看数值，或导出完整结果。</p>
+          <p v-else class="report-note" role="status">可视化已由 settings.visualization 关闭。可在 Stats、IC Analysis 和 Groups 查看数值，或导出完整结果。</p>
           <div class="chart-footnote">
             {{ portfolioDates[0] }} —
             {{
@@ -189,18 +191,14 @@ const sections = [
         <AlphaTrace v-else-if="view === 'trace'" :data="selected" :constraints="result.diagnostics?.alpha_constraints" />
         <FactorDiagnostics
           v-else-if="
-            ['summary', 'ic', 'groups'].includes(view)
+            ['ic', 'groups'].includes(view)
           "
           :key="view"
           :report="displayedReport"
           :initial-period="period"
           @period-change="period = $event"
           :initial-section="
-            view === 'summary'
-              ? 'brain'
-              : view === 'groups'
-                ? 'portfolio'
-                : 'ic'
+            view === 'groups' ? 'portfolio' : 'ic'
           "
         />
         <section v-else-if="view === 'values'" class="factor-values">

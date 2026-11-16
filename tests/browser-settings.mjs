@@ -105,6 +105,7 @@ try {
   assert.equal(second.result.metadata.effective_config.settings.visualization,false)
   assert.equal(second.result.metadata.effective_config.settings.truncation,0)
   assert.ok(Math.abs(second.values[0].value-13.31)<1e-12)
+  await page.getByRole('button',{name:'Chart',exact:true}).click()
   assert.equal(await page.locator('.simulation-chart-panel .report-chart').count(),0)
   assert.deepEqual((await (await page.request.get(`${base}/api/tasks/${first.id}`)).json()).snapshot,first.task.snapshot)
 
