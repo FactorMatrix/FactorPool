@@ -107,6 +107,16 @@ class PnlReportingTests(unittest.TestCase):
         self.assertEqual([row['year'] for row in parts['test']['alpha']['yearly_stats']], ['2024'])
         self.assertAlmostEqual(parts['test']['alpha']['yearly_stats'][0]['pnl'], 4)
 
+    def test_yearly_pnl_uses_native_accumulation_for_overflow_and_cancellation(self):
+        for pnl in ([1e308, 1e308], [1e16, 1., -1e16]):
+            with self.subTest(pnl=pnl):
+                dates = [f'2024-01-{i+2:02}' for i in range(len(pnl))]
+                alpha = dict(returns=[.1]*len(pnl), turnover_series=[1.]*len(pnl),
+                             book_pnl_series=pnl)
+                expected = native.performance_stats(alpha['returns'], alpha['turnover_series'],
+                                                    pnl, 252)['constant_book_pnl'][-1]
+                self.assertEqual(yearly_statistics(alpha, dates, 1, 252)[0]['pnl'], expected)
+
     def test_truncation_reports_infeasible_capacity_actual_gross_and_unallocated_fraction(self):
         F=np.array([[1.,3.,5.,7.],[2.,2.,2.,2.],[0.,0.,0.,0.]])
         settings=normalize_settings(dict(truncation=.08),{'universe':'fixture'})

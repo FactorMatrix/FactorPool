@@ -61,9 +61,10 @@ def yearly_statistics(alpha, dates, book, annual_days):
     rows = []
     for year, indices in sorted(years.items()):
         samples = [[alpha[key][i] for i in indices] for key in keys]
-        stats = native.performance_stats(*samples, annual_days)["brain_style"]
-        amounts = [_number(v) for v in samples[2]]
-        pnl = _number(math.fsum(amounts) * book) if all(v is not None for v in amounts) else None
+        performance = native.performance_stats(*samples, annual_days)
+        stats = performance["brain_style"]
+        cumulative = performance["constant_book_pnl"][-1]
+        pnl = _number(cumulative * book) if cumulative is not None else None
         rows.append(dict(year=year, start=dates[indices[0]], end=dates[indices[-1]],
                          days=len(indices), **stats, pnl=pnl,
                          long_count=average_positions("long_positions", indices),
