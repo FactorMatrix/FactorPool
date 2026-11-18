@@ -18,15 +18,21 @@ from ..postgres import transaction
 from factorpool.market_returns import daily_returns, return_policy
 
 
-SOURCE_FILES = ("stocks.h5", "instruments.pk", "trading_dates.npy",
-                "st_stock_days.h5", "suspended_days.h5")
-PRICE_FIELDS = FIELDS[:7]
+DAILY_SOURCE_FILES = ("stocks.h5", "instruments.pk", "trading_dates.npy")
+STATUS_SIDECARS = {"st_stock_days.h5": "is_st", "suspended_days.h5": "is_suspended"}
+# The staging layout starts with the seven raw quote columns.
+DAILY_BAR_FIELDS = FIELDS[:7]
 
 
 def source_manifest(root, block_days=64):
     files = []
-    for name in SOURCE_FILES:
-        info = (root / name).lstat()
+    for name in (*DAILY_SOURCE_FILES, *STATUS_SIDECARS):
+        try:
+            info = (root / name).lstat()
+        except FileNotFoundError:
+            if name in STATUS_SIDECARS:
+                continue
+            raise
         if not stat.S_ISREG(info.st_mode):
             raise ValueError(f"Expected regular daily bundle file: {name}")
         files.append(dict(name=name, bytes=info.st_size, mtime_ns=info.st_mtime_ns,
@@ -134,7 +140,7 @@ def scan_bundle(root, block_days=64):
                 raise ValueError("Stock dataset has no CS instrument metadata")
             dataset = stocks[symbol]
             if (dataset.ndim != 1 or dataset.dtype.names is None
-                    or not set(("datetime", *PRICE_FIELDS)).issubset(dataset.dtype.names)):
+                    or not set(("datetime", *DAILY_BAR_FIELDS)).issubset(dataset.dtype.names)):
                 raise ValueError("Daily stock schema is missing required fields")
             days = _days(dataset.fields("datetime")[:])
             if len(days) > 1 and np.any(days[:-1] >= days[1:]):
@@ -171,11 +177,14 @@ def iter_blocks(plan, block_days=64):
         raise ValueError("block_days must be an integer in 1..512")
     if not _source_unchanged(plan.root, plan.manifest):
         raise ValueError("Daily bundle changed before import")
-    with h5py.File(plan.root / "stocks.h5", "r") as stocks, \
-            h5py.File(plan.root / "st_stock_days.h5", "r") as st, \
-            h5py.File(plan.root / "suspended_days.h5", "r") as suspended:
-        status = {symbol: (_statuses(st, symbol), _statuses(suspended, symbol))
-                  for symbol in plan.symbols}
+    status_days = {}
+    for source in plan.manifest["source_files"]:
+        name = source["name"]
+        if name in STATUS_SIDECARS:
+            with h5py.File(plan.root / name, "r") as handle:
+                status_days[FIELDS.index(STATUS_SIDECARS[name])] = [
+                    _statuses(handle, symbol) for symbol in plan.symbols]
+    with h5py.File(plan.root / "stocks.h5", "r") as stocks:
         lifetimes = plan.manifest["instrument_lifetimes"]
         for start in range(0, len(plan.calendar), block_days):
             calendar = plan.calendar[start:start + block_days]
@@ -183,19 +192,20 @@ def iter_blocks(plan, block_days=64):
             for n, symbol in enumerate(plan.symbols):
                 listed, delisted = lifetimes[n]
                 block[8, :, n] = (calendar >= listed) & (calendar < delisted)
-                st_days, suspended_days = status[symbol]
-                block[9, :, n] = np.isin(calendar, st_days)
-                block[10, :, n] = np.isin(calendar, suspended_days)
+                # Missing sidecars leave status unknown. A supplied sidecar
+                # describes a date set, so its unmarked dates are known false.
+                for field, days in status_days.items():
+                    block[field, :, n] = np.isin(calendar, days[n])
                 if symbol not in plan.indices:
                     continue
                 days = plan.indices[symbol]
-                left, right = np.searchsorted(days, (calendar[0], calendar[-1]), side="left")
-                right = np.searchsorted(days, calendar[-1], side="right")
+                left = days.searchsorted(calendar[0])
+                right = days.searchsorted(calendar[-1], side="right")
                 if left == right:
                     continue
-                rows = stocks[symbol][left:right]
+                rows = stocks[symbol].fields(DAILY_BAR_FIELDS)[left:right]
                 positions = np.searchsorted(calendar, days[left:right])
-                for k, field in enumerate(PRICE_FIELDS):
+                for k, field in enumerate(DAILY_BAR_FIELDS):
                     block[k, positions, n] = rows[field]
             block[7] = daily_returns(block[3], block[4], block[5], block[6], block[8])
             payload, checksum = pack_block(block)

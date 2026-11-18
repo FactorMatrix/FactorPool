@@ -102,15 +102,17 @@ class FieldProjectionTests(unittest.TestCase):
         payload = store.load(dict(self.data, universe=['A']), 3, 2, source=source,
                              fields=['value', 'open', 'volume'])
         self.assertEqual(payload['quotes']['fields'], ('open', 'close', 'volume'))
-        self.assertEqual(source.requests[-1], (7, 9, ('return',)))
+        self.assertEqual(source.requests[-1], (8, 9, ('return',)))
         self.assertEqual(payload['quotes']['values'].shape[1], 7)
-        self.assertEqual(payload['returns'].shape[0], 9)
+        np.testing.assert_array_equal(payload['returns'][:, 0], self.matrix[7, :, 0])
         self.assertFalse(payload['membership'][7:].any())
         self.assertIn(PRESENT_FIELD, source.requests[0][2])
         self.assertIn(MEMBERSHIP_FIELD, source.requests[0][2])
         source = RecordingSource(self.matrix)
-        payload = store.load(dict(self.data, universe=['A']), 3, 2, source=source,
+        payload = store.load(dict(self.data, universe=['A']), 3, 1, source=source,
                              fields=['total_turnover'])
+        self.assertEqual(len(source.requests), 1)
+        np.testing.assert_array_equal(payload['returns'][:, 0], self.matrix[7, :8, 0])
         self.assertNotIn('close', source.requests[0][2])
         self.assertNotIn('volume', source.requests[0][2])
         self.assertTrue(payload['quotes']['present'][4, 0])
@@ -220,6 +222,7 @@ class FieldProjectionGrpcTests(unittest.TestCase):
         hot = self.client()
         expected = store.load(data, 3, 2, source=hot, fields=['total_turnover'])
         self.assertEqual(hot.stats['grpc_blocks'], 0)
+        self.assertEqual(hot.stats['redis_hits'], 8)
         np.testing.assert_array_equal(expected['quotes']['values'], actual['quotes']['values'])
         for columns in ([3, 0], [2, 0, 3, 1], [1, 1], [0, 2, 3]):
             blocks = list(matrix_blocks(hot, metadata, 0, 9, np.asarray(columns),

@@ -34,11 +34,11 @@ class DelistingPipelineTests(unittest.TestCase):
                     snapshot_id='delisting-pipeline', symbols=symbols, frames=frames,
                     returns=returns, membership=members, terminal_exit_rows=[-1, 7, -1, -1])
 
-    def test_warmup_column_alignment_and_horizon_targets_reach_reports_and_traces(self):
+    def run_fixture(self, horizons):
         config = dict(
             base=dict(start_date='2024-01-04', end_date='2024-01-09'),
             data=dict(provider='fixture', universe='fixture'),
-            analysis=dict(groups=3, horizons=[1, 5], decay_steps=1,
+            analysis=dict(groups=3, horizons=horizons, decay_steps=1,
                           trace_dates=['2024-01-04']),
             settings=dict(decay=2, truncation=.3))
         source = '''from factorpool import PythonIndicator
@@ -62,9 +62,13 @@ if __name__ == "__main__":
                     patch.object(native, 'portfolio_report', wraps=portfolio) as reports:
                 runner.run(directory)
             result = json.loads((directory/'result.json').read_text())
+        return result, prepared.call_args_list[0].args, reports.call_args_list
+
+    def test_warmup_column_alignment_and_horizon_targets_reach_reports_and_traces(self):
+        result, prepared, reports = self.run_fixture([1, 5])
         # Source A's absolute7 becomes relative4, and its position moves from
         # source column1 to sorted column0. Future boundaries are not clamped.
-        self.assertEqual(prepared.call_args_list[0].args[4], [4, -1, -1, -1])
+        self.assertEqual(prepared[4], [4, -1, -1, -1])
         self.assertEqual(result['metadata']['warm_up_period'], 2)
         self.assertEqual(result['metadata']['simulation_warm_up_period'], 1)
         self.assertIn('delisting_filter', result['metadata'])
@@ -100,7 +104,7 @@ if __name__ == "__main__":
                          'delisting_next_period')
         # The secondary report receives its own normalized target matrix,
         # rather than removing A from already-normalized primary weights.
-        overrides = [call.args for call in reports.call_args_list
+        overrides = [call.args for call in reports
                      if len(call.args) == 6 and call.args[2] == 5]
         self.assertEqual(len(overrides), 1)
         np.testing.assert_allclose(overrides[0][5][0], expected[5], atol=3e-14, rtol=0)
@@ -111,3 +115,14 @@ if __name__ == "__main__":
         self.assertEqual(secondary_constraint['date'], '2024-01-04')
         self.assertEqual(secondary_constraint['index'], 0)
         self.assertAlmostEqual(secondary_constraint['target_gross'], np.abs(expected[5]).sum())
+
+    def test_sparse_horizon_decays_daily_but_weights_only_rebalance_rows(self):
+        daily_result, _, _ = self.run_fixture([1, 5])
+        sparse_result, prepared, reports = self.run_fixture([5])
+        self.assertEqual(set(sparse_result['diagnostics']['horizons']), {'5'})
+        sparse = sparse_result['diagnostics']['horizons']['5']
+        self.assertEqual(sparse['portfolio_signal_dates'], ['2024-01-04', '2024-01-09'])
+        self.assertEqual(sparse, daily_result['diagnostics']['horizons']['5'])
+        for weights in (prepared[3], reports[0].args[5]):
+            self.assertTrue(np.isfinite(weights[[0, 5]]).all())
+            self.assertTrue(np.isnan(weights[1:5]).all())

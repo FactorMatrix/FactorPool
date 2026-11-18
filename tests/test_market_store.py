@@ -31,7 +31,7 @@ def stock_rows(records):
     return rows
 
 
-def synthetic_bundle(root):
+def synthetic_bundle(root, *, status_files=('st_stock_days.h5', 'suspended_days.h5')):
     np.save(root/'trading_dates.npy', np.array([20240101, 20240102, 20240103, 20240104, 20240105], dtype='<i8'))
     instruments = [dict(order_book_id='A', type='CS', listed_date='2024-01-02', de_listed_date='0000-00-00'),
                    dict(order_book_id='B', type='CS', listed_date='2024-01-03', de_listed_date='2024-01-04'),
@@ -41,7 +41,7 @@ def synthetic_bundle(root):
     with h5py.File(root/'stocks.h5', 'w') as stocks:
         stocks['A'] = stock_rows([(20240102, 10, 8), (20240104, 6, 4)])
         stocks['B'] = stock_rows([(20240102, 20, 20), (20240103, 20, 20), (20240104, 20, 20)])
-    for name in ('st_stock_days.h5', 'suspended_days.h5'):
+    for name in status_files:
         with h5py.File(root/name, 'w') as status:
             status['A'] = np.array([20240103], dtype='<i8')
             status['B'] = np.array([], dtype='<f8')  # Existing bundles may have empty float arrays.
@@ -118,6 +118,43 @@ class MarketBlockTests(unittest.TestCase):
             self.assertEqual(field['is_st'][1, 0], 1)
             self.assertEqual(field['is_suspended'][1, 0], 1)
             np.testing.assert_array_equal(field['return'][:, 1], [0, 0, 0])
+
+    def test_optional_status_sidecars_do_not_change_quotes_returns_or_lifetimes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            complete = root / 'complete'
+            complete.mkdir()
+            synthetic_bundle(complete)
+            expected = scan_bundle(complete, 2)
+            expected_values = decoded_bundle(expected, 2)
+            sidecars = {'is_st': 'st_stock_days.h5', 'is_suspended': 'suspended_days.h5'}
+            for index, supplied in enumerate(((), ('st_stock_days.h5',), ('suspended_days.h5',))):
+                with self.subTest(supplied=supplied):
+                    minimal = root / str(index)
+                    minimal.mkdir()
+                    synthetic_bundle(minimal, status_files=supplied)
+                    plan = scan_bundle(minimal, 2)
+                    self.assertEqual([file['name'] for file in plan.manifest['source_files']],
+                                     ['stocks.h5', 'instruments.pk', 'trading_dates.npy', *supplied])
+                    self.assertEqual(plan.manifest['instrument_lifetimes'],
+                                     expected.manifest['instrument_lifetimes'])
+                    actual = decoded_bundle(plan, 2)
+                    for field, values, expected_field in zip(FIELDS, actual, expected_values):
+                        if field in sidecars and sidecars[field] not in supplied:
+                            self.assertTrue(np.isnan(values).all())
+                        else:
+                            np.testing.assert_array_equal(values, expected_field)
+
+    def test_optional_sidecar_added_after_scan_requires_a_new_snapshot(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            synthetic_bundle(root, status_files=())
+            plan = scan_bundle(root)
+            with h5py.File(root/'st_stock_days.h5', 'w') as status:
+                status['A'] = np.array([20240103], dtype='<i8')
+            with self.assertRaisesRegex(ValueError, 'Daily bundle changed before import'):
+                list(iter_blocks(plan))
+            self.assertNotEqual(scan_bundle(root).snapshot_id, plan.snapshot_id)
 
     def test_no_trade_cleaning_changes_only_derived_returns_and_preserves_source(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -206,6 +206,7 @@ def _load_projected(source, snapshot, snapshot_id, manifest, all_symbols, dates,
     historical_fields = tuple(dict.fromkeys((*quote_fields, MEMBERSHIP_FIELD, PRESENT_FIELD, "return",
                          *(tuple(field for _, field, _ in _ADJUSTMENT_INPUTS) if stored_adjustment else ()))))
     covered, seen = initial, False
+    return_stop = initial
     for start, count, block in source.selected_columns(snapshot, initial, finish, read_columns, fields=historical_fields):
         end = start+count
         if (start < 0 or count < 1 or end > len(dates)
@@ -217,23 +218,24 @@ def _load_projected(source, snapshot, snapshot_id, manifest, all_symbols, dates,
             values[index, target] = block[field][current][:, input_columns]
         present[target] = block[PRESENT_FIELD][current][:, input_columns]
         calculation_members[target] = block[MEMBERSHIP_FIELD][current][:, input_columns]
-        returns[target] = block["return"][current][:, return_columns]
+        # Blocks include every physical row. Reuse returns at the end of the
+        # last history block while keeping the quote and Q slices at finish.
+        return_stop = min(stop, end)
+        returns[left-initial:return_stop-initial] = block["return"][left-start:return_stop-start][:, return_columns]
         if adjustment is not None:
             for key, field, _ in _ADJUSTMENT_INPUTS:
                 adjustment[key][target] = block[field][current][:, input_columns]
         covered, seen = right, True
     if covered != finish:
         raise ValueError("Market matrix snapshot has missing blocks")
-    # An original block can cross factor_end, but none of its future quote
-    # columns enters the Indicator view. Future requests ask only for returns.
-    if finish < stop:
-        covered, seen = finish, False
-        for start, count, block in source.selected_columns(snapshot, finish, stop, columns, fields=("return",)):
+    if return_stop < stop:
+        covered, seen = return_stop, False
+        for start, count, block in source.selected_columns(snapshot, return_stop, stop, columns, fields=("return",)):
             end = start+count
             if (start < 0 or count < 1 or end > len(dates)
                     or (start != covered if seen else not start <= covered < end)):
                 raise ValueError("Market matrix blocks overlap or have missing dates")
-            left, right = max(finish, start), min(stop, end)
+            left, right = max(return_stop, start), min(stop, end)
             returns[left-initial:right-initial] = block["return"][left-start:right-start]
             covered, seen = right, True
         if covered != stop:

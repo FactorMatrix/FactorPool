@@ -14,19 +14,31 @@ struct Holding {
 struct SignalData {
   std::size_t time, end;
   std::vector<std::size_t> order;
-  std::vector<unsigned char> labels;
-  std::vector<std::size_t> sizes;
   long double mean = 0, norm = 0;
   bool lifecycle_cash = false;
 };
+struct GroupLeg {
+  std::size_t group = 0;
+  double exposure = 0;
+};
 struct Strategy {
   std::string name;
-  std::vector<Holding> previous;
+  GroupLeg first, second;
   std::vector<double> pnl, book_pnl, turnover;
   std::vector<double> long_positions, short_positions;
-  bool seen = false, previous_valid = false;
-  explicit Strategy(std::string value) : name(std::move(value)) {}
+  bool is_alpha() const { return first.exposure == 0; }
+  explicit Strategy(std::string value, GroupLeg first = {}, GroupLeg second = {})
+      : name(std::move(value)), first(first), second(second) {}
 };
+
+std::span<const std::size_t> group_symbols(const SignalData &signal,
+                                          std::size_t group, std::size_t groups) {
+  // Invert floor(rank * groups / size) on the stable-sorted signal order.
+  const auto size = signal.order.size();
+  const auto first = (group * size + groups - 1) / groups;
+  const auto end = ((group + 1) * size + groups - 1) / groups;
+  return std::span<const std::size_t>(signal.order).subspan(first, end - first);
+}
 
 std::vector<std::size_t> trace_signals(PyObject *requested,
                                      std::size_t factor_rows,
@@ -175,13 +187,14 @@ PyObject *portfolio_report(PyObject *, PyObject *args) {
     if (!selected_trace.empty() && !traces.p)
       throw std::bad_alloc();
     std::vector<Strategy> strategies;
-    for (int g = 0; g < groups; ++g)
-      strategies.emplace_back("long_G" + std::to_string(g + 1));
-    for (int g = 0; g < groups; ++g)
-      strategies.emplace_back("short_G" + std::to_string(g + 1));
-    strategies.emplace_back("high_low");
+    const auto group_count = static_cast<std::size_t>(groups);
+    for (std::size_t g = 0; g < group_count; ++g)
+      strategies.emplace_back("long_G" + std::to_string(g + 1), GroupLeg{g, 1});
+    for (std::size_t g = 0; g < group_count; ++g)
+      strategies.emplace_back("short_G" + std::to_string(g + 1), GroupLeg{g, -1});
+    strategies.emplace_back("high_low", GroupLeg{0, -.5}, GroupLeg{group_count - 1, .5});
     if (groups >= 4)
-      strategies.emplace_back("inner_high_low");
+      strategies.emplace_back("inner_high_low", GroupLeg{1, -.5}, GroupLeg{group_count - 2, .5});
     strategies.emplace_back("alpha");
     std::vector<double> indices, daily_indices;
     const auto signal_count = f.size() ? 1 + (f.size() - 1) / h : 0;
@@ -204,18 +217,14 @@ PyObject *portfolio_report(PyObject *, PyObject *args) {
           signal.order.push_back(n);
       const auto &order = signal.order;
       signal.lifecycle_cash = !original_order.empty() && order.empty();
-      signal.labels.assign(count, static_cast<unsigned char>(groups));
-      signal.sizes.assign(groups, 0);
-      for (std::size_t k = 0; k < order.size(); ++k) {
-        auto n = order[k], g = k * groups / order.size();
-        signal.labels[n] = static_cast<unsigned char>(g);
-        ++signal.sizes[g];
-        if (alpha_weights.empty())
+      if (alpha_weights.empty()) {
+        for (std::size_t k = 0; k < order.size(); ++k) {
+          const auto n = order[k];
           signal.mean += (static_cast<long double>(f[t][n]) - signal.mean) / (k + 1);
-      }
-      if (alpha_weights.empty())
+        }
         for (auto n : order)
           signal.norm += std::abs(static_cast<long double>(f[t][n]) - signal.mean);
+      }
     });
     // All books use the same close-return path between two signal dates.
     // For h=1 the holding growth is exactly 1+R[t+1], so read that row in the
@@ -234,8 +243,7 @@ PyObject *portfolio_report(PyObject *, PyObject *args) {
           for (std::size_t n = 0; n < count; ++n) {
             const auto value = daily[n];
             const auto before = d == signal.time + 1 ? 1. : previous[n];
-            current[n] = !std::isfinite(value) || value < -1
-                             ? missing : before * (1 + value);
+            current[n] = before * (1 + value);
           }
         }
       });
@@ -244,26 +252,39 @@ PyObject *portfolio_report(PyObject *, PyObject *args) {
       auto &s = strategies[strategy];
       s.pnl.reserve(daily_indices.size());
       s.turnover.reserve(daily_indices.size());
-      const bool track_counts = s.name == "alpha";
+      const bool track_counts = s.is_alpha();
       if (track_counts) {
         s.book_pnl.reserve(daily_indices.size());
         s.long_positions.reserve(daily_indices.size());
         s.short_positions.reserve(daily_indices.size());
       }
+      std::vector<double> weights(count);
+      std::vector<Holding> previous, held;
+      bool previous_valid = true;
       for (const auto &signal : signals) {
         const auto t = signal.time, end = signal.end;
         const auto &order = signal.order;
-        const auto &labels = signal.labels;
-        const auto &sizes = signal.sizes;
         const auto mean = signal.mean, norm = signal.norm;
-        std::vector<double> weights(count, 0);
+        std::fill(weights.begin(), weights.end(), 0);
+        held.clear();
+        std::size_t long_count = 0, short_count = 0;
+        const auto hold = [&](std::size_t n, double weight) {
+          weights[n] = weight;
+          if (weight != 0) {
+            held.push_back({n, weight});
+            if (track_counts) {
+              if (weight > 0) ++long_count;
+              else ++short_count;
+            }
+          }
+        };
         bool usable = true;
-        if (s.name == "alpha" && !alpha_weights.empty()) {
+        if (track_counts && !alpha_weights.empty()) {
           usable = signal.lifecycle_cash;
           for (std::size_t n = 0; n < count; ++n) {
             const auto value = alpha_weights[t][n];
             if (std::isfinite(value)) {
-              weights[n] = value;
+              hold(n, value);
               // A supplied all-zero target is a known flat book, distinct
               // from the all-NaN row used for an unavailable target.
               usable = true;
@@ -272,84 +293,59 @@ PyObject *portfolio_report(PyObject *, PyObject *args) {
         } else if (signal.lifecycle_cash) {
           // A deliberate pre-delisting exclusion closes the previous book.
           // It is not an unavailable factor sample or an unknown held return.
-        } else if (s.name == "alpha") {
+        } else if (track_counts) {
           if (norm > 0)
             for (auto n : order)
-              weights[n] = double((static_cast<long double>(f[t][n]) - mean) / norm);
+              hold(n, double((static_cast<long double>(f[t][n]) - mean) / norm));
           else
             // Finite eligible constants neutralize to a known zero target.
             // Only an empty eligible sample leaves the Alpha unavailable.
             usable = !order.empty() && norm == 0;
-        } else if (s.name == "high_low" || s.name == "inner_high_low") {
-          int lo = s.name == "high_low" ? 0 : 1,
-              hi = s.name == "high_low" ? groups - 1 : groups - 2;
-          if (lo >= hi || !sizes[lo] || !sizes[hi])
-            usable = false;
-          else
-            for (auto n : order) {
-              if (labels[n] == std::size_t(lo))
-                weights[n] = -.5 / sizes[lo];
-              if (labels[n] == std::size_t(hi))
-                weights[n] = .5 / sizes[hi];
-            }
         } else {
-          const bool short_side = s.name.starts_with("short_");
-          const int g = std::stoi(s.name.substr(s.name.find('G') + 1)) - 1;
-          if (!sizes[g])
-            usable = false;
-          else
-            for (auto n : order)
-              if (labels[n] == std::size_t(g))
-                weights[n] = (short_side ? -1. : 1.) / sizes[g];
-        }
-        std::vector<Holding> held;
-        std::size_t long_count = 0, short_count = 0;
-        auto hold = [&](std::size_t n) {
-          if (weights[n] != 0) {
-            held.push_back({n, weights[n]});
-            if (track_counts) {
-              if (weights[n] > 0) ++long_count;
-              else ++short_count;
+          const auto first = group_symbols(signal, s.first.group, group_count);
+          const auto second = group_symbols(signal, s.second.group, group_count);
+          const bool spread = s.second.exposure != 0;
+          usable = !first.empty() && (!spread || (s.first.group < s.second.group && !second.empty()));
+          if (usable) {
+            const double weight = s.first.exposure / first.size();
+            for (auto n : first) hold(n, weight);
+            if (spread) {
+              const double weight = s.second.exposure / second.size();
+              for (auto n : second) hold(n, weight);
             }
           }
-        };
-        if (s.name == "alpha" && !alpha_weights.empty()) {
-          for (std::size_t n = 0; n < count; ++n)
-            hold(n);
-        } else
-          for (auto n : order)
-            hold(n);
+        }
         std::unique_ptr<TraceState> tracing;
-        if (traces.p && end > t + 1 && s.name == "alpha" &&
+        if (traces.p && end > t + 1 && track_counts &&
             std::binary_search(selected_trace.begin(), selected_trace.end(), t))
           tracing = std::make_unique<TraceState>(weights);
         // Both books are expressed as fractions of the same unit gross book.
         // The prior weights drift with returns; no shares, lots or cash engine.
-        bool trade_valid = usable && (!s.seen || s.previous_valid);
-        for (const auto &old : s.previous)
-          weights[old.symbol] -= old.weight * old.growth;
+        const bool trade_valid = usable && previous_valid;
         long double traded = 0;
-        if (trade_valid)
+        if (trade_valid) {
+          for (const auto &old : previous)
+            weights[old.symbol] -= old.weight * old.growth;
           for (auto w : weights)
             traded += std::abs(static_cast<long double>(w));
+        }
         const double turnover = trade_valid ? double(traded) : missing;
         double previous_wealth = 1, wealth = missing;
         bool valid = usable;
         for (auto d = t + 1; d < end; ++d) {
+          const auto daily = r[d];
+          const auto compound = direct_daily_growth ? std::span<const double>() : growth[d];
           long double delta = 0;
           for (auto &position : held) {
             const auto previous_growth = position.growth;
-            const auto daily_value = r[d][position.symbol];
-            position.growth = direct_daily_growth
-                ? (!std::isfinite(daily_value) || daily_value < -1
-                       ? missing : 1 + daily_value)
-                : growth[d][position.symbol];
+            position.growth = direct_daily_growth ? 1 + daily[position.symbol]
+                                                 : compound[position.symbol];
             if (!std::isfinite(position.growth))
               valid = false;
             delta += position.weight * (static_cast<long double>(position.growth) - 1);
             if (tracing) {
               const auto n = position.symbol;
-              const auto value = daily_value;
+              const auto value = daily[n];
               tracing->before[n] = previous_growth;
               const char *error = nullptr;
               double contribution = missing;
@@ -390,9 +386,8 @@ PyObject *portfolio_report(PyObject *, PyObject *args) {
           }
           previous_wealth = wealth;
         }
-        s.previous = std::move(held);
-        s.previous_valid = valid && t + h < r.size();
-        s.seen = true;
+        previous.swap(held);
+        previous_valid = valid && t + h < r.size();
       }
     };
     // A traced alpha publishes Python rows on the caller thread. Ordinary
@@ -416,7 +411,7 @@ PyObject *portfolio_report(PyObject *, PyObject *args) {
     }
     Owned result{PyDict_New()}, out{PyDict_New()};
     for (auto &s : strategies) {
-      const bool alpha = s.name == "alpha";
+      const bool alpha = s.is_alpha();
       Owned v{performance(s.pnl, s.turnover, 1, annual_days,
                           alpha ? &s.book_pnl : nullptr, alpha)};
       put(v.p, "returns", list(s.pnl));

@@ -62,7 +62,7 @@ def portfolio_calendar(dates, returns, width=7):
 
 
 def build(prepared, dates, price_dates, analysis, *, primary=None, trace_info=None,
-          rebalance_only=False, horizon_targets=None, target_offset=0):
+          rebalance_only=False, horizon_targets=None):
     periods, annual_days, steps = options(analysis)
     ddof, groups, minimum = analysis.get("icir_ddof", 1), analysis.get("groups", 3), analysis.get("min_ic_pairs", 3)
     out = {}
@@ -115,10 +115,9 @@ def build(prepared, dates, price_dates, analysis, *, primary=None, trace_info=No
                 policy="only requested rebalance signals; full holding intervals; no default per-symbol export")
         if constraints:
             out[str(h)]["alpha_constraints"] = [
-                dict(item, index=item["index"]-target_offset, date=dates[item["index"]-target_offset])
+                dict(item, date=dates[item["index"]])
                 for item in constraints
-                if 0 <= item["index"]-target_offset < len(dates)
-                and (item["index"]-target_offset) % h == 0
+                if 0 <= item["index"] < len(dates) and item["index"] % h == 0
             ]
     return dict(version=3, horizons=out, conventions=dict(
         annual_days=annual_days, ic_ddof=ddof, return_price="close / prev_close - 1", signal_delay=1,

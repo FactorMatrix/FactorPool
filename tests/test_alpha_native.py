@@ -47,7 +47,8 @@ def published_decay_reference(factors, members, period):
     return output
 
 
-def published_targets(full_factors, full_membership, settings, *, details=None, trace_indices=()):
+def published_targets(full_factors, full_membership, settings, *, details=None, trace_indices=(),
+                      transformed=None):
     """Return contiguous target weights, or None for the existing native Alpha."""
     if not isinstance(settings, dict):
         raise ValueError("settings must be an object")
@@ -60,7 +61,8 @@ def published_targets(full_factors, full_membership, settings, *, details=None, 
     if period <= 1 and neutralization == "MARKET" and cap == 0:
         return None
     members = np.isfinite(membership) & (membership > 0)
-    transformed = published_decay_reference(factors, members, period) if period > 1 else factors
+    if transformed is None:
+        transformed = published_decay_reference(factors, members, period) if period > 1 else factors
     targets = np.full(factors.shape, np.nan, dtype=np.float64, order="C")
     traces = set(trace_indices)
     if details is not None:
@@ -105,20 +107,23 @@ def published_targets(full_factors, full_membership, settings, *, details=None, 
     return targets
 
 
-def zero_exposure_reference(factors, membership, settings, *, details=None, trace_indices=()):
+def zero_exposure_reference(factors, membership, settings, *, details=None, trace_indices=(),
+                            selection_membership=None, transformed=None):
     """Keep the published arithmetic oracle; correct only its known-cash rows.
 
     The historical implementation conflated finite zero norm with unavailable
     input. This explicit contract difference must not hide changes to any
     nonzero target, missing sample, trace or floating-point reduction.
     """
+    assert selection_membership is None, 'Frozen report oracle uses a fixture without lifetime exits'
     result = published_targets(factors, membership, settings, details=details,
-                               trace_indices=trace_indices)
+                               trace_indices=trace_indices, transformed=transformed)
     if result is None:
         return None
     members = np.isfinite(membership) & (membership > 0)
-    transformed = (published_decay_reference(factors, members, settings['decay'])
-                   if settings['decay'] > 1 else factors)
+    if transformed is None:
+        transformed = (published_decay_reference(factors, members, settings['decay'])
+                       if settings['decay'] > 1 else factors)
     for index, row in enumerate(transformed):
         eligible = row[members[index] & np.isfinite(row)]
         known_cash = eligible.size and (np.all(eligible == 0) or
@@ -257,9 +262,11 @@ class NativeAlphaTests(unittest.TestCase):
                           'if __name__ == "__main__":\n'
                           '    Factor.run(config)\n')
                 results, values = [], []
-                for function in (zero_exposure_reference, alpha_targets):
+                for function, decay_function in ((zero_exposure_reference, published_decay_reference),
+                                                 (alpha_targets, _decayed)):
                     with tempfile.TemporaryDirectory() as directory, \
-                            patch('factorpool.simulation.alpha_targets', function):
+                            patch('factorpool.simulation.alpha_targets', function), \
+                            patch('factorpool.simulation._decayed', decay_function):
                         path = Path(directory)
                         (path/'request.json').write_text(json.dumps(dict(
                             name='native-alpha-full-report', source_code=source)))

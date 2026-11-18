@@ -67,7 +67,8 @@ ResearchInput::ResearchInput(PyObject *factor, PyObject *daily_returns,
     : factors(matrix(factor)), returns(matrix(daily_returns)),
       members(membership && membership != Py_None ? matrix(membership, true) : Matrix{}),
       alpha_weights(weights && weights != Py_None ? matrix(weights) : Matrix{}),
-      terminal_exit_rows(terminal_rows(exits, factors.columns())) {
+      terminal_exit_rows(terminal_rows(exits, factors.columns())),
+      missing_forward_(returns.columns(), missing) {
   if (factors.size() > returns.size() ||
       factors.columns() != returns.columns() ||
       (membership && membership != Py_None &&
@@ -153,16 +154,7 @@ void ResearchInput::prepare_prefixes() const {
 void ResearchInput::prepare_forward(int h) const {
   if (h < 1 || h > 252)
     throw std::invalid_argument("Horizon must be 1..252");
-  if (forwards_.contains(h)) return;
-  // For h=1, forward_row() can borrow returns[t+1] directly. Retain a map
-  // marker so callers that ask for the same horizon still share the cache
-  // contract without materializing another date x symbol matrix.
-  if (h == 1) {
-    if (missing_forward_.size() != returns.columns())
-      missing_forward_.assign(returns.columns(), missing);
-    forwards_.emplace(h, ForwardRows{});
-    return;
-  }
+  if (h == 1 || forwards_.contains(h)) return;
   ForwardRows cache{Matrix(returns.size(), returns.columns()),
                     std::vector<unsigned char>(returns.size(), 0)};
   if (static_cast<std::size_t>(h) < returns.size()) prepare_prefixes();
@@ -171,8 +163,6 @@ void ResearchInput::prepare_forward(int h) const {
 std::span<const double> ResearchInput::forward_row(int h, std::size_t t) const {
   if (h == 1) {
     if (t + 1 < returns.size()) return returns[t + 1];
-    if (missing_forward_.size() != returns.columns())
-      missing_forward_.assign(returns.columns(), missing);
     return missing_forward_;
   }
   auto &cache = forwards_.at(h);
@@ -180,19 +170,15 @@ std::span<const double> ResearchInput::forward_row(int h, std::size_t t) const {
     auto result = cache.values[t];
     const auto days = static_cast<std::size_t>(h), columns = returns.columns();
     if (days < returns.size() - t) {
-      if (h == 1) {
-        std::copy(returns[t + 1].begin(), returns[t + 1].end(), result.begin());
-      } else {
-        for (std::size_t n = 0; n < columns; ++n) {
-          const auto begin = (t + 1) * columns + n,
-                     end = (t + 1 + days) * columns + n;
-          if (missing_prefix_[end] != missing_prefix_[begin]) continue;
-          if (zero_prefix_[end] != zero_prefix_[begin]) result[n] = -1;
-          else {
-            const auto r = static_cast<double>(
-                std::expm1(log_prefix_[end] - log_prefix_[begin]));
-            if (std::isfinite(r)) result[n] = r;
-          }
+      for (std::size_t n = 0; n < columns; ++n) {
+        const auto begin = (t + 1) * columns + n,
+                   end = (t + 1 + days) * columns + n;
+        if (missing_prefix_[end] != missing_prefix_[begin]) continue;
+        if (zero_prefix_[end] != zero_prefix_[begin]) result[n] = -1;
+        else {
+          const auto r = static_cast<double>(
+              std::expm1(log_prefix_[end] - log_prefix_[begin]));
+          if (std::isfinite(r)) result[n] = r;
         }
       }
     }
@@ -201,28 +187,6 @@ std::span<const double> ResearchInput::forward_row(int h, std::size_t t) const {
     cache.ready[t] = 1;
   }
   return cache.values[t];
-}
-const Matrix &ResearchInput::forward(int h) const {
-  prepare_forward(h);
-  auto &cache = forwards_.at(h);
-  if (cache.complete) return cache.values;
-  if (h == 1) {
-    // This compatibility accessor is rarely needed by the fast research
-    // path, but retains the old full-matrix API for callers that explicitly
-    // request it.
-    cache.values = Matrix(returns.size(), returns.columns());
-    parallel_for(returns.size(), returns.columns(), [&](std::size_t t) {
-      const auto row = forward_row(h, t);
-      std::copy(row.begin(), row.end(), cache.values[t].begin());
-    });
-    cache.complete = true;
-    return cache.values;
-  }
-  parallel_for(returns.size(), returns.columns(), [&](std::size_t t) {
-    forward_row(h, t);
-  });
-  cache.complete = true;
-  return cache.values;
 }
 void ResearchInput::prepare_return_orders(int h) const {
   prepare_forward(h);

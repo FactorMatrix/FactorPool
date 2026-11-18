@@ -19,16 +19,20 @@ PyObject *ic_decay(PyObject *, PyObject *args) {
     input.prepare_correlations(h, minimum);
     const auto rows = f.size() ? 1 + (f.size() - 1) / signal_stride : 0;
     Owned out{PyList_New(0)};
-    // The batched worker pass below reads these caches concurrently. Fill
-    // every unique lagged return order on the caller before dispatch so the
-    // first-writer path remains single-threaded and deterministic.
-    for (std::size_t row = 0; row < rows; ++row) {
-      const auto t = row * signal_stride;
-      for (int k = 1; k < steps; ++k) {
-        const auto signal = t + static_cast<std::size_t>(k) * h;
-        if (signal < input.returns.size())
-          input.prepare_return_order(h, signal);
+    // Several signal/lag pairs can read the same future row. Give each
+    // requested return row one writer before the calculation reads it.
+    if (steps > 1) {
+      std::vector<unsigned char> needed(input.returns.size());
+      for (std::size_t row = 0; row < rows; ++row) {
+        const auto t = row * signal_stride;
+        for (int k = 1; k < steps; ++k) {
+          const auto signal = t + static_cast<std::size_t>(k) * h;
+          if (signal < needed.size()) needed[signal] = 1;
+        }
       }
+      parallel_for(needed.size(), f.columns(), [&](std::size_t row) {
+        if (needed[row]) input.prepare_return_order(h, row);
+      });
     }
     // Each row is evaluated for all requested entry lags in one worker pass.
     // This keeps the per-row scratch buffers alive across lags and avoids
@@ -37,18 +41,16 @@ PyObject *ic_decay(PyObject *, PyObject *args) {
     std::vector<std::vector<double>> rankics(steps, std::vector<double>(rows));
     parallel_for(rows, f.columns(), [&](std::size_t row) {
       const auto t = row * signal_stride;
+      const auto &metrics = input.correlation_row(h, minimum, t);
+      ics[0][row] = metrics.ic;
+      rankics[0][row] = metrics.rank_ic;
+      if (steps == 1) return;
       std::vector<double> a, b;
       std::vector<std::size_t> symbols;
       a.reserve(f.columns());
       b.reserve(f.columns());
       symbols.reserve(f.columns());
-      for (int k = 0; k < steps; ++k) {
-        if (k == 0) {
-          const auto &metrics = input.correlation_row(h, minimum, t);
-          ics[k][row] = metrics.ic;
-          rankics[k][row] = metrics.rank_ic;
-          continue;
-        }
+      for (int k = 1; k < steps; ++k) {
         a.clear();
         b.clear();
         symbols.clear();

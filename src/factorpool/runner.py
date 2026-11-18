@@ -89,6 +89,69 @@ def return_contract(payload):
     return policy, description, price
 
 
+def factor_publications(evaluator, symbols, membership, first_signal, rebalance, use_daily_history):
+    """Evaluate factor values and status on the research axes."""
+    count, width = membership.shape
+    history_start = 0 if use_daily_history else first_signal
+    dense_signals = len(rebalance) == count - first_signal
+    indices = (list(range(history_start, count)) if use_daily_history or dense_signals
+               else [first_signal + index for index in sorted(rebalance)])
+    batch = evaluator.evaluate_many(indices)
+    if (batch is not None and dense_signals and batch['symbols'] == tuple(symbols)
+            and not np.any((batch['reason'] != 6) & ~membership[history_start:])):
+        # Native publications already mark securities outside the calculation
+        # axis as missing with false readiness and reason 6. When the research
+        # axis needs no further masking, borrow those immutable buffers.
+        start = first_signal - history_start
+        log("calculate", progress=1)
+        return (batch['value'], batch['value'][start:], batch['valid'][start:],
+                batch['ready'][start:], batch['reason'][start:])
+
+    all_factors = np.full((count, width), np.nan, dtype=np.float64)
+    valid = np.zeros((count - first_signal, width), dtype=bool)
+    ready = np.zeros_like(valid)
+    reasons = np.full(valid.shape, 6, dtype=np.uint8)  # outside_universe
+    calculation_to_research = np.full(len(evaluator.symbols), -1, dtype=np.intp)
+    for n, symbol in enumerate(symbols):
+        index = evaluator.columns.get(symbol)
+        if index is not None:
+            calculation_to_research[index] = n
+    if batch is not None:
+        indices = batch['indices']
+        columns = np.flatnonzero(calculation_to_research >= 0)
+        targets = calculation_to_research[columns]
+        full_axis = (len(columns) == len(evaluator.symbols)
+                     and np.array_equal(targets, np.arange(width)))
+        member = membership[indices[:, None], targets]
+        values = batch['value'] if full_axis else batch['value'][:, columns]
+        all_factors[indices[:, None], targets] = np.where(member, values, np.nan)
+        published = np.array([index - first_signal in rebalance for index in indices], dtype=bool)
+        output_rows = (indices[published] - first_signal)[:, None]
+        observed = member[published]
+        for name, output in [('valid', valid), ('ready', ready), ('reason', reasons)]:
+            values = batch[name] if full_axis else batch[name][:, columns]
+            values = values[published]
+            output[output_rows, targets] = (np.where(observed, values, 6) if name == 'reason'
+                                            else values & observed)
+        log("calculate", progress=1)
+    else:
+        for index in indices:
+            offset = index - first_signal
+            state = evaluator.evaluate_arrays(index)
+            targets = calculation_to_research[state['columns']]
+            keep = targets >= 0
+            keep[keep] &= membership[index, targets[keep]]
+            selected = targets[keep]
+            all_factors[index, selected] = state['value'][keep]
+            if offset in rebalance:
+                valid[offset, selected] = state['valid'][keep]
+                ready[offset, selected] = state['ready'][keep]
+                reasons[offset, selected] = state['reason'][keep]
+            if index % 100 == 0:
+                log("calculate", progress=round((index + 1) / len(evaluator.frames), 4))
+    return all_factors, all_factors[first_signal:], valid, ready, reasons
+
+
 def run(directory, *, factory=None):
     import _factorpool_native as native
     directory = Path(directory)
@@ -154,10 +217,6 @@ def run(directory, *, factory=None):
     signal_mask = np.zeros(len(dates), dtype=bool)
     signal_mask[list(rebalance)] = True
     count, width = len(historical), len(symbols)
-    all_factors = np.full((count, width), np.nan, dtype=np.float64)
-    valid = np.zeros((len(dates), width), dtype=bool)
-    ready = np.zeros_like(valid)
-    reasons = np.full(valid.shape, 6, dtype=np.uint8)  # outside_universe
     stored_members = payload.get("membership")
     if stored_members is not None:
         stored_members = np.asarray(stored_members, dtype=bool)
@@ -176,58 +235,16 @@ def run(directory, *, factory=None):
                 n = research_lookup.get(symbol)
                 if n is not None:
                     all_members[t, n] = True
-    calculation_to_research = np.full(len(evaluator.symbols), -1, dtype=np.intp)
-    calculation_lookup = evaluator.columns
-    for n, symbol in enumerate(symbols):
-        index = calculation_lookup.get(symbol)
-        if index is not None:
-            calculation_to_research[index] = n
-    evaluation_indices = [index for index in range(count)
-                          if index-first_signal in rebalance or simulation_warmup > 0]
-    batch = evaluator.evaluate_many(evaluation_indices)
-    if batch is not None:
-        indices = np.asarray(batch['indices'], dtype=np.intp)
-        columns = np.flatnonzero(calculation_to_research >= 0)
-        targets = calculation_to_research[columns]
-        full_axis = (len(columns) == len(evaluator.symbols)
-                     and np.array_equal(targets, np.arange(width)))
-        member = all_members[indices[:, None], targets]
-        values = batch['value'] if full_axis else batch['value'][:, columns]
-        all_factors[indices[:, None], targets] = np.where(member, values, np.nan)
-        offsets = indices-first_signal
-        published = (offsets >= 0) & np.isin(offsets, list(rebalance))
-        output_rows = offsets[published, None]
-        observed = member[published]
-        for name, output in [('valid', valid), ('ready', ready), ('reason', reasons)]:
-            values = batch[name] if full_axis else batch[name][:, columns]
-            values = values[published]
-            output[output_rows, targets] = (np.where(observed, values, 6) if name == 'reason'
-                                            else values & observed)
-        del batch, member, values
-        log("calculate", progress=1)
-    else:
-        for index in evaluation_indices:
-            offset = index - first_signal
-            state = evaluator.evaluate_arrays(index)
-            columns = np.asarray(state['columns'], dtype=np.intp)
-            targets = calculation_to_research[columns]
-            keep = targets >= 0
-            keep[keep] &= all_members[index, targets[keep]]
-            selected = targets[keep]
-            all_factors[index, selected] = state['value'][keep]
-            if offset >= 0 and offset in rebalance:
-                valid[offset, selected] = state['valid'][keep]
-                ready[offset, selected] = state['ready'][keep]
-                reasons[offset, selected] = state['reason'][keep]
-            if index % 100 == 0:
-                log("calculate", progress=round((index+1)/len(frames), 4))
-    factors = all_factors[first_signal:]
-    members = np.ascontiguousarray(all_members[first_signal:] & signal_mask[:, None])
+    all_factors, factors, valid, ready, reasons = factor_publications(
+        evaluator, symbols, all_members, first_signal, rebalance, simulation_warmup > 0)
+    members = np.ascontiguousarray(all_members[first_signal:])
     # Daily observations needed only by explicit Alpha decay remain in all_factors;
     # the primary IC/group matrix still contains only the union of rebalance dates.
-    if simulation_warmup > 0 and not np.all(signal_mask):
-        factors = factors.copy()
-        factors[~signal_mask] = np.nan
+    if len(rebalance) < len(dates):
+        members = members & signal_mask[:, None]
+        if simulation_warmup > 0:
+            factors = factors.copy()
+            factors[~signal_mask] = np.nan
     # Include every calendar day from first factor date and its future tail.
     tail = [f for f in frames if f["date"] >= dates[0]]
     if [f["date"] for f in tail[:len(dates)]] != dates:
@@ -267,43 +284,46 @@ def run(directory, *, factory=None):
         raise ValueError("Requested Alpha trace exceeds 50,000 rows; reduce signal dates, horizons or universe")
     transforms = {}
     alpha_weights = None
-    settings_details = {}
+    target_constraints = []
     horizon_targets = None
-    if settings is not None:
+    if settings is not None and (settings["decay"] > 1 or settings["neutralization"] != "MARKET"
+                                 or settings["truncation"] != 0):
         from .simulation import alpha_targets, _decayed
-        offset = first_signal
-        custom_targets = (settings["decay"] > 1 or settings["neutralization"] != "MARKET"
-                          or settings["truncation"] != 0)
         has_terminal_rows = full_terminal_rows is not None and np.any(full_terminal_rows >= 0)
-        # Decay observes the original historical universe once. Only the final
-        # selection/normalization depends on the prospective holding period.
-        transformed = (_decayed(all_factors, all_members, settings["decay"])
-                       if custom_targets and has_terminal_rows and settings["decay"] > 1 else all_factors)
+        # Decay sees daily observations (including warmup) once. Target
+        # normalization only needs the actual rebalance signals.
+        transformed = (_decayed(all_factors, all_members, settings["decay"])[first_signal:]
+                       if simulation_warmup else factors)
+        target_members = all_members[first_signal:]
 
-        def targets_for_horizon(h, details):
+        def targets_for_signals(h, rows):
+            dense = len(rows) == len(dates)
+            observations = transformed if dense else transformed[rows]
+            membership = target_members if dense else target_members[rows]
             selection = None
-            if custom_targets and has_terminal_rows:
+            if has_terminal_rows:
                 selection = ((full_terminal_rows < 0)[None, :]
-                             | (np.arange(count)[:, None]+h < full_terminal_rows[None, :]))
-            requested = [i+offset for i in trace_indices if i+1 < len(tail) and i % h == 0]
-            if not has_terminal_rows:
-                targets = alpha_targets(all_factors, all_members, settings, details=details,
-                                        trace_indices=requested)
-            else:
-                targets = alpha_targets(all_factors, all_members, settings, details=details,
-                                        trace_indices=requested, selection_membership=selection,
-                                        transformed=transformed)
-            return None if targets is None else np.ascontiguousarray(targets[-len(dates):])
+                             | (rows[:, None] + first_signal + h < full_terminal_rows[None, :]))
+            positions = {int(row): pos for pos, row in enumerate(rows)} if trace_indices else {}
+            requested = [positions[i] for i in trace_indices if i in positions and i+1 < len(tail)]
+            details = {} if requested or settings["truncation"] > 0 else None
+            targets = alpha_targets(observations, membership, settings, details=details,
+                                    trace_indices=requested, selection_membership=selection,
+                                    transformed=observations)
+            if not dense:
+                full_targets = np.full(factors.shape, np.nan, dtype=np.float64)
+                full_targets[rows] = targets
+                targets = full_targets
+            details = details or {}
+            trace_transforms = {int(rows[i]): values for i, values in details.get("trace", {}).items()}
+            constraints = [dict(item, index=int(rows[item["index"]]))
+                           for item in details.get("constraints", [])]
+            return targets, trace_transforms, constraints
 
-        alpha_weights = targets_for_horizon(
-            1, settings_details if trace_indices or settings["truncation"] > 0 else None)
-        transforms = {i-offset: values for i, values in settings_details.get("trace", {}).items()}
-        if custom_targets and has_terminal_rows:
+        alpha_weights, transforms, target_constraints = targets_for_signals(1, np.flatnonzero(signal_mask))
+        if has_terminal_rows:
             def horizon_targets(h):
-                details = {} if trace_indices or settings["truncation"] > 0 else None
-                weights = targets_for_horizon(h, details)
-                trace_transforms = {i-offset: values for i, values in (details or {}).get("trace", {}).items()}
-                return weights, trace_transforms, (details or {}).get("constraints", [])
+                return targets_for_signals(h, np.arange(0, len(dates), h))
     prepared = native.prepare_research(factors, returns, members, alpha_weights, terminal_rows)
     result = native.analyze(prepared, options.get("groups", 3), options.get("min_ic_pairs", 3),
                             options.get("icir_ddof", 1), 1, 1)
@@ -327,7 +347,7 @@ def run(directory, *, factory=None):
                       factor_arrays=dict(reason=reasons, valid=valid, ready=ready)) if trace_indices else None
     result["diagnostics"] = build_diagnostics(prepared, dates, [f["date"] for f in tail], options,
                                              primary=result, trace_info=trace_info, rebalance_only=True,
-                                             horizon_targets=horizon_targets, target_offset=first_signal)
+                                             horizon_targets=horizon_targets)
     conventions = result["diagnostics"]["conventions"]
     conventions.update(factor_sampling="per-horizon rebalance dates; primary 1D IC uses their union",
                        price_adjustment="forward only: historical price times Q ratio; volume divided by the same ratio",
@@ -347,12 +367,8 @@ def run(directory, *, factory=None):
                            long_short="Group spread targets use long 0.5/short 0.5; Alpha gross/net depend on effective settings and need not remain 1/0 after truncation")
         from .reporting.partition import add_test_period
         add_test_period(result["diagnostics"], settings["testPeriod"], data["factor_end"], annual_days, data["factor_start"])
-        constraints = []
-        for item in settings_details.get("constraints", []):
-            index = item["index"]-offset
-            if index in rebalance:
-                constraints.append(dict(item, date=dates[index], index=index))
         if settings["truncation"] > 0:
+            constraints = [dict(item, date=dates[item["index"]]) for item in target_constraints]
             result["diagnostics"]["alpha_constraints"] = dict(
                 truncation=settings["truncation"], target_gross_reference=1,
                 policy="rebalance target cap without redistribution; infeasible full gross is reported, residual remains unallocated; no forced full investment",

@@ -55,14 +55,14 @@ PyObject *analyze(PyObject *, PyObject *args) {
         // use the cached compounded matrix. Both paths expose the same
         // missing/total-loss contract without a second Python conversion.
         const auto r = input.forward_row(horizon, t);
-        std::vector<double> labels(f[t].size(), missing);
+        std::vector<double> labels(columns, missing);
         const auto &order = input.order[t];
-        for (std::size_t n = 0; n < f[t].size(); ++n) {
-          if (input.eligible(t, n))
-            ++value.total;
-          if (std::isfinite(f[t][n]) && input.eligible(t, n)) {
-            ++value.covered;
-          }
+        value.covered = order.size();
+        value.total = columns;
+        if (!input.members.empty()) {
+          const auto members = input.members[t];
+          value.total = std::count_if(members.begin(), members.end(),
+                                      [](double member) { return member > 0; });
         }
         const auto &metrics = input.correlation_row(horizon, minimum, t);
         value.ic = metrics.ic;

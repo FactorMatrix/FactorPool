@@ -15,11 +15,8 @@ struct ResearchInput {
   ResearchInput(PyObject *factor, PyObject *daily_returns, PyObject *membership,
                 PyObject *weights = nullptr, PyObject *exits = nullptr);
   void validate_alpha_weights(const Matrix &, int holding_horizon = 0) const;
-  // Row t compounds days t+1..t+h. Cached intervals include every daily
-  // observation; neither a missing day nor a total loss can be skipped.
-  const Matrix &forward(int h) const;
-  // Correlation/decay may visit only a sparse signal calendar. Allocate before
-  // parallel work, then materialize each actually requested return row once.
+  // 1D borrows R[t+1]. Longer windows compound every daily observation and
+  // materialize only the rows visited by the signal calendar.
   void prepare_forward(int h) const;
   std::span<const double> forward_row(int h, std::size_t row) const;
   // Sort a forward-return row once, then rerank only the actual paired sample.
@@ -60,17 +57,13 @@ private:
   struct ForwardRows {
     Matrix values;
     std::vector<unsigned char> ready;
-    bool complete = false;
   };
   mutable std::map<int, ForwardRows> forwards_;
   mutable std::map<int, ReturnOrders> return_orders_;
   mutable std::map<std::pair<int, int>, CorrelationRows> correlations_;
   mutable std::vector<long double> log_prefix_;
   mutable std::vector<std::size_t> missing_prefix_, zero_prefix_;
-  // A one-day forward return is already the stored next-session R row. Keep
-  // the direct view path allocation-free; only the synthetic terminal row
-  // needs a small owned all-missing row.
-  mutable std::vector<double> missing_forward_;
+  const std::vector<double> missing_forward_;
   void prepare_prefixes() const;
 };
 const ResearchInput& research_input(PyObject *prepared);

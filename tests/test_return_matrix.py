@@ -48,6 +48,24 @@ def reference_portfolios(factors, returns, membership, groups, horizon):
 
 
 class ReturnMatrixTests(unittest.TestCase):
+    def test_sorted_group_slices_keep_ties_empty_groups_and_uneven_sizes(self):
+        factor = np.array([2., 1., 2., np.nan, 0., 4., 2., 3.])
+        member = np.array([1., 1., 1., 1., 1., 0., 1., 1.])
+        daily = np.array([.01, .02, .03, .04, .05, .06, .07, .08])
+        prepared = native.prepare_research(factor[None, :],
+                                           np.vstack([np.zeros_like(daily), daily]),
+                                           member[None, :])
+        for groups in (1, 4, 5, 10):
+            report = native.portfolio_report(prepared, groups, 1, 252)['strategies']
+            for name, weights in reference_weights(factor, member, groups).items():
+                with self.subTest(groups=groups, name=name):
+                    if weights is None:
+                        self.assertEqual(report[name]['returns'], [None])
+                        self.assertEqual(report[name]['turnover_series'], [None])
+                    else:
+                        self.assertAlmostEqual(report[name]['returns'][0], daily @ weights)
+                        self.assertAlmostEqual(report[name]['turnover_series'][0], np.abs(weights).sum())
+
     def test_complete_multi_horizon_report_matches_independent_array_portfolios(self):
         rng = np.random.default_rng(20261112)
         factors = np.round(rng.normal(size=(47, 13))*3)/3
