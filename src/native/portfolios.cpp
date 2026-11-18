@@ -218,24 +218,28 @@ PyObject *portfolio_report(PyObject *, PyObject *args) {
           signal.norm += std::abs(static_cast<long double>(f[t][n]) - signal.mean);
     });
     // All books use the same close-return path between two signal dates.
-    // Compound it once per symbol and holding interval, in the original
-    // chronological double-precision multiplication order. This temporary
-    // matrix is shared only by this horizon call; no task/persistent cache.
-    Matrix growth(signals.empty() ? 0 : signals.back().end, count);
-    parallel_for(signal_count, count * static_cast<std::size_t>(h), [&](std::size_t row) {
-      const auto &signal = signals[row];
-      for (auto d = signal.time + 1; d < signal.end; ++d) {
-        const auto daily = r[d];
-        auto current = growth[d];
-        const auto previous = growth[d - 1];
-        for (std::size_t n = 0; n < count; ++n) {
-          const auto value = daily[n];
-          const auto before = d == signal.time + 1 ? 1. : previous[n];
-          current[n] = !std::isfinite(value) || value < -1
-                           ? missing : before * (1 + value);
+    // For h=1 the holding growth is exactly 1+R[t+1], so read that row in the
+    // simulation loop instead of allocating/copying a second date x symbol
+    // matrix. Longer horizons retain the shared compounded growth matrix.
+    const bool direct_daily_growth = h == 1;
+    Matrix growth(direct_daily_growth || signals.empty() ? 0 : signals.back().end,
+                  count);
+    if (!direct_daily_growth) {
+      parallel_for(signal_count, count * static_cast<std::size_t>(h), [&](std::size_t row) {
+        const auto &signal = signals[row];
+        for (auto d = signal.time + 1; d < signal.end; ++d) {
+          const auto daily = r[d];
+          auto current = growth[d];
+          const auto previous = growth[d - 1];
+          for (std::size_t n = 0; n < count; ++n) {
+            const auto value = daily[n];
+            const auto before = d == signal.time + 1 ? 1. : previous[n];
+            current[n] = !std::isfinite(value) || value < -1
+                             ? missing : before * (1 + value);
+          }
         }
-      }
-    });
+      });
+    }
     const auto simulate = [&](std::size_t strategy) {
       auto &s = strategies[strategy];
       s.pnl.reserve(daily_indices.size());
@@ -335,13 +339,17 @@ PyObject *portfolio_report(PyObject *, PyObject *args) {
           long double delta = 0;
           for (auto &position : held) {
             const auto previous_growth = position.growth;
-            position.growth = growth[d][position.symbol];
+            const auto daily_value = r[d][position.symbol];
+            position.growth = direct_daily_growth
+                ? (!std::isfinite(daily_value) || daily_value < -1
+                       ? missing : 1 + daily_value)
+                : growth[d][position.symbol];
             if (!std::isfinite(position.growth))
               valid = false;
             delta += position.weight * (static_cast<long double>(position.growth) - 1);
             if (tracing) {
               const auto n = position.symbol;
-              const auto value = r[d][n];
+              const auto value = daily_value;
               tracing->before[n] = previous_growth;
               const char *error = nullptr;
               double contribution = missing;

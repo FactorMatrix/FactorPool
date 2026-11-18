@@ -25,6 +25,9 @@ struct ResearchInput {
   // Sort a forward-return row once, then rerank only the actual paired sample.
   std::vector<double> paired_return_ranks(
       int h, std::size_t row, const std::vector<std::size_t> &symbols) const;
+  // Materialize a sorted finite-return order before independent paired-rank
+  // reads. Decay batches use this to avoid concurrent first-writer cache work.
+  void prepare_return_order(int h, std::size_t row) const;
   void prepare_return_orders(int h) const;
   struct CorrelationValues {
     double ic = missing, rank_ic = missing;
@@ -64,6 +67,10 @@ private:
   mutable std::map<std::pair<int, int>, CorrelationRows> correlations_;
   mutable std::vector<long double> log_prefix_;
   mutable std::vector<std::size_t> missing_prefix_, zero_prefix_;
+  // A one-day forward return is already the stored next-session R row. Keep
+  // the direct view path allocation-free; only the synthetic terminal row
+  // needs a small owned all-missing row.
+  mutable std::vector<double> missing_forward_;
   void prepare_prefixes() const;
 };
 const ResearchInput& research_input(PyObject *prepared);

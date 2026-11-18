@@ -19,19 +19,40 @@ PyObject *ic_decay(PyObject *, PyObject *args) {
     input.prepare_correlations(h, minimum);
     const auto rows = f.size() ? 1 + (f.size() - 1) / signal_stride : 0;
     Owned out{PyList_New(0)};
-    for (int k = 0; k < steps; ++k) {
-      std::vector<double> ics(rows), rankics(rows);
-      parallel_for(rows, f.columns(), [&](std::size_t row) {
-        const auto t = row * signal_stride;
+    // The batched worker pass below reads these caches concurrently. Fill
+    // every unique lagged return order on the caller before dispatch so the
+    // first-writer path remains single-threaded and deterministic.
+    for (std::size_t row = 0; row < rows; ++row) {
+      const auto t = row * signal_stride;
+      for (int k = 1; k < steps; ++k) {
+        const auto signal = t + static_cast<std::size_t>(k) * h;
+        if (signal < input.returns.size())
+          input.prepare_return_order(h, signal);
+      }
+    }
+    // Each row is evaluated for all requested entry lags in one worker pass.
+    // This keeps the per-row scratch buffers alive across lags and avoids
+    // repeatedly creating and joining the numeric worker set.
+    std::vector<std::vector<double>> ics(steps, std::vector<double>(rows));
+    std::vector<std::vector<double>> rankics(steps, std::vector<double>(rows));
+    parallel_for(rows, f.columns(), [&](std::size_t row) {
+      const auto t = row * signal_stride;
+      std::vector<double> a, b;
+      std::vector<std::size_t> symbols;
+      a.reserve(f.columns());
+      b.reserve(f.columns());
+      symbols.reserve(f.columns());
+      for (int k = 0; k < steps; ++k) {
         if (k == 0) {
           const auto &metrics = input.correlation_row(h, minimum, t);
-          ics[row] = metrics.ic;
-          rankics[row] = metrics.rank_ic;
-          return;
+          ics[k][row] = metrics.ic;
+          rankics[k][row] = metrics.rank_ic;
+          continue;
         }
+        a.clear();
+        b.clear();
+        symbols.clear();
         const auto signal = t + k * h;
-        std::vector<double> a, b;
-        std::vector<std::size_t> symbols;
         if (signal < input.returns.size()) {
           const auto forward = input.forward_row(h, signal);
           for (std::size_t n = 0; n < f[t].size(); ++n) {
@@ -43,18 +64,20 @@ PyObject *ic_decay(PyObject *, PyObject *args) {
             }
           }
         }
-        ics[row] = correlation(a, b, minimum);
-        rankics[row] = a.size() >= static_cast<std::size_t>(minimum)
+        ics[k][row] = correlation(a, b, minimum);
+        rankics[k][row] = a.size() >= static_cast<std::size_t>(minimum)
           ? correlation(paired_factor_ranks(input, t, symbols),
                         input.paired_return_ranks(h, signal, symbols), minimum)
           : missing;
-      });
+      }
+    });
+    for (int k = 0; k < steps; ++k) {
       Owned item{PyDict_New()};
       put(item.p, "step", PyLong_FromLong(k + 1));
       put(item.p, "entry_lag", PyLong_FromLong(k * h));
       const int overlap_lag = (h - 1) / signal_stride;
-      put(item.p, "ic", moments(ics, 1, overlap_lag));
-      put(item.p, "rank_ic", moments(rankics, 1, overlap_lag));
+      put(item.p, "ic", moments(ics[k], 1, overlap_lag));
+      put(item.p, "rank_ic", moments(rankics[k], 1, overlap_lag));
       PyList_Append(out.p, item.p);
     }
     return Py_NewRef(out.p);

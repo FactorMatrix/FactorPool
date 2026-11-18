@@ -23,7 +23,7 @@ PyObject *analyze(PyObject *, PyObject *args) {
         minimum < 2 || ddof < 0 || ddof > 1 || signal_stride < 1)
       throw std::invalid_argument("Invalid analysis options");
     const auto &input = research_input(prepared);
-    const auto &f = input.factors, &forward = input.forward(horizon);
+    const auto &f = input.factors;
     input.prepare_correlations(horizon, minimum);
     const auto output_rows = f.size() ? 1 + (f.size() - 1) / signal_stride : 0;
     const auto columns = f.columns();
@@ -51,7 +51,10 @@ PyObject *analyze(PyObject *, PyObject *args) {
       parallel_for(length, columns, [&](std::size_t row) {
         const auto ordinal = first + row, t = ordinal * signal_stride;
         auto &value = values[row];
-        const auto r = forward[t];
+        // h=1 borrows the stored next-session return row; longer horizons
+        // use the cached compounded matrix. Both paths expose the same
+        // missing/total-loss contract without a second Python conversion.
+        const auto r = input.forward_row(horizon, t);
         std::vector<double> labels(f[t].size(), missing);
         const auto &order = input.order[t];
         for (std::size_t n = 0; n < f[t].size(); ++n) {
