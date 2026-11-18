@@ -1,7 +1,6 @@
 #include "statistics.hpp"
 #include "analysis.hpp"
 #include <algorithm>
-#include <numeric>
 namespace fp {
 std::vector<double> numbers(PyObject *obj) {
   Owned seq{PySequence_Fast(obj, "Expected sequence")};
@@ -15,23 +14,6 @@ std::vector<double> numbers(PyObject *obj) {
       throw std::invalid_argument("Expected number/null");
   }
   return values;
-}
-std::vector<double> rank_values(const std::vector<double> &v) {
-  std::vector<std::size_t> order(v.size());
-  std::iota(order.begin(), order.end(), 0);
-  // Equal values all receive the same average rank; their internal order is unobserved.
-  std::sort(order.begin(), order.end(),
-                   [&](auto a, auto b) { return v[a] < v[b]; });
-  std::vector<double> out(v.size());
-  for (std::size_t i = 0; i < order.size();) {
-    auto j = i + 1;
-    while (j < order.size() && v[order[i]] == v[order[j]])
-      ++j;
-    for (auto k = i; k < j; ++k)
-      out[order[k]] = (i + j - 1) / 2.0 + 1;
-    i = j;
-  }
-  return out;
 }
 double correlation(const std::vector<double> &a, const std::vector<double> &b,
                    int minimum) {

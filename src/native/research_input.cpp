@@ -218,96 +218,78 @@ void ResearchInput::prepare_correlations(int h, int minimum) const {
     entry->second.ready.resize(factors.size(), 0);
   }
 }
+namespace {
+constexpr auto absent = std::numeric_limits<std::size_t>::max();
+
+void assign_paired_ranks(std::span<const double> values,
+                         const std::vector<std::size_t> &order,
+                         const std::vector<std::size_t> &positions,
+                         std::vector<std::size_t> &sorted_pairs,
+                         std::vector<double> &output) {
+  // Filter before ranking: missing observations change the size of ties.
+  sorted_pairs.clear();
+  sorted_pairs.reserve(output.size());
+  for (auto symbol : order)
+    if (positions[symbol] != absent)
+      sorted_pairs.push_back(symbol);
+  for (std::size_t first = 0; first < sorted_pairs.size();) {
+    auto end = first + 1;
+    while (end < sorted_pairs.size() && values[sorted_pairs[first]] == values[sorted_pairs[end]])
+      ++end;
+    const double rank = (first + end - 1) / 2.0 + 1;
+    for (auto k = first; k < end; ++k)
+      output[positions[sorted_pairs[k]]] = rank;
+    first = end;
+  }
+}
+} // namespace
+
+ResearchInput::CorrelationValues ResearchInput::correlate_pair(
+    int h, int minimum, std::size_t signal, std::size_t return_row, PairedSample &sample) const {
+  if (return_row >= returns.size()) return {};
+  const auto factor = factors[signal], forward = forward_row(h, return_row);
+  sample.factor.clear();
+  sample.returns.clear();
+  sample.factor.reserve(order[signal].size());
+  sample.returns.reserve(order[signal].size());
+  sample.positions.assign(factor.size(), absent);
+  for (std::size_t n = 0; n < factor.size(); ++n) {
+    if (std::isfinite(factor[n]) && eligible(signal, n) && std::isfinite(forward[n])) {
+      sample.positions[n] = sample.factor.size();
+      sample.factor.push_back(factor[n]);
+      sample.returns.push_back(forward[n]);
+    }
+  }
+  CorrelationValues result;
+  result.pairs = sample.factor.size();
+  if (result.pairs < static_cast<std::size_t>(minimum)) return result;
+  result.ic = correlation(sample.factor, sample.returns, minimum);
+  // Both sides use the original symbol-order paired sample. Once Pearson is
+  // complete, its buffers can hold the ranks for Spearman.
+  prepare_return_order(h, return_row);
+  assign_paired_ranks(factor, order[signal], sample.positions, sample.sorted_pairs, sample.factor);
+  assign_paired_ranks(forward, return_orders_.at(h).rows[return_row], sample.positions,
+                      sample.sorted_pairs, sample.returns);
+  result.rank_ic = correlation(sample.factor, sample.returns, minimum);
+  return result;
+}
+
 const ResearchInput::CorrelationValues &ResearchInput::correlation_row(
     int h, int minimum, std::size_t row) const {
   auto &cache = correlations_.at(std::pair{h, minimum});
   if (!cache.ready.at(row)) {
-    const auto values = forward_row(h, row);
-    std::vector<double> a, b;
-    std::vector<std::size_t> symbols;
-    a.reserve(factors.columns());
-    b.reserve(factors.columns());
-    symbols.reserve(factors.columns());
-    for (std::size_t n = 0; n < factors.columns(); ++n) {
-      if (std::isfinite(factors[row][n]) && eligible(row, n) &&
-          std::isfinite(values[n])) {
-        a.push_back(factors[row][n]);
-        b.push_back(values[n]);
-        symbols.push_back(n);
-      }
-    }
-    auto &result = cache.rows[row];
-    result.pairs = symbols.size();
-    result.ic = correlation(a, b, minimum);
-    result.rank_ic = a.size() >= static_cast<std::size_t>(minimum)
-        ? correlation(paired_factor_ranks(*this, row, symbols),
-                      paired_return_ranks(h, row, symbols), minimum)
-        : missing;
+    PairedSample sample;
+    cache.rows[row] = correlate_pair(h, minimum, row, row, sample);
     // Each parallel worker owns a different factor row. Publication and cache
     // allocation remain on the Python caller, like the return-order cache.
     cache.ready[row] = 1;
   }
   return cache.rows[row];
 }
-std::vector<double> ResearchInput::paired_return_ranks(
-    int h, std::size_t row, const std::vector<std::size_t> &symbols) const {
-  if (symbols.empty())
-    return {};
-  const auto values = forward_row(h, row);
-  // The parent cache is allocated before any independent row work starts.
-  // Each parallel caller below owns a different return row in this phase.
-  prepare_return_order(h, row);
-  const auto &order = return_orders_.at(h).rows[row];
-  // The membership/factor mask belongs to the original signal, not this
-  // possibly lagged return row. Filtering before assigning ranks preserves
-  // sample-dependent ties and the original paired-symbol order exactly.
-  const auto absent = std::numeric_limits<std::size_t>::max();
-  std::vector<std::size_t> positions(values.size(), absent), filtered;
-  filtered.reserve(symbols.size());
-  for (std::size_t i = 0; i < symbols.size(); ++i)
-    positions[symbols[i]] = i;
-  for (auto n : order)
-    if (positions[n] != absent)
-      filtered.push_back(n);
-  std::vector<double> ranks(symbols.size());
-  for (std::size_t i = 0; i < filtered.size();) {
-    auto j = i + 1;
-    while (j < filtered.size() && values[filtered[i]] == values[filtered[j]])
-      ++j;
-    for (auto k = i; k < j; ++k)
-      ranks[positions[filtered[k]]] = (i + j - 1) / 2.0 + 1;
-    i = j;
-  }
-  return ranks;
-}
 const ResearchInput& research_input(PyObject *prepared) {
   if (!PyCapsule_IsValid(prepared, capsule_name))
     throw std::invalid_argument("Expected prepared research input");
   return *static_cast<ResearchInput *>(PyCapsule_GetPointer(prepared, capsule_name));
-}
-std::vector<double> paired_factor_ranks(const ResearchInput &input, std::size_t t,
-                                      const std::vector<std::size_t> &symbols) {
-  // Filter the cached order, then rerank the actual paired sample. A missing
-  // future return changes tie sizes, so reusing full-universe ranks is incorrect.
-  const auto absent = std::numeric_limits<std::size_t>::max();
-  std::vector<std::size_t> positions(input.factors[t].size(), absent), filtered;
-  filtered.reserve(symbols.size());
-  for (std::size_t i = 0; i < symbols.size(); ++i)
-    positions[symbols[i]] = i;
-  for (auto n : input.order[t])
-    if (positions[n] != absent)
-      filtered.push_back(n);
-  std::vector<double> ranks(symbols.size());
-  for (std::size_t i = 0; i < filtered.size();) {
-    auto j = i + 1;
-    while (j < filtered.size() &&
-           input.factors[t][filtered[i]] == input.factors[t][filtered[j]])
-      ++j;
-    for (auto k = i; k < j; ++k)
-      ranks[positions[filtered[k]]] = (i + j - 1) / 2.0 + 1;
-    i = j;
-  }
-  return ranks;
 }
 } // namespace fp
 PyObject *prepare_research(PyObject *, PyObject *args) {

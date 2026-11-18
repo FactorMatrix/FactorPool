@@ -10,6 +10,7 @@ from unittest.mock import patch
 import numpy as np
 
 from factorpool.data_client.contract import FIELDS, FORMAT, pack_block
+from services.data_service import market_store
 from services.data_service.market_store import (BASE_DTYPES,
     INPUT_TABLE, STORAGE_FORMAT, TABLES, block_digest, checked_block,
     checked_catalog, decode_field, field_catalog, prepare_snapshot)
@@ -230,6 +231,46 @@ class FieldMarketDatabaseTests(unittest.TestCase):
         different[0,0] = 123
         second = self.prepare(factor_inputs={'capitalization':different})
         self.assertNotEqual(first['snapshot_id'],second['snapshot_id'])
+        self.assert_parent_unchanged()
+
+    def test_extending_prepared_snapshot_reuses_published_rq_and_inherited_fields(self):
+        capitalization = np.arange(12, dtype='<f8').reshape(6, 2)
+        capitalization[0] = [np.nan, -0.0]
+        prepared = self.prepare(factor_inputs={'capitalization': capitalization})['snapshot_id']
+        parent = self.source.snapshot(prepared)
+        sector = np.full((6, 2), 4., dtype='<f8')
+        with patch.object(market_store, 'daily_returns', side_effect=AssertionError('R was recalculated')), \
+                patch.object(market_store, 'derive_adjustment', side_effect=AssertionError('Q was recalculated')):
+            arguments = dict(connection=self.writer, source=self.source,
+                             factor_inputs={'sector': sector})
+            created = prepare_snapshot(prepared, **arguments)
+            same = prepare_snapshot(prepared, **arguments)
+        self.assertTrue(created['created'])
+        self.assertFalse(same['created'])
+        self.assertEqual(created['snapshot_id'], same['snapshot_id'])
+        self.assertEqual(created['parent_snapshot_id'], prepared)
+        child = self.source.snapshot(created['snapshot_id'])
+        for before, after in zip(parent['field_blocks'], child['field_blocks'], strict=True):
+            self.assertEqual(before['fields'],
+                             {name: value for name, value in after['fields'].items()
+                              if name != 'sector'})
+        copied = self.all_fields(child, ('capitalization', 'sector'))
+        self.assertEqual(copied['capitalization'].tobytes(), capitalization.tobytes())
+        self.assertEqual(copied['sector'].tobytes(), sector.tobytes())
+        self.assertEqual(self.source.snapshot(prepared)['field_blocks'], parent['field_blocks'])
+        self.assert_parent_unchanged()
+
+    def test_current_derivation_recalculates_when_parent_kernel_identity_differs(self):
+        with patch.object(market_store, 'KERNEL_ABI', 'different-test-kernel'):
+            prepared = self.prepare()['snapshot_id']
+        with patch.object(market_store, 'daily_returns', wraps=market_store.daily_returns) as returns, \
+                patch.object(market_store, 'derive_adjustment', wraps=market_store.derive_adjustment) as adjustment:
+            child = prepare_snapshot(prepared, connection=self.writer, source=self.source,
+                                     factor_inputs={'sector': np.zeros((6, 2))})
+        self.assertEqual(returns.call_count, 3)
+        self.assertEqual(adjustment.call_count, 3)
+        metadata = self.source.snapshot(child['snapshot_id'])['manifest']
+        self.assertEqual(metadata['kernel_abi'], market_store.KERNEL_ABI)
         self.assert_parent_unchanged()
 
     def test_real_postgres_grpc_cache_reads_typed_fields_without_loading_q_for_turnover(self):

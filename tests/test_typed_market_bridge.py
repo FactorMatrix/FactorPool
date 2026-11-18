@@ -1,6 +1,8 @@
 """Typed field blocks cross real RPC/cache without loading unrelated columns."""
+from contextlib import redirect_stderr, redirect_stdout
 from copy import deepcopy
 import hashlib
+import io
 import json
 from pathlib import Path
 import tempfile
@@ -16,6 +18,7 @@ from factorpool.data_client.contract import (ADJUSTMENT_FIELDS, FIELDS, FIELD_BL
 import test_data_service_boundary as grpc_cases
 from test_data_service_boundary import OriginalSource
 from services.data_service.prepared_matrices import PreparedMatrices
+from services.data_service import warm
 
 
 class ColumnSource(OriginalSource):
@@ -128,6 +131,37 @@ class TypedMarketBridgeTests(unittest.TestCase):
             cached = list(client.selected_columns(metadata, 0, 9, columns, fields=fields))[0][2]
         for field in fields:
             np.testing.assert_array_equal(cached[field], actual[field])
+
+    def test_explicit_warm_uses_current_field_catalog_and_typed_tiles(self):
+        source = self._source()
+        fields = ('market_cap', '__q__', '__segment__', PRESENT_FIELD, MEMBERSHIP_FIELD)
+        command = ['--snapshot-id', 'typed', '--start', '2024-01-03', '--end', '2024-01-07',
+                   '--fields', *fields, '--symbols', 'D']
+        stdout = io.StringIO()
+        with patch.object(warm, 'DataClient', return_value=self.client()), redirect_stdout(stdout):
+            warm.main(command)
+        self.assertEqual(json.loads(stdout.getvalue())['tiles'], len(fields))
+        self.assertEqual({field for request in source.requests for field in request}, set(fields))
+        source.requests.clear()
+        with self.client() as client:
+            metadata = client.snapshot('typed')
+            with patch.object(client.stub, 'MarketBlocks', side_effect=AssertionError('Hot read proxied')):
+                cached = list(client.selected_columns(metadata, 2, 7, [3], fields=fields))[0][2]
+        for field in fields:
+            self.assertEqual(cached[field].dtype, source.columns[field].dtype)
+            self.assertEqual(cached[field].tobytes(), source.columns[field][:, [3]].tobytes())
+        self.assertEqual(source.requests, [])
+
+    def test_explicit_warm_rejects_absent_fields_before_fetching_tiles(self):
+        source = self._source()
+        stderr = io.StringIO()
+        with patch.object(warm, 'DataClient', return_value=self.client()), redirect_stderr(stderr):
+            with self.assertRaises(SystemExit) as caught:
+                warm.main(['--snapshot-id', 'typed', '--start', '2024-01-03', '--end', '2024-01-07',
+                           '--fields', '__q__', 'unsupplied_field'])
+        self.assertEqual(caught.exception.code, 2)
+        self.assertIn('fields absent from snapshot: unsupplied_field', stderr.getvalue())
+        self.assertEqual(source.requests, [])
 
     def test_turnover_and_extra_inputs_do_not_fetch_q_and_prices_only_fetch_persisted_q(self):
         source = self._source()

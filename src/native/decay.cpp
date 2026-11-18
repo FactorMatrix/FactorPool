@@ -45,32 +45,11 @@ PyObject *ic_decay(PyObject *, PyObject *args) {
       ics[0][row] = metrics.ic;
       rankics[0][row] = metrics.rank_ic;
       if (steps == 1) return;
-      std::vector<double> a, b;
-      std::vector<std::size_t> symbols;
-      a.reserve(f.columns());
-      b.reserve(f.columns());
-      symbols.reserve(f.columns());
+      ResearchInput::PairedSample sample;
       for (int k = 1; k < steps; ++k) {
-        a.clear();
-        b.clear();
-        symbols.clear();
-        const auto signal = t + k * h;
-        if (signal < input.returns.size()) {
-          const auto forward = input.forward_row(h, signal);
-          for (std::size_t n = 0; n < f[t].size(); ++n) {
-            if (input.eligible(t, n) && std::isfinite(f[t][n]) &&
-                std::isfinite(forward[n])) {
-              symbols.push_back(n);
-              a.push_back(f[t][n]);
-              b.push_back(forward[n]);
-            }
-          }
-        }
-        ics[k][row] = correlation(a, b, minimum);
-        rankics[k][row] = a.size() >= static_cast<std::size_t>(minimum)
-          ? correlation(paired_factor_ranks(input, t, symbols),
-                        input.paired_return_ranks(h, signal, symbols), minimum)
-          : missing;
+        const auto lagged = input.correlate_pair(h, minimum, t, t + k * h, sample);
+        ics[k][row] = lagged.ic;
+        rankics[k][row] = lagged.rank_ic;
       }
     });
     for (int k = 0; k < steps; ++k) {

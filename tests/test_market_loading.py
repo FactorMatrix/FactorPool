@@ -121,6 +121,29 @@ class MatrixLoadingTests(unittest.TestCase):
                                   source.dates, list(FIELDS))
         self.assertNotIn('terminal_exit_rows', store.load(data, 2, 0, source=source))
 
+    def test_lifetime_rows_stay_aligned_when_dynamic_members_are_pruned(self):
+        matrix = np.ones((len(FIELDS), 9, 4))
+        matrix[FIELDS.index('member'), :, 2] = 0
+        matrix[FIELDS.index('member'), 6:, 1] = 0
+        lifetimes = [[20200101, 20240102], [20200101, 20240107],
+                     [20200101, 20240108], [20200101, 20990101]]
+        data = dict(snapshot_id='lifetime-projection', factor_start='2024-01-03',
+                    factor_end='2024-01-07', universe='all_a_dynamic')
+        for pasteurization, calculation, positions in (
+                ('ON', ['B', 'D'], [0, 1]), ('OFF', ['B', 'C', 'D'], [0, 2])):
+            with self.subTest(pasteurization=pasteurization):
+                source = _Connection(matrix)
+                source.fetchone = lambda: (
+                    {'format': FORMAT, 'instrument_lifetimes': lifetimes},
+                    source.symbols, source.dates, list(FIELDS))
+                payload = store.load(data, 2, 0, source=source,
+                                     pasteurization=pasteurization, fields=['total_turnover'])
+                self.assertEqual(payload['symbols'], ['B', 'D'])
+                self.assertEqual(payload['terminal_exit_rows'], [5, -1])
+                self.assertEqual(payload['quotes']['symbols'], calculation)
+                self.assertEqual(payload['quotes']['research_columns'].tolist(), positions)
+                self.assertEqual(payload['frames'][-1]['research_symbols'], ['D'])
+
     def test_complete_payload_matches_scalar_reference_for_both_axes(self):
         rng = np.random.default_rng(924)
         matrix = rng.normal(size=(len(FIELDS), 9, 4))

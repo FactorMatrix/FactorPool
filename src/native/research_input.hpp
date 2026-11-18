@@ -17,19 +17,20 @@ struct ResearchInput {
   void validate_alpha_weights(const Matrix &, int holding_horizon = 0) const;
   // 1D borrows R[t+1]. Longer windows compound every daily observation and
   // materialize only the rows visited by the signal calendar.
-  void prepare_forward(int h) const;
   std::span<const double> forward_row(int h, std::size_t row) const;
-  // Sort a forward-return row once, then rerank only the actual paired sample.
-  std::vector<double> paired_return_ranks(
-      int h, std::size_t row, const std::vector<std::size_t> &symbols) const;
   // Materialize a sorted finite-return order before independent paired-rank
   // reads. Decay batches use this to avoid concurrent first-writer cache work.
   void prepare_return_order(int h, std::size_t row) const;
-  void prepare_return_orders(int h) const;
   struct CorrelationValues {
     double ic = missing, rank_ic = missing;
     std::size_t pairs = 0;
   };
+  struct PairedSample {
+    std::vector<double> factor, returns;
+    std::vector<std::size_t> positions, sorted_pairs;
+  };
+  CorrelationValues correlate_pair(int h, int minimum, std::size_t signal,
+                                   std::size_t return_row, PairedSample &) const;
   // Allocate on the caller before parallel row work. A row depends on the
   // immutable paired sample and minimum, not report stride, ddof or HAC lag.
   void prepare_correlations(int h, int minimum) const;
@@ -65,10 +66,10 @@ private:
   mutable std::vector<std::size_t> missing_prefix_, zero_prefix_;
   const std::vector<double> missing_forward_;
   void prepare_prefixes() const;
+  void prepare_forward(int h) const;
+  void prepare_return_orders(int h) const;
 };
 const ResearchInput& research_input(PyObject *prepared);
-std::vector<double> paired_factor_ranks(const ResearchInput &, std::size_t,
-                                      const std::vector<std::size_t> &);
 } // namespace fp
 PyObject *prepare_research(PyObject *, PyObject *);
 PyObject *ic_series(PyObject *, PyObject *);

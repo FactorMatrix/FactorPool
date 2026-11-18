@@ -154,7 +154,15 @@ def prepare_snapshot(source_snapshot_id, *, connection=None, source=None, factor
         raise ValueError("Market preparation needs separate source/read and publication/write connections")
     started = time.perf_counter()
     parent = source.snapshot(source_snapshot_id)
-    if parent["manifest"].get("storage_format") == STORAGE_FORMAT:
+    parent_manifest = parent["manifest"]
+    derivation = dict(kernel_abi=KERNEL_ABI, return_policy=return_policy(),
+                      adjustment_policy=adjustment_policy())
+    prepared_parent = parent_manifest.get("storage_format") == STORAGE_FORMAT
+    reuse_rq = prepared_parent and all(
+        parent_manifest.get(key) == value
+        and parent_manifest.get("derivation_identity", {}).get(key) == value
+        for key, value in derivation.items())
+    if prepared_parent:
         inherited = [field for field, descriptor in checked_catalog(parent).items()
                      if descriptor["table"] == INPUT_TABLE]
     else:
@@ -165,26 +173,20 @@ def prepare_snapshot(source_snapshot_id, *, connection=None, source=None, factor
         raise ValueError("Supplied factor inputs cannot replace fields in an immutable source")
     extras = sorted(set(inherited) | set(supplied))
     catalog = field_catalog(extras)
-    identity_description = dict(storage_format=STORAGE_FORMAT, kernel_abi=KERNEL_ABI,
+    identity_description = dict(storage_format=STORAGE_FORMAT, **derivation,
         parent_snapshot_id=parent["snapshot_id"], parent_axes=axis_digest(parent),
-        parent_blocks=parent["blocks"], return_policy=return_policy(),
-        adjustment_policy=adjustment_policy(), factor_inputs=input_digests)
+        parent_blocks=parent["blocks"], factor_inputs=input_digests)
     identity = hashlib.sha256(json_bytes(identity_description)).hexdigest()
-    manifest = deepcopy(parent["manifest"])
+    manifest = deepcopy(parent_manifest)
     # A previous derived source's block index belongs to that source, never this publication.
-    manifest.update(format=FORMAT, storage_format=STORAGE_FORMAT,
-        parent_snapshot_id=parent["snapshot_id"], kernel_abi=KERNEL_ABI,
+    manifest.update(format=FORMAT, storage_format=STORAGE_FORMAT, **derivation,
+        parent_snapshot_id=parent["snapshot_id"],
         derivation_identity=identity_description, field_catalog=catalog, field_blocks=[],
-        return_policy=return_policy(), adjustment_policy=adjustment_policy(),
         layout="field,date,symbol", dtype="per-field", fields=list(FIELDS))
-    if not supplied and parent["manifest"].get("storage_format") == STORAGE_FORMAT:
-        previous_identity = parent["manifest"].get("derivation_identity", {})
-        if (previous_identity.get("kernel_abi") == KERNEL_ABI
-                and previous_identity.get("return_policy") == return_policy()
-                and previous_identity.get("adjustment_policy") == adjustment_policy()):
-            # Avoid making endless identical generations when pointed at the prepared dataset.
-            identity = parent["snapshot_id"]
-            manifest = deepcopy(parent["manifest"])
+    if reuse_rq and not supplied:
+        # The same input and derivation already have a published identity.
+        identity = parent["snapshot_id"]
+        manifest = parent_manifest
     written_bytes = 0
     count = 0
     with transaction(connection) as conn:
@@ -212,24 +214,29 @@ def prepare_snapshot(source_snapshot_id, *, connection=None, source=None, factor
             return dict(snapshot_id=identity, parent_snapshot_id=old_manifest["parent_snapshot_id"],
                         dates=len(dates), symbols=len(symbols), blocks=len(records),
                         field_blocks=len(expected), created=False, elapsed=time.perf_counter()-started)
+        if reuse_rq and not supplied:
+            raise ValueError("Prepared source snapshot is missing from the publication database")
         conn.execute("INSERT INTO market_snapshots(id,manifest,symbols,dates,fields) VALUES(%s,%s,%s,%s,%s)",
             (identity, Jsonb(manifest), Jsonb(parent["symbols"]), Jsonb(parent["dates"]), Jsonb(list(FIELDS))))
         state = None
-        raw_fields = tuple(field for field in FIELDS if field != "return")
+        # An input-only extension inherits the immutable market columns.
+        requested = (tuple(BASE_DTYPES) if reuse_rq else
+                     tuple(field for field in FIELDS if field != "return") + BOOLEAN_FIELDS)
+        requested += tuple(inherited)
         for block in parent["blocks"]:
             start, rows = block["start_index"], block["row_count"]
-            requested = raw_fields + tuple(BOOLEAN_FIELDS) + tuple(inherited)
-            values = source.read_fields(parent, block, requested)
-            values = dict(values)
-            values["return"] = daily_returns(*(values[field] for field in
-                ("close", "prev_close", "volume", "total_turnover", "member")))
-            dates = np.array([int(day.replace("-", "")) for day in parent["dates"][start:start+rows]], dtype=np.int64)
-            adjustment = derive_adjustment(*(values[field] for field in
-                ("close", "prev_close", "volume", "total_turnover", "member", "is_suspended")),
-                dates=dates, state=state)
-            state = adjustment.state
-            values.update(__adj_factor__=adjustment.factor, __q__=adjustment.q,
-                          __segment__=adjustment.segment, __adj_known__=adjustment.known)
+            values = dict(source.read_fields(parent, block, requested))
+            if not reuse_rq:
+                values["return"] = daily_returns(*(values[field] for field in
+                    ("close", "prev_close", "volume", "total_turnover", "member")))
+                dates = np.array([int(day.replace("-", "")) for day in
+                                  parent["dates"][start:start+rows]], dtype=np.int64)
+                adjustment = derive_adjustment(*(values[field] for field in
+                    ("close", "prev_close", "volume", "total_turnover", "member", "is_suspended")),
+                    dates=dates, state=state)
+                state = adjustment.state
+                values.update(__adj_factor__=adjustment.factor, __q__=adjustment.q,
+                              __segment__=adjustment.segment, __adj_known__=adjustment.known)
             values.update({field: array[start:start+rows] for field, array in supplied.items()})
             descriptors = {}
             for field, description in catalog.items():

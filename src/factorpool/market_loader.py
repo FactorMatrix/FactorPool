@@ -1,6 +1,6 @@
 """Task-local matrix assembly over the bounded data-service/Redis client."""
 from copy import deepcopy
-from bisect import bisect_left
+from bisect import bisect_left, bisect_right
 from datetime import date
 import os
 from pathlib import Path
@@ -14,19 +14,21 @@ _ROW_FIELDS = tuple(field for field in FIELDS if field not in ("member", "return
 _ADJUSTMENT_INPUTS = (('q', '__q__', '<f8'), ('segment', '__segment__', '<i8'))
 
 
-def _with_terminal_rows(payload, manifest, all_symbols, dates, initial):
-    """Carry the existing exclusive lifetime boundary, without changing R."""
-    lifetimes = manifest.get("instrument_lifetimes")
-    if lifetimes is None:
-        return payload
-    lookup = {symbol: n for n, symbol in enumerate(all_symbols)}
-    calendar = [int(day.replace("-", "")) for day in dates]
-    payload["terminal_exit_rows"] = [
-        max(0, bisect_left(calendar, lifetimes[lookup[symbol]][1]) - initial)
-        if 0 < lifetimes[lookup[symbol]][1] <= calendar[-1] else -1
-        for symbol in payload["symbols"]
-    ]
-    return payload
+def _lifetime_axes(lifetimes, dates, symbol_count, initial, finish):
+    """Map immutable lifetimes to exclusive trading-calendar boundaries once."""
+    if (not isinstance(lifetimes, list) or len(lifetimes) != symbol_count
+            or any(not isinstance(pair, list) or len(pair) != 2
+                   or any(type(day) is not int for day in pair) for pair in lifetimes)):
+        raise ValueError("Snapshot is missing historical instrument lifetimes")
+    calendar = np.fromiter((int(day.replace("-", "")) for day in dates), dtype=np.int64, count=len(dates))
+    lifetimes = np.asarray(lifetimes, dtype=np.int64)
+    listed, delisted = np.searchsorted(calendar, lifetimes).T
+    # The same [listed, delisted) interval as the stored membership. The full
+    # calendar retains known exits even when they lie beyond this task's tail.
+    active = np.flatnonzero(np.maximum(listed, initial) < np.minimum(delisted, finish))
+    terminal_rows = np.where((lifetimes[:, 1] > 0) & (delisted < len(dates)),
+                             np.maximum(0, delisted - initial), -1)
+    return active, terminal_rows
 
 
 def _axis(values, label):
@@ -118,16 +120,24 @@ def load(data, warmup, future, *, source=None, pasteurization="ON", fields=None)
             raise ValueError("Research requires the current volume-zero-v1 return policy")
         all_symbols = _axis(all_symbols, "symbol")
         dates = _axis(dates, "date")
-        date_axis = np.asarray(dates)
-        begin = int(np.searchsorted(date_axis, first, side="left"))
-        finish = int(np.searchsorted(date_axis, last, side="right"))
+        begin = bisect_left(dates, first)
+        finish = bisect_right(dates, last)
         if begin == finish:
             raise ValueError("No market dates in requested range")
         initial = max(0, begin - warmup + 1)
         stop = min(len(dates), finish + future)
         universe = data.get("universe")
         dynamic = universe == "all_a_dynamic"
-        if not dynamic:
+        lifetimes = manifest.get("instrument_lifetimes")
+        active = terminal_rows = None
+        if lifetimes is not None or dynamic or pasteurization == "OFF":
+            active, terminal_rows = _lifetime_axes(lifetimes, dates, len(all_symbols), initial, finish)
+        if dynamic:
+            columns = active
+            if not len(columns):
+                raise ValueError("Universe has no instruments in the requested range")
+            selected = [all_symbols[column] for column in columns]
+        else:
             if (not isinstance(universe, list) or not universe
                     or any(not isinstance(s, str) or not s for s in universe)
                     or len(set(universe)) != len(universe)):
@@ -137,26 +147,15 @@ def load(data, warmup, future, *, source=None, pasteurization="ON", fields=None)
             if any(symbol not in lookup for symbol in selected):
                 raise ValueError("Universe includes a symbol absent from this snapshot")
             columns = np.array([lookup[symbol] for symbol in selected], dtype=np.intp)
-        else:
-            lifetimes = manifest.get("instrument_lifetimes")
-            if (not isinstance(lifetimes, list) or len(lifetimes) != len(all_symbols)
-                    or any(not isinstance(pair, list) or len(pair) != 2
-                           or any(type(day) is not int for day in pair) for pair in lifetimes)):
-                raise ValueError("Snapshot is missing historical instrument lifetimes")
-            lifetimes = np.asarray(lifetimes, dtype=np.int64)
-            day_keys = np.array([int(day.replace("-", "")) for day in dates])
-            listed = np.searchsorted(day_keys, lifetimes[:, 0], side="left")
-            delisted = np.searchsorted(day_keys, lifetimes[:, 1], side="left")
-            # The same [listed, delisted) boundary as stored membership. Only
-            # dates actually sent to the Indicator can add a symbol to its axis.
-            mask = np.maximum(listed, initial) < np.minimum(delisted, finish)
-            columns = np.flatnonzero(mask)
-            selected = [symbol for symbol, keep in zip(all_symbols, mask) if keep]
-            if not selected:
-                raise ValueError("Universe has no instruments in the requested range")
+        calculation_columns = active if pasteurization == "OFF" else columns
+        if not len(calculation_columns):
+            raise ValueError("Pasteurization OFF has no active market instruments")
+        if terminal_rows is not None:
+            terminal_rows = terminal_rows[columns]
         return _load_projected(source, snapshot, snapshot_id, manifest, all_symbols, dates,
-                               selected, columns, dynamic, initial, finish, stop, return_policy,
-                               projected_fields, pasteurization)
+                               selected, columns, calculation_columns, terminal_rows,
+                               dynamic, initial, finish, stop, return_policy, projected_fields,
+                               pasteurization)
     finally:
         if owned:
             source.close()
@@ -170,26 +169,11 @@ def _column_selection(columns):
 
 
 def _load_projected(source, snapshot, snapshot_id, manifest, all_symbols, dates,
-                    selected, columns, dynamic, initial, finish, stop, return_policy,
-                    quote_fields, pasteurization):
+                    selected, columns, calculation_columns, terminal_rows,
+                    dynamic, initial, finish, stop, return_policy, quote_fields,
+                    pasteurization):
     """Read only factor dependencies and status; future input is exclusively R."""
-    if pasteurization == "OFF":
-        lifetimes = manifest.get("instrument_lifetimes")
-        if (not isinstance(lifetimes, list) or len(lifetimes) != len(all_symbols)
-                or any(not isinstance(pair, list) or len(pair) != 2
-                       or any(type(day) is not int for day in pair) for pair in lifetimes)):
-            raise ValueError("Pasteurization OFF needs historical instrument lifetimes")
-        lifetimes = np.asarray(lifetimes, dtype=np.int64)
-        day_keys = np.array([int(day.replace("-", "")) for day in dates])
-        listed = np.searchsorted(day_keys, lifetimes[:, 0], side="left")
-        delisted = np.searchsorted(day_keys, lifetimes[:, 1], side="left")
-        active = np.maximum(listed, initial) < np.minimum(delisted, finish)
-        calculation_columns = np.flatnonzero(active)
-    else:
-        calculation_columns = columns
-    if not len(calculation_columns):
-        raise ValueError("Pasteurization OFF has no active market instruments")
-    calculation_symbols = [all_symbols[int(column)] for column in calculation_columns]
+    calculation_symbols = [all_symbols[column] for column in calculation_columns]
     history, total = finish-initial, stop-initial
     stored_adjustment = bool(set(quote_fields) & {'open', 'high', 'low', 'close', 'prev_close', 'volume'})
     _check_memory(history, total, len(calculation_columns), len(columns), len(quote_fields)+(len(_ADJUSTMENT_INPUTS) if stored_adjustment else 0))
@@ -200,9 +184,17 @@ def _load_projected(source, snapshot, snapshot_id, manifest, all_symbols, dates,
                    for key, _, dtype in _ADJUSTMENT_INPUTS}
                   if stored_adjustment else None)
     returns = np.empty((total, len(columns)), dtype="<f8")
-    read_columns = np.union1d(calculation_columns, columns)
-    input_columns = _column_selection(np.searchsorted(read_columns, calculation_columns))
-    return_columns = _column_selection(np.searchsorted(read_columns, columns))
+    if calculation_columns is columns:
+        read_columns = columns
+        input_columns = return_columns = slice(None)
+        research_columns = np.arange(len(columns), dtype=np.intp)
+    else:
+        read_columns = np.union1d(calculation_columns, columns)
+        input_columns = _column_selection(np.searchsorted(read_columns, calculation_columns))
+        return_columns = _column_selection(np.searchsorted(read_columns, columns))
+        lookup = {column: n for n, column in enumerate(calculation_columns)}
+        research_columns = np.fromiter((lookup.get(column, -1) for column in columns),
+                                       dtype=np.intp, count=len(columns))
     historical_fields = tuple(dict.fromkeys((*quote_fields, MEMBERSHIP_FIELD, PRESENT_FIELD, "return",
                          *(tuple(field for _, field, _ in _ADJUSTMENT_INPUTS) if stored_adjustment else ()))))
     covered, seen = initial, False
@@ -240,8 +232,6 @@ def _load_projected(source, snapshot, snapshot_id, manifest, all_symbols, dates,
             covered, seen = right, True
         if covered != stop:
             raise ValueError("Market matrix snapshot has missing blocks")
-    lookup = {int(column): n for n, column in enumerate(calculation_columns)}
-    research_columns = np.array([lookup.get(int(column), -1) for column in columns], dtype=np.intp)
     if dynamic:
         mask = np.any(calculation_members[:, _column_selection(research_columns)], axis=0)
         if not np.any(mask):
@@ -249,8 +239,10 @@ def _load_projected(source, snapshot, snapshot_id, manifest, all_symbols, dates,
         complete = bool(np.all(mask))
         if not complete:
             returns = np.ascontiguousarray(returns[:, mask])
-        selected = [symbol for symbol, keep in zip(selected, mask) if keep]
-        research_columns = research_columns[mask]
+            selected = [symbol for symbol, keep in zip(selected, mask) if keep]
+            research_columns = research_columns[mask]
+            if terminal_rows is not None:
+                terminal_rows = terminal_rows[mask]
         if pasteurization == "ON" and not complete:
             values = np.ascontiguousarray(values[:, :, mask])
             present = np.ascontiguousarray(present[:, mask])
@@ -293,7 +285,9 @@ def _load_projected(source, snapshot, snapshot_id, manifest, all_symbols, dates,
             array.setflags(write=False)
         adjustment['policy'] = deepcopy(manifest.get('adjustment_policy', {}))
         quotes['adjustment'] = adjustment
-    return _with_terminal_rows(dict(provider="market_matrix", adjustment="raw", symbols=selected, frames=frames,
-                returns=np.ascontiguousarray(returns), snapshot_id=snapshot_id, synthetic=False,
-                return_policy=deepcopy(return_policy), membership=membership,
-                quotes=quotes), manifest, all_symbols, dates, initial)
+    payload = dict(provider="market_matrix", adjustment="raw", symbols=selected, frames=frames,
+                   returns=np.ascontiguousarray(returns), snapshot_id=snapshot_id, synthetic=False,
+                   return_policy=deepcopy(return_policy), membership=membership, quotes=quotes)
+    if terminal_rows is not None:
+        payload["terminal_exit_rows"] = terminal_rows.tolist()
+    return payload
